@@ -398,6 +398,10 @@
           "description": "Action to take when the health check fails: withdraw the route entirely, or lower its BGP priority.",
           "default": "lower_priority"
         },
+        "lower_priority_file": {
+          "type": "string",
+          "description": "Path to a drain lock file. When present and check is healthy, force pessimized announcement instead of full priority. Does not prevent withdrawal on failure. Useful for maintenance drains."
+        },
         "lower_priority": {
           "$ref": "#/$defs/LowerPriorityConfig",
           "description": "Configuration for the lower_priority fail action."

@@ -160,6 +160,8 @@ type PingCheckConfig struct {
 type PolicyConfig struct {
 	// Action to take when the health check fails: withdraw the route entirely, or lower its BGP priority.
 	FailAction string `yaml:"fail_action" json:"fail_action" toml:"fail_action" jsonschema:"enum=withdraw,enum=lower_priority,default=lower_priority"`
+	// Path to a drain lock file. When present and check is healthy, force pessimized announcement instead of full priority. Does not prevent withdrawal on failure. Useful for maintenance drains.
+	LowerPriorityFile string `yaml:"lower_priority_file" json:"lower_priority_file,omitempty" toml:"lower_priority_file,omitempty"`
 	// Configuration for the lower_priority fail action.
 	LowerPriority *LowerPriorityConfig `yaml:"lower_priority" json:"lower_priority,omitempty" toml:"lower_priority,omitempty"`
 }

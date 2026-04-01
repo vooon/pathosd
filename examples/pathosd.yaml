@@ -79,6 +79,7 @@ vips:
         query_type: A
     policy:
       fail_action: lower_priority
+      lower_priority_file: /etc/pathosd/dns-resolver.drain
       lower_priority:
         as_path_prepend: 6
         communities:

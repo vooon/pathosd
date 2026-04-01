@@ -89,6 +89,7 @@ prefix = "10.10.2.1/32"
 
   [vips.policy]
   fail_action = "lower_priority"
+  lower_priority_file = "/etc/pathosd/dns-resolver.drain"
 
     [vips.policy.lower_priority]
     as_path_prepend = 6

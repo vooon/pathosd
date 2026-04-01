@@ -15,6 +15,11 @@ func main() {
 	r := new(jsonschema.Reflector)
 	r.ExpandedStruct = true
 
+	if err := r.AddGoComments("github.com/vooon/pathosd/internal/config", "./"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading Go comments: %v\n", err)
+		os.Exit(1)
+	}
+
 	schema := r.Reflect(&config.Config{})
 	schema.Title = "pathosd configuration"
 	schema.Description = "Configuration schema for pathosd — health-aware BGP VIP announcer"

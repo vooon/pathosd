@@ -41,7 +41,7 @@ pathosd validate --config /etc/pathosd/pathosd.yaml
 
 ### Key Config Rules
 
-- `check_timeout` must be strictly less than `check_interval`
+- `check.timeout` must be strictly less than `check.interval`
 - `rise` and `fall` must be ≥ 1
 - Each VIP name and prefix must be unique
 - At least one neighbor and one VIP are required

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 )
 
@@ -127,24 +128,24 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 	}
 
 	// Check interval / timeout relationship
-	if v.CheckInterval != nil && v.CheckTimeout != nil {
-		if v.CheckTimeout.Duration >= v.CheckInterval.Duration {
-			add(prefix+".check_timeout", fmt.Sprintf(
-				"must be less than check_interval (%s), got %s",
-				v.CheckInterval.Duration, v.CheckTimeout.Duration))
+	if v.Check.Interval != nil && v.Check.Timeout != nil {
+		if v.Check.Timeout.Duration >= v.Check.Interval.Duration {
+			add(prefix+".check.timeout", fmt.Sprintf(
+				"must be less than interval (%s), got %s",
+				v.Check.Interval.Duration, v.Check.Timeout.Duration))
 		}
 	}
 
 	// Rise / fall
-	if v.Rise != nil && *v.Rise < 1 {
-		add(prefix+".rise", "must be >= 1")
+	if v.Check.Rise != nil && *v.Check.Rise < 1 {
+		add(prefix+".check.rise", "must be >= 1")
 	}
-	if v.Fall != nil && *v.Fall < 1 {
-		add(prefix+".fall", "must be >= 1")
+	if v.Check.Fall != nil && *v.Check.Fall < 1 {
+		add(prefix+".check.fall", "must be >= 1")
 	}
 
 	// Check config
-	errs = append(errs, validateCheck(prefix+".check", &v.Check)...)
+	errs = append(errs, validateCheck(prefix+".check", &v.Check, v.Prefix)...)
 
 	// Policy config
 	errs = append(errs, validatePolicy(prefix+".policy", &v.Policy)...)
@@ -152,7 +153,7 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 	return errs
 }
 
-func validateCheck(prefix string, c *CheckConfig) []error {
+func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 	var errs []error
 	add := func(path, msg string) {
 		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
@@ -163,17 +164,7 @@ func validateCheck(prefix string, c *CheckConfig) []error {
 		if c.HTTP == nil {
 			add(prefix+".http", "required when type is \"http\"")
 		} else {
-			h := c.HTTP
-			switch h.Proto {
-			case "http", "https":
-			default:
-				add(prefix+".http.proto", fmt.Sprintf("must be http or https, got %q", h.Proto))
-			}
-			switch h.Method {
-			case "GET", "HEAD":
-			default:
-				add(prefix+".http.method", fmt.Sprintf("must be GET or HEAD, got %q", h.Method))
-			}
+			errs = append(errs, validateHTTPCheck(prefix+".http", c.HTTP, vipPrefix)...)
 		}
 
 	case "dns":
@@ -213,6 +204,54 @@ func validateCheck(prefix string, c *CheckConfig) []error {
 	}
 
 	return errs
+}
+
+func validateHTTPCheck(prefix string, h *HTTPCheckConfig, vipPrefix string) []error {
+	var errs []error
+	add := func(path, msg string) {
+		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+	}
+
+	if h.Proto != "" {
+		switch h.Proto {
+		case "http", "https":
+		default:
+			add(prefix+".proto", fmt.Sprintf("must be http or https, got %q", h.Proto))
+		}
+	}
+
+	switch h.Method {
+	case "GET", "HEAD":
+	default:
+		add(prefix+".method", fmt.Sprintf("must be GET or HEAD, got %q", h.Method))
+	}
+
+	// Host is required when VIP prefix is not a single address.
+	if h.Host == "" && !isSingleHost(vipPrefix) {
+		add(prefix+".host", "required when VIP prefix is not /32 or /128")
+	}
+
+	if h.ResponseRegex != "" {
+		if _, err := regexp.Compile(h.ResponseRegex); err != nil {
+			add(prefix+".response_regex", fmt.Sprintf("invalid regex: %v", err))
+		}
+	}
+
+	if h.TLSCACert != "" && h.TLSInsecure {
+		add(prefix+".tls_ca_cert", "cannot be set together with tls_insecure")
+	}
+
+	return errs
+}
+
+// isSingleHost returns true if the prefix is a /32 (IPv4) or /128 (IPv6).
+func isSingleHost(prefix string) bool {
+	_, ipNet, err := net.ParseCIDR(prefix)
+	if err != nil {
+		return false
+	}
+	ones, bits := ipNet.Mask.Size()
+	return (bits == 32 && ones == 32) || (bits == 128 && ones == 128)
 }
 
 func validatePolicy(prefix string, p *PolicyConfig) []error {

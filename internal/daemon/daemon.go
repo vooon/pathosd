@@ -68,15 +68,15 @@ func provideSchedulers(cfg *config.Config) (SchedulersResult, error) {
 		if err != nil {
 			return SchedulersResult{}, fmt.Errorf("creating checker for VIP %q: %w", v.Name, err)
 		}
-		interval := v.CheckInterval.Duration
-		timeout := v.CheckTimeout.Duration
+		interval := v.Check.Interval.Duration
+		timeout := v.Check.Timeout.Duration
 		rise := 1
-		if v.Rise != nil {
-			rise = *v.Rise
+		if v.Check.Rise != nil {
+			rise = *v.Check.Rise
 		}
 		fall := 3
-		if v.Fall != nil {
-			fall = *v.Fall
+		if v.Check.Fall != nil {
+			fall = *v.Check.Fall
 		}
 		sched := checks.NewScheduler(checks.SchedulerConfig{
 			VIPName:  v.Name,

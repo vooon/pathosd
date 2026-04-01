@@ -1,43 +1,69 @@
 # AGENTS.md
 
 ## Scope
-Instructions for contributors/agents working in this repository (`pathosd`), focused on GoBGP + checker integration.
+Instructions for contributors/agents working in this repository (`pathosd`) — a single-process, pure-Go health-aware BGP VIP announcer with embedded GoBGP v3.
+
+## Architecture Overview
+- Single static binary: health checker + BGP speaker in one process.
+- Fail-closed invariant: process death = BGP sessions drop = all routes withdrawn.
+- VIPs start withdrawn; must prove healthy (pass `rise` consecutive checks) before announcement.
+- DI and lifecycle via `go.uber.org/fx`; context everywhere.
+- Config: YAML (`goccy/go-yaml`) or TOML (`BurntSushi/toml`), validated at load time.
+- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `version`.
+- Logging: `charmbracelet/log` as `slog.Handler`.
+- Metrics: `prometheus/client_golang` (shared registry with GoBGP's built-in collectors).
+- Build/release: GoReleaser, multi-platform (linux amd64/arm64), Docker multi-arch.
+
+## Project Layout
+```
+cmd/pathosd/          CLI entry point (Kong), run/validate/version commands
+internal/
+  config/             Config structs, loading, validation, defaults, JSON Schema gen
+  checks/             Check interface, HTTP/DNS/Ping backends, scheduler (rise/fall FSM)
+  policy/             Evaluate health → VIP state (announce/withdraw/pessimize)
+  bgp/                Embedded GoBGP wrapper, peer management, route origination, watcher
+  metrics/            Prometheus metrics definitions (custom registry)
+  httpapi/            HTTP API (/healthz, /readyz, /status, /metrics, ad-hoc trigger)
+  daemon/             FX wiring, lifecycle hooks
+  logging/            slog setup (charmbracelet/log)
+  model/              Shared types (VIPState, HealthStatus, DaemonStatus)
+schema/               Generated JSON Schema
+examples/             Sample YAML and TOML configs
+```
 
 ## Critical Rules
 - User directives are absolute: if the user says `DO NOT <action>`, do not perform that action without explicit permission.
-- Never edit credential/config files (for example: `clouds.yml`, `.env`) unless the user explicitly asks.
+- Never edit credential/config files (e.g., `clouds.yml`, `.env`, example configs with real IPs) unless the user explicitly asks.
 - Never fabricate or overwrite credentials.
 - If the user says something is already configured, trust that statement unless they ask you to verify.
 - Preserve user data and configuration. If in doubt, ask before changing.
 - Do not undo user choices because you think there is a better approach without discussing first.
 
-## Source Of Truth
-- Checker implementation and checker parameter schema are owned by the image repository.
-- This repository should consume checker behavior, not redefine checker internals.
+## Code Conventions
+- Go module: `github.com/vooon/pathosd`.
+- Accept `context.Context` in all functions that do I/O or may block.
+- Config defaults live in `internal/config/defaults.go` — keep documented defaults and code defaults aligned.
+- `check_timeout` must be strictly less than `check_interval` (enforced at validation time).
+- Rise/fall semantics follow HAProxy: `fall` consecutive failures → unhealthy, `rise` consecutive successes → healthy.
+- Metrics use a custom `prometheus.Registry` — do not use the global default registry.
+- JSON Schema is generated from Go structs (`go generate ./internal/config/...`); do not hand-edit `schema/`.
 
 ## Container Versioning
 - Use approved SemVer image tags for long-lived defaults.
 - Avoid floating tags like `latest` in committed defaults unless explicitly requested.
 
-## Service/Health Behavior
-- `gobgp` is expected to run as a Docker container under systemd control.
-- Primary behavior goal: announce/withdraw VIP routes based on healthcheck status.
-- Prefer bounded startup health probing to avoid endless restart loops when peers are unavailable.
-- Keep reload-path health behavior separate from normal startup behavior.
-
 ## Review Checklist (Before MR)
 - Compare final branch state against `master` (not intermediate commits).
-- Check migration tasks for wildcard/path correctness (prefer explicit `find` + loop cleanup where needed).
-- Verify docs match runtime behavior and containerized execution examples (use container CLI examples, not host-only binaries).
+- `go build ./...` and `go vet ./...` must pass.
+- `go generate ./internal/config/... && git diff --exit-code schema/` — schema not stale.
+- Verify README and example configs match actual runtime behavior.
 - Keep documented defaults and actual defaults aligned.
 - CI pipeline must pass before merge.
-- Local integration runs are optional and depend on user preference/environment.
 
 ## Editing Notes
 - Keep links absolute unless explicitly requested otherwise.
 - Prefer minimal, targeted patches; do not revert unrelated user changes.
-- Do not modify sibling/external image-repo files from this repo unless the user explicitly approves it.
-- Treat this repository and image-repository responsibilities as separate unless asked to bridge both.
+- After creating or editing Go files, verify with `go build ./...` before proceeding.
 
 ## Commit Messages
 - Use Conventional Commits for commit subject lines.

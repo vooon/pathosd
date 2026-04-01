@@ -84,7 +84,7 @@ vips:
         communities:
           - "65001:666"
 
-  # Ping health check with custom histogram buckets
+  # Ping health check
   - name: gateway-check
     prefix: 10.10.3.1/32
     check:
@@ -93,7 +93,6 @@ vips:
       timeout: 800ms
       rise: 1
       fall: 3
-      histogram_buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]
       ping:
         dst_ip: 10.0.0.1
         count: 3

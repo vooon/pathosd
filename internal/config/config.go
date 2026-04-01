@@ -92,8 +92,6 @@ type CheckConfig struct {
 	Rise *int `yaml:"rise" json:"rise" toml:"rise" jsonschema:"minimum=1"`
 	// Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3.
 	Fall *int `yaml:"fall" json:"fall" toml:"fall" jsonschema:"minimum=1"`
-	// Custom Prometheus histogram buckets for check duration metric.
-	HistogramBuckets []float64 `yaml:"histogram_buckets" json:"histogram_buckets,omitempty" toml:"histogram_buckets,omitempty"`
 	// HTTP check configuration (required when type is "http").
 	HTTP *HTTPCheckConfig `yaml:"http,omitempty" json:"http,omitempty" toml:"http,omitempty"`
 	// DNS check configuration (required when type is "dns").

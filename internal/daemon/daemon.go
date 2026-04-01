@@ -45,8 +45,17 @@ func provideLogger(cfg *config.Config) *slog.Logger {
 	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
 }
 
-func provideMetrics(info BuildInfo) *metrics.Metrics {
-	m := metrics.New()
+func provideMetrics(cfg *config.Config, info BuildInfo) *metrics.Metrics {
+	// Compute histogram buckets from the maximum check timeout across all VIPs.
+	var maxTimeout time.Duration
+	for i := range cfg.VIPs {
+		if t := cfg.VIPs[i].Check.Timeout.Duration; t > maxTimeout {
+			maxTimeout = t
+		}
+	}
+	buckets := metrics.GenerateCheckBuckets(maxTimeout)
+
+	m := metrics.New(buckets)
 	m.BuildInfo.WithLabelValues(info.Version, info.Commit, info.Date).Set(1)
 	return m
 }

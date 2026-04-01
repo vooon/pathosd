@@ -23,9 +23,10 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) *HTTPChecker {
 		DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSClientConfig: &tls.Config{},
 	}
-	if cfg.Proto == "https" && cfg.SSLHostname != nil && !*cfg.SSLHostname {
+	if cfg.TLSInsecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
+	// TODO: support cfg.TLSCACert, cfg.ResponseRegex, cfg.ResponseJQ
 	return &HTTPChecker{
 		cfg: *cfg,
 		client: &http.Client{

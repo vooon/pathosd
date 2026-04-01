@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"net"
+	"net/url"
+	"time"
+)
 
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 func ApplyDefaults(cfg *Config) {
@@ -30,68 +34,52 @@ func ApplyDefaults(cfg *Config) {
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
 
-		if v.CheckInterval == nil {
-			v.CheckInterval = &Duration{Duration: 1 * time.Second}
-		}
-		if v.CheckTimeout == nil {
-			v.CheckTimeout = &Duration{Duration: 100 * time.Millisecond}
-		}
-		if v.Rise == nil {
-			r := 1
-			v.Rise = &r
-		}
-		if v.Fall == nil {
-			f := 3
-			v.Fall = &f
-		}
-
-		applyCheckDefaults(&v.Check)
+		applyCheckDefaults(&v.Check, v.Prefix)
 		applyPolicyDefaults(&v.Policy)
 	}
 }
 
-func applyCheckDefaults(c *CheckConfig) {
+// vipHostIP extracts the host IP from a /32 or /128 prefix, or "" otherwise.
+func vipHostIP(prefix string) string {
+	ip, ipNet, err := net.ParseCIDR(prefix)
+	if err != nil {
+		return ""
+	}
+	ones, bits := ipNet.Mask.Size()
+	if (bits == 32 && ones == 32) || (bits == 128 && ones == 128) {
+		return ip.String()
+	}
+	return ""
+}
+
+func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
+	if c.Interval == nil {
+		c.Interval = &Duration{Duration: 1 * time.Second}
+	}
+	if c.Timeout == nil {
+		c.Timeout = &Duration{Duration: 100 * time.Millisecond}
+	}
+	if c.Rise == nil {
+		r := 1
+		c.Rise = &r
+	}
+	if c.Fall == nil {
+		f := 3
+		c.Fall = &f
+	}
+
 	switch c.Type {
 	case "http":
 		if c.HTTP == nil {
 			c.HTTP = &HTTPCheckConfig{}
 		}
-		h := c.HTTP
-		if h.Proto == "" {
-			h.Proto = "http"
-		}
-		if h.URL == "" {
-			h.URL = "/"
-		}
-		if h.Method == "" {
-			h.Method = "GET"
-		}
-		if len(h.ResponseCodes) == 0 {
-			h.ResponseCodes = []int{200, 301}
-		}
-		if h.Port == 0 {
-			if h.Proto == "https" {
-				h.Port = 443
-			} else {
-				h.Port = 80
-			}
-		}
-		if h.SSLHostname == nil {
-			t := true
-			h.SSLHostname = &t
-		}
+		applyHTTPDefaults(c.HTTP, vipPrefix)
 
 	case "dns":
 		if c.DNS == nil {
 			c.DNS = &DNSCheckConfig{}
 		}
-		d := c.DNS
-		if d.Port == 0 {
-			d.Port = 53
-		}
-		if d.QueryType == "" {
-			d.QueryType = "A"
-		}
+		applyDNSDefaults(c.DNS, vipPrefix)
 
 	case "ping":
 		if c.Ping == nil {
@@ -101,6 +89,86 @@ func applyCheckDefaults(c *CheckConfig) {
 		if p.Count == 0 {
 			p.Count = 1
 		}
+	}
+}
+
+func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
+	if h.URL == "" {
+		h.URL = "/"
+	}
+
+	// Parse full URL to derive proto and Host header.
+	if u, err := url.Parse(h.URL); err == nil && u.Scheme != "" {
+		// Full URL like https://example.com/readyz
+		if h.Proto == "" {
+			h.Proto = u.Scheme
+		}
+		// Set Host header from URL hostname if not already set.
+		if h.Headers == nil {
+			h.Headers = make(map[string]string)
+		}
+		if _, ok := h.Headers["Host"]; !ok && u.Hostname() != "" {
+			h.Headers["Host"] = u.Host // includes port if non-default
+		}
+		// Rewrite URL to just the path (+ query).
+		path := u.RequestURI()
+		if path == "" {
+			path = "/"
+		}
+		h.URL = path
+	}
+
+	if h.Proto == "" {
+		h.Proto = "http"
+	}
+
+	// Host defaults to VIP IP for /32 or /128.
+	if h.Host == "" {
+		h.Host = vipHostIP(vipPrefix)
+	}
+
+	// Port defaults from proto.
+	if h.Port == 0 {
+		if h.Proto == "https" {
+			h.Port = 443
+		} else {
+			h.Port = 80
+		}
+	}
+
+	if h.Method == "" {
+		h.Method = "GET"
+	}
+	if len(h.ResponseCodes) == 0 {
+		h.ResponseCodes = []int{200}
+	}
+
+	// Default User-Agent.
+	if h.Headers == nil {
+		h.Headers = make(map[string]string)
+	}
+	if _, ok := h.Headers["User-Agent"]; !ok {
+		h.Headers["User-Agent"] = "pathosd-check/1.0"
+	}
+
+	// When response_jq is set, default Accept to application/json.
+	if h.ResponseJQ != "" {
+		if _, ok := h.Headers["Accept"]; !ok {
+			h.Headers["Accept"] = "application/json"
+		}
+	}
+}
+
+func applyDNSDefaults(d *DNSCheckConfig, vipPrefix string) {
+	if d.Port == 0 {
+		d.Port = 53
+	}
+	if d.QueryType == "" {
+		d.QueryType = "A"
+	}
+	// Resolver defaults to VIP IP (we're checking our own DNS server).
+	if d.Resolver == "" {
+		d.Resolver = vipHostIP(vipPrefix)
 	}
 }
 

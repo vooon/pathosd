@@ -15,6 +15,7 @@ type CLI struct {
 
 	Run      RunCmd      `cmd:"" default:"withargs" help:"Run the pathosd daemon."`
 	Validate ValidateCmd `cmd:"" help:"Validate configuration file."`
+	JQTest   JQTestCmd   `cmd:"" name:"jq-test" help:"Test a JQ expression against JSON input."`
 	Version  VersionCmd  `cmd:"" help:"Print version and exit."`
 }
 

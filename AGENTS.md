@@ -43,7 +43,7 @@ examples/             Sample YAML and TOML configs
 - Go module: `github.com/vooon/pathosd`.
 - Accept `context.Context` in all functions that do I/O or may block.
 - Config defaults live in `internal/config/defaults.go` — keep documented defaults and code defaults aligned.
-- `check_timeout` must be strictly less than `check_interval` (enforced at validation time).
+- `check.timeout` must be strictly less than `check.interval` (enforced at validation time).
 - Rise/fall semantics follow HAProxy: `fall` consecutive failures → unhealthy, `rise` consecutive successes → healthy.
 - Metrics use a custom `prometheus.Registry` — do not use the global default registry.
 - JSON Schema is generated from Go structs (`go generate ./internal/config/...`); do not hand-edit `schema/`.

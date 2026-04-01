@@ -30,43 +30,52 @@ bgp:
       port: 179
 
 vips:
-  # HTTP health check with withdraw policy
+  # HTTP health check — full URL form (proto, Host header, path derived from url)
   - name: web-frontend
     prefix: 10.10.1.1/32
-    check_interval: 2s
-    check_timeout: 500ms
-    rise: 3
-    fall: 3
     check:
       type: http
+      interval: 2s
+      timeout: 500ms
+      rise: 3
+      fall: 3
       http:
-        proto: https
-        host: 127.0.0.1
-        port: 443
-        url: /healthz
-        method: GET
+        url: https://web.example.com/healthz
         response_codes: [200]
-        ssl_hostname: false
-        headers:
-          Host: web.example.com
+    policy:
+      fail_action: withdraw
+
+  # HTTP health check — path-only form with JQ response match
+  - name: api-backend
+    prefix: 10.10.1.2/32
+    check:
+      type: http
+      interval: 3s
+      timeout: 1s
+      rise: 2
+      fall: 3
+      http:
+        url: /readyz
+        response_jq: '.ready == true'
+        tls_insecure: true
+        proto: https
     policy:
       fail_action: withdraw
 
   # DNS health check with lower_priority policy
+  # (resolver defaults to VIP IP since prefix is /32)
   - name: dns-resolver
     prefix: 10.10.2.1/32
-    check_interval: 5s
-    check_timeout: 2s
-    rise: 2
-    fall: 5
     check:
       type: dns
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 5
       dns:
         names:
           - example.com
           - test.example.com
-        resolver: 127.0.0.1
-        port: 53
         query_type: A
     policy:
       fail_action: lower_priority
@@ -78,13 +87,13 @@ vips:
   # Ping health check with custom histogram buckets
   - name: gateway-check
     prefix: 10.10.3.1/32
-    check_interval: 1s
-    check_timeout: 800ms
-    rise: 1
-    fall: 3
-    check_histogram_buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]
     check:
       type: ping
+      interval: 1s
+      timeout: 800ms
+      rise: 1
+      fall: 3
+      histogram_buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]
       ping:
         dst_ip: 10.0.0.1
         count: 3

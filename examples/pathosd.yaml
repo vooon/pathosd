@@ -1,0 +1,95 @@
+---
+schema: v1
+
+router:
+  asn: 65001
+  router_id: 10.0.0.1
+  local_address: 10.0.0.1
+
+api:
+  listen: 127.0.0.1:8080
+
+logging:
+  level: info
+  format: text
+
+bgp:
+  graceful_restart: true
+  hold_time: 90s
+  keepalive_time: 30s
+  neighbors:
+    - name: spine-1
+      address: 10.0.0.254
+      peer_asn: 65000
+      required: true
+      port: 179
+    - name: spine-2
+      address: 10.0.0.253
+      peer_asn: 65000
+      required: true
+      port: 179
+
+vips:
+  # HTTP health check with withdraw policy
+  - name: web-frontend
+    prefix: 10.10.1.1/32
+    check_interval: 2s
+    check_timeout: 500ms
+    rise: 3
+    fall: 3
+    check:
+      type: http
+      http:
+        proto: https
+        host: 127.0.0.1
+        port: 443
+        url: /healthz
+        method: GET
+        response_codes: [200]
+        ssl_hostname: false
+        headers:
+          Host: web.example.com
+    policy:
+      fail_action: withdraw
+
+  # DNS health check with lower_priority policy
+  - name: dns-resolver
+    prefix: 10.10.2.1/32
+    check_interval: 5s
+    check_timeout: 2s
+    rise: 2
+    fall: 5
+    check:
+      type: dns
+      dns:
+        names:
+          - example.com
+          - test.example.com
+        resolver: 127.0.0.1
+        port: 53
+        query_type: A
+    policy:
+      fail_action: lower_priority
+      lower_priority:
+        as_path_prepend: 6
+        communities:
+          - "65001:666"
+
+  # Ping health check with custom histogram buckets
+  - name: gateway-check
+    prefix: 10.10.3.1/32
+    check_interval: 1s
+    check_timeout: 800ms
+    rise: 1
+    fall: 3
+    check_histogram_buckets: [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]
+    check:
+      type: ping
+      ping:
+        dst_ip: 10.0.0.1
+        count: 3
+        timeout: 500ms
+        interval: 100ms
+        max_loss_ratio: 0.5
+    policy:
+      fail_action: withdraw

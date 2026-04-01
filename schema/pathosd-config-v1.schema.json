@@ -78,13 +78,6 @@
           "minimum": 1,
           "description": "Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3."
         },
-        "histogram_buckets": {
-          "items": {
-            "type": "number"
-          },
-          "type": "array",
-          "description": "Custom Prometheus histogram buckets for check duration metric."
-        },
         "http": {
           "$ref": "#/$defs/HTTPCheckConfig",
           "description": "HTTP check configuration (required when type is \"http\")."

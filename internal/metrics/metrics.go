@@ -1,6 +1,10 @@
 package metrics
 
 import (
+	"math"
+	"sort"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -35,11 +39,69 @@ type Metrics struct {
 	BuildInfo *prometheus.GaugeVec
 }
 
-// DefaultCheckBuckets provides sensible histogram buckets for check durations.
-var DefaultCheckBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0}
+const (
+	// maxCheckOverrun accounts for goroutine scheduling jitter beyond the nominal timeout.
+	maxCheckOverrun = 50 * time.Millisecond
+	// defaultBucketCount is the number of linear/exponential subdivisions.
+	defaultBucketCount = 10
+)
+
+// GenerateCheckBuckets computes histogram buckets for check durations based on the
+// check timeout. Buckets cover 0 to timeout with linear spacing, plus exponential
+// subdivisions near zero for fine-grained latency visibility. A small overrun
+// bucket beyond nominal timeout captures scheduling jitter.
+func GenerateCheckBuckets(timeout time.Duration) []float64 {
+	return generateCheckBuckets(timeout.Seconds(), defaultBucketCount)
+}
+
+func generateCheckBuckets(checkTimeout float64, bucketCount int) []float64 {
+	nominal := roundTo(checkTimeout, 6)
+	effective := roundTo(checkTimeout+maxCheckOverrun.Seconds(), 6)
+
+	increment := nominal / float64(bucketCount)
+
+	seen := make(map[float64]struct{})
+	var buckets []float64
+	add := func(v float64) {
+		v = roundTo(v, 6)
+		if _, ok := seen[v]; !ok && v > 0 {
+			seen[v] = struct{}{}
+			buckets = append(buckets, v)
+		}
+	}
+
+	// Linear buckets from increment to timeout.
+	for i := 1; i <= bucketCount; i++ {
+		add(increment * float64(i))
+	}
+
+	// Exponential subdivisions for fine resolution.
+	if increment <= 1 {
+		for i := 1; i <= bucketCount; i++ {
+			add(math.Pow(increment, float64(i)))
+		}
+	} else {
+		fraction := 1.0 / float64(bucketCount)
+		for i := 1; i <= bucketCount; i++ {
+			add(checkTimeout * math.Pow(fraction, float64(i)))
+		}
+	}
+
+	add(nominal)
+	add(effective)
+
+	sort.Float64s(buckets)
+	return buckets
+}
+
+func roundTo(v float64, decimals int) float64 {
+	mul := math.Pow10(decimals)
+	return math.Round(v*mul) / mul
+}
 
 // New creates a new Metrics instance with all collectors registered.
-func New() *Metrics {
+// checkBuckets are the histogram bucket boundaries for check duration; pass nil to skip histogram creation.
+func New(checkBuckets []float64) *Metrics {
 	reg := prometheus.NewRegistry()
 
 	// Include Go runtime and process collectors
@@ -87,7 +149,7 @@ func New() *Metrics {
 		CheckDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "pathosd_check_duration_seconds",
 			Help:    "Histogram of health check durations in seconds.",
-			Buckets: DefaultCheckBuckets,
+			Buckets: checkBuckets,
 		}, []string{"vip", "type"}),
 
 		CheckLastResult: prometheus.NewGaugeVec(prometheus.GaugeOpts{

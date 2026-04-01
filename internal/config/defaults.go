@@ -16,8 +16,7 @@ func ApplyDefaults(cfg *Config) {
 	}
 
 	if cfg.BGP.GracefulRestart == nil {
-		t := true
-		cfg.BGP.GracefulRestart = &t
+		cfg.BGP.GracefulRestart = new(true)
 	}
 
 	for i := range cfg.BGP.Neighbors {
@@ -26,8 +25,7 @@ func ApplyDefaults(cfg *Config) {
 			n.Port = 179
 		}
 		if n.Required == nil {
-			t := true
-			n.Required = &t
+			n.Required = new(true)
 		}
 	}
 
@@ -60,12 +58,10 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 		c.Timeout = &Duration{Duration: 100 * time.Millisecond}
 	}
 	if c.Rise == nil {
-		r := 1
-		c.Rise = &r
+		c.Rise = new(1)
 	}
 	if c.Fall == nil {
-		f := 3
-		c.Fall = &f
+		c.Fall = new(3)
 	}
 
 	switch c.Type {
@@ -182,7 +178,6 @@ func applyPolicyDefaults(p *PolicyConfig) {
 	}
 
 	if p.LowerPriority != nil && p.LowerPriority.ASPathPrepend == nil {
-		v := 6
-		p.LowerPriority.ASPathPrepend = &v
+		p.LowerPriority.ASPathPrepend = new(6)
 	}
 }

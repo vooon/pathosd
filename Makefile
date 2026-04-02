@@ -1,10 +1,15 @@
 .PHONY: build test generate lint validate-schema vet clean
 
-BINARY := pathosd
+BINARY  := pathosd
 VERSION ?= dev
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+VERPKG  := github.com/prometheus/common/version
+LDFLAGS := -s -w \
+	-X $(VERPKG).Version=$(VERSION) \
+	-X $(VERPKG).Revision=$(COMMIT) \
+	-X $(VERPKG).BuildDate=$(DATE) \
+	-X $(VERPKG).Branch=local
 
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/pathosd

@@ -262,25 +262,18 @@ func validatePolicy(prefix string, p *PolicyConfig) []error {
 
 	switch p.FailAction {
 	case "withdraw":
-		if p.LowerPriority != nil {
-			add(prefix+".lower_priority", "must not be set when fail_action is \"withdraw\"")
-		}
-
 	case "lower_priority":
-		if p.LowerPriority != nil {
-			lp := p.LowerPriority
-			if lp.ASPathPrepend != nil {
-				v := *lp.ASPathPrepend
-				if v < 1 || v > 16 {
-					add(prefix+".lower_priority.as_path_prepend", fmt.Sprintf("must be 1..16, got %d", v))
-				}
-			}
-		}
-
 	case "":
 		add(prefix+".fail_action", "required")
 	default:
 		add(prefix+".fail_action", fmt.Sprintf("must be withdraw or lower_priority, got %q", p.FailAction))
+	}
+
+	if p.LowerPriority != nil && p.LowerPriority.ASPathPrepend != nil {
+		v := *p.LowerPriority.ASPathPrepend
+		if v < 1 || v > 16 {
+			add(prefix+".lower_priority.as_path_prepend", fmt.Sprintf("must be 1..16, got %d", v))
+		}
 	}
 
 	return errs

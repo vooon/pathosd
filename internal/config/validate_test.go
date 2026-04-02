@@ -488,12 +488,12 @@ func TestValidate_Policy(t *testing.T) {
 		assertErrorContains(t, Validate(cfg), ".fail_action")
 	})
 
-	t.Run("lower_priority block present with withdraw", func(t *testing.T) {
+	t.Run("lower_priority block present with withdraw is allowed", func(t *testing.T) {
 		prepend := 6
 		cfg := validConfig()
 		cfg.VIPs[0].Policy.FailAction = "withdraw"
 		cfg.VIPs[0].Policy.LowerPriority = &LowerPriorityConfig{ASPathPrepend: &prepend}
-		assertErrorContains(t, Validate(cfg), ".lower_priority")
+		assert.Empty(t, Validate(cfg))
 	})
 
 	t.Run("valid withdraw without lower_priority", func(t *testing.T) {

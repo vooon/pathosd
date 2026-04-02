@@ -76,6 +76,22 @@ spec:
       labels:
         app: pathosd
     spec:
+      initContainers:
+        - name: wait-frr
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              i=0
+              until nc -z -w 1 frr.pathosd-e2e.svc.cluster.local 179; do
+                i=$((i+1))
+                if [ "$i" -ge 120 ]; then
+                  echo "timed out waiting for frr:179" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
       containers:
         - name: pathosd
           image: pathosd:e2e

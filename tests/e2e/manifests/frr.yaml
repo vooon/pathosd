@@ -14,7 +14,7 @@ data:
      bgp router-id 10.200.0.1
      bgp listen range 10.42.0.0/16 peer-group pathosd
      neighbor pathosd peer-group
-     neighbor pathosd remote-as 65100
+     neighbor pathosd remote-as external
      address-family ipv4 unicast
       neighbor pathosd activate
      exit-address-family

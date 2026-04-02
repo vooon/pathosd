@@ -93,6 +93,10 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.URL = "/"
 	}
 
+	if h.Headers == nil {
+		h.Headers = make(map[string]string)
+	}
+
 	// Parse full URL to derive proto and Host header.
 	if u, err := url.Parse(h.URL); err == nil && u.Scheme != "" {
 		// Full URL like https://example.com/readyz
@@ -100,9 +104,6 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 			h.Proto = u.Scheme
 		}
 		// Set Host header from URL hostname if not already set.
-		if h.Headers == nil {
-			h.Headers = make(map[string]string)
-		}
 		if _, ok := h.Headers["Host"]; !ok && u.Hostname() != "" {
 			h.Headers["Host"] = u.Host // includes port if non-default
 		}
@@ -140,9 +141,6 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 	}
 
 	// Default User-Agent.
-	if h.Headers == nil {
-		h.Headers = make(map[string]string)
-	}
 	if _, ok := h.Headers["User-Agent"]; !ok {
 		h.Headers["User-Agent"] = "pathosd-check/1.0"
 	}

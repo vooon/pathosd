@@ -8,13 +8,17 @@ data:
     frr version 10.3
     frr defaults traditional
     hostname frr
-    log stdout informational
+    log stdout debugging
+    debug bgp events
+    debug bgp neighbor-events
+    debug bgp updates
+    debug bgp keepalives
 
     router bgp 65200
      bgp router-id 10.200.0.1
-     bgp listen range 10.42.0.0/16 peer-group pathosd
      neighbor pathosd peer-group
      neighbor pathosd remote-as external
+     bgp listen range 10.42.0.0/16 peer-group pathosd
      address-family ipv4 unicast
       neighbor pathosd activate
      exit-address-family

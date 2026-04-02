@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/vooon/pathosd/internal/config"
 )
@@ -126,28 +125,12 @@ func TestDNSCheckerSuite(t *testing.T) {
 	suite.Run(t, new(DNSCheckerSuite))
 }
 
-// TestParseQueryType is standalone: it tests a package-level function with no
-// server dependency and is clearest as a table-driven test.
-func TestParseQueryType(t *testing.T) {
-	tests := []struct {
-		input string
-		want  uint16
-	}{
-		{"A", dns.TypeA},
-		{"AAAA", dns.TypeAAAA},
-		{"CNAME", dns.TypeCNAME},
-		{"PTR", dns.TypePTR},
-		{"NS", dns.TypeNS},
-		{"MX", dns.TypeMX},
-		{"SOA", dns.TypeSOA},
-		{"TXT", dns.TypeTXT},
-		{"SRV", dns.TypeSRV},
-		{"a", dns.TypeA},       // lowercase treated as default (A)
-		{"unknown", dns.TypeA}, // unknown treated as default (A)
-	}
-	for _, tt := range tests {
-		// t.Run(tt.input, func(t *testing.T) {
-		assert.Equal(t, tt.want, parseQueryType(tt.input), "input: %s", tt.input)
-		// })
+// TestDNSStringToType verifies that all query types allowed by the config schema
+// are present in dns.StringToType so that the direct map lookup in Check is safe.
+func TestDNSStringToType(t *testing.T) {
+	for _, qt := range []string{"A", "AAAA", "CNAME", "PTR", "NS", "MX", "SOA", "TXT", "SRV"} {
+		if _, ok := dns.StringToType[qt]; !ok {
+			t.Errorf("dns.StringToType missing expected query type %q", qt)
+		}
 	}
 }

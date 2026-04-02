@@ -10,6 +10,7 @@ import (
 
 	"github.com/prometheus/common/version"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
 
 	"github.com/vooon/pathosd/internal/bgp"
 	"github.com/vooon/pathosd/internal/checks"
@@ -31,6 +32,9 @@ func Run(cfg *config.Config) error {
 			providePolicyManager,
 			provideHTTPServer,
 		),
+		fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
+			return &fxevent.SlogLogger{Logger: logger.With("component", "fx")}
+		}),
 		fx.Invoke(
 			ensureLoggerInitialized,
 			registerProcessLifecycle,

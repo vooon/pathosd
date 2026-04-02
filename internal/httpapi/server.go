@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/common/version"
 	"github.com/vooon/pathosd/internal/bgp"
 	"github.com/vooon/pathosd/internal/checks"
 	"github.com/vooon/pathosd/internal/config"
@@ -21,8 +22,6 @@ type ServerDeps struct {
 	BGP        *bgp.Manager
 	Policy     *policy.Manager
 	Schedulers map[string]*checks.Scheduler
-	Version    string
-	Commit     string
 }
 
 func NewServer(deps ServerDeps) *http.Server {
@@ -73,8 +72,8 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 		status := model.DaemonStatus{
 			RouterID: deps.Config.Router.RouterID,
 			ASN:      deps.Config.Router.ASN,
-			Version:  deps.Version,
-			Commit:   deps.Commit,
+			Version:  version.Version,
+			Commit:   version.GetRevision(),
 			Peers:    deps.BGP.GetPeerStates(r.Context()),
 			VIPs:     deps.Policy.GetVIPStatuses(),
 		}

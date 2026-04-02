@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/common/version"
 	"go.uber.org/fx"
 
 	"github.com/vooon/pathosd/internal/bgp"
@@ -17,15 +18,9 @@ import (
 	"github.com/vooon/pathosd/internal/policy"
 )
 
-type BuildInfo struct {
-	Version string
-	Commit  string
-	Date    string
-}
-
-func Run(cfg *config.Config, info BuildInfo) {
+func Run(cfg *config.Config) {
 	app := fx.New(
-		fx.Supply(cfg, info),
+		fx.Supply(cfg),
 		fx.Provide(
 			provideLogger,
 			provideMetrics,
@@ -45,7 +40,7 @@ func provideLogger(cfg *config.Config) *slog.Logger {
 	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
 }
 
-func provideMetrics(cfg *config.Config, info BuildInfo) *metrics.Metrics {
+func provideMetrics(cfg *config.Config) *metrics.Metrics {
 	// Compute histogram buckets from the maximum check timeout across all VIPs.
 	var maxTimeout time.Duration
 	for i := range cfg.VIPs {
@@ -54,10 +49,7 @@ func provideMetrics(cfg *config.Config, info BuildInfo) *metrics.Metrics {
 		}
 	}
 	buckets := metrics.GenerateCheckBuckets(maxTimeout)
-
-	m := metrics.New(buckets)
-	m.BuildInfo.WithLabelValues(info.Version, info.Commit, info.Date).Set(1)
-	return m
+	return metrics.New(buckets)
 }
 
 func provideBGPManager(cfg *config.Config) *bgp.Manager {
@@ -104,15 +96,13 @@ func providePolicyManager(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Ma
 	return policy.NewManager(cfg.VIPs, m, bgpMgr)
 }
 
-func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string]*checks.Scheduler, info BuildInfo) *httpapi.ServerDeps {
+func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string]*checks.Scheduler) *httpapi.ServerDeps {
 	return &httpapi.ServerDeps{
 		Config:     cfg,
 		Metrics:    m,
 		BGP:        bgpMgr,
 		Policy:     pol,
 		Schedulers: scheds,
-		Version:    info.Version,
-		Commit:     info.Commit,
 	}
 }
 
@@ -125,7 +115,6 @@ type daemonDeps struct {
 	Policy     *policy.Manager
 	Schedulers map[string]*checks.Scheduler
 	HTTPDeps   *httpapi.ServerDeps
-	Info       BuildInfo
 }
 
 func startDaemon(deps daemonDeps) {
@@ -138,7 +127,7 @@ func startDaemon(deps daemonDeps) {
 
 	deps.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			slog.Info("starting pathosd", "version", deps.Info.Version, "commit", deps.Info.Commit)
+			slog.Info("starting pathosd", "version", version.Version, "revision", version.GetRevision())
 
 			// Start BGP server.
 			if err := deps.BGP.Start(ctx); err != nil {

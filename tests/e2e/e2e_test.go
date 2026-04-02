@@ -154,9 +154,16 @@ func TestE2E(t *testing.T) {
 
 		routes := frrRoutes(t)
 		webPath := firstRoutePath(t, routes, webVIPPrefix)
+		extractedASPath := extractASPath(webPath)
+		extractedCommunity := extractCommunity(webPath)
 
-		assert.GreaterOrEqual(t, countASN(extractASPath(webPath), "65100"), 6)
-		assert.Contains(t, extractCommunity(webPath), "65100:666")
+		assert.GreaterOrEqual(t, countASN(extractedASPath, "65100"), 6)
+		if !assert.Contains(t, extractedCommunity, "65100:666", "extracted community=%q", extractedCommunity) {
+			t.Logf("selected web-vip path JSON:\n%s", prettyJSON(webPath))
+			t.Logf("all web-vip paths JSON:\n%s", prettyJSON(routes[webVIPPrefix]))
+			t.Logf("raw FRR web-vip JSON:\n%s", frrShowBGPPrefix(t, webVIPPrefix))
+			t.Logf("raw FRR full BGP JSON:\n%s", frrShowBGP(t))
+		}
 	})
 
 	t.Run("nginx_up_web_vip_recovers", func(t *testing.T) {
@@ -422,6 +429,15 @@ func frrShowBGP(t *testing.T) string {
 	)
 }
 
+func frrShowBGPPrefix(t *testing.T, prefix string) string {
+	t.Helper()
+	return kubectl(
+		t,
+		"exec", "-n", e2eNamespace, "frr", "--",
+		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
+	)
+}
+
 func frrRoutes(t *testing.T) map[string][]map[string]interface{} {
 	t.Helper()
 	routes, err := frrRoutesNoFail()
@@ -569,4 +585,12 @@ func countASN(asPath, asn string) int {
 		}
 	}
 	return count
+}
+
+func prettyJSON(v interface{}) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("JSON marshal error: %v", err)
+	}
+	return string(b)
 }

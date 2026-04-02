@@ -1,5 +1,12 @@
 package config
 
+// Check type constants.
+const (
+	CheckTypeHTTP = "http"
+	CheckTypeDNS  = "dns"
+	CheckTypePing = "ping"
+)
+
 // Config is the top-level configuration for pathosd.
 type Config struct {
 	// Configuration schema version identifier.

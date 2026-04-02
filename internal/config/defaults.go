@@ -65,19 +65,19 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 	}
 
 	switch c.Type {
-	case "http":
+	case CheckTypeHTTP:
 		if c.HTTP == nil {
 			c.HTTP = &HTTPCheckConfig{}
 		}
 		applyHTTPDefaults(c.HTTP, vipPrefix)
 
-	case "dns":
+	case CheckTypeDNS:
 		if c.DNS == nil {
 			c.DNS = &DNSCheckConfig{}
 		}
 		applyDNSDefaults(c.DNS, vipPrefix)
 
-	case "ping":
+	case CheckTypePing:
 		if c.Ping == nil {
 			c.Ping = &PingCheckConfig{}
 		}

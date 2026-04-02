@@ -8,17 +8,17 @@ import (
 
 func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 	switch cfg.Type {
-	case "http":
+	case config.CheckTypeHTTP:
 		if cfg.HTTP == nil {
 			return nil, fmt.Errorf("http check config is nil")
 		}
 		return NewHTTPChecker(cfg.HTTP)
-	case "dns":
+	case config.CheckTypeDNS:
 		if cfg.DNS == nil {
 			return nil, fmt.Errorf("dns check config is nil")
 		}
 		return NewDNSChecker(cfg.DNS), nil
-	case "ping":
+	case config.CheckTypePing:
 		if cfg.Ping == nil {
 			return nil, fmt.Errorf("ping check config is nil")
 		}

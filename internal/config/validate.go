@@ -160,14 +160,14 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 	}
 
 	switch c.Type {
-	case "http":
+	case CheckTypeHTTP:
 		if c.HTTP == nil {
 			add(prefix+".http", "required when type is \"http\"")
 		} else {
 			errs = append(errs, validateHTTPCheck(prefix+".http", c.HTTP, vipPrefix)...)
 		}
 
-	case "dns":
+	case CheckTypeDNS:
 		if c.DNS == nil {
 			add(prefix+".dns", "required when type is \"dns\"")
 		} else {
@@ -184,7 +184,7 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 		}
 
-	case "ping":
+	case CheckTypePing:
 		if c.Ping == nil {
 			add(prefix+".ping", "required when type is \"ping\"")
 		} else {

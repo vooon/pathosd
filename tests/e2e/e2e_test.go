@@ -28,8 +28,9 @@ const (
 	pathosdService    = "pathosd"
 	pathosdRemotePort = 59179
 
-	webVIPPrefix = "10.100.1.1/32"
-	dnsVIPPrefix = "10.100.2.1/32"
+	webVIPPrefix   = "10.100.1.1/32"
+	dnsVIPPrefix   = "10.100.2.1/32"
+	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
 var pathosdAPIBaseURL string
@@ -124,6 +125,40 @@ func TestE2E(t *testing.T) {
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
+	})
+
+	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
+		t.Cleanup(func() {
+			_, _ = pathosdExecNoFail("rm -f " + webVIPLockFile)
+		})
+
+		pathosdExec(t, "rm -f "+webVIPLockFile)
+		pathosdExec(t, "touch "+webVIPLockFile)
+
+		waitForCondition(t, "web-vip pessimized by lower_priority_file while healthy", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "web-vip") == "pessimized" &&
+				vipHealthFromStatus(status, "web-vip") == "healthy" &&
+				vipStateFromStatus(status, "dns-vip") == "announced"
+		})
+
+		webPrefixPath := frrPrefixPath(t, webVIPPrefix)
+		assert.GreaterOrEqual(t, countASN(extractASPath(webPrefixPath), "65100"), 6)
+		assert.Contains(t, extractCommunity(webPrefixPath), "65100:666")
+
+		pathosdExec(t, "rm -f "+webVIPLockFile)
+
+		waitForCondition(t, "web-vip recovers to announced after lower_priority_file removal", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "dns-vip") == "announced"
+		})
 	})
 
 	t.Run("nginx_down_web_vip_pessimized", func(t *testing.T) {
@@ -420,6 +455,15 @@ func vipStateFromStatus(status DaemonStatus, vipName string) string {
 	return ""
 }
 
+func vipHealthFromStatus(status DaemonStatus, vipName string) string {
+	for _, vip := range status.VIPs {
+		if vip.Name == vipName {
+			return vip.HealthName
+		}
+	}
+	return ""
+}
+
 // frrShowBGP runs "vtysh -c 'show bgp ipv4 unicast json'" on the FRR pod
 // and returns the raw JSON output.
 func frrShowBGP(t *testing.T) string {
@@ -437,6 +481,24 @@ func frrShowBGPPrefix(t *testing.T, prefix string) string {
 		t,
 		"exec", "-n", e2eNamespace, "frr", "--",
 		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
+	)
+}
+
+func pathosdExec(t *testing.T, script string) string {
+	t.Helper()
+	return kubectl(
+		t,
+		"-n", e2eNamespace,
+		"exec", "deploy/pathosd", "--",
+		"/bin/sh", "-ec", script,
+	)
+}
+
+func pathosdExecNoFail(script string) (string, error) {
+	return kubectlNoFail(
+		"-n", e2eNamespace,
+		"exec", "deploy/pathosd", "--",
+		"/bin/sh", "-ec", script,
 	)
 }
 

@@ -40,6 +40,7 @@ data:
             response_codes: [200]
         policy:
           fail_action: lower_priority
+          lower_priority_file: /tmp/pathosd-web-vip-drain.lock
           lower_priority:
             as_path_prepend: 6
             communities: ["65100:666"]

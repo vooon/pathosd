@@ -16,6 +16,7 @@ data:
 
     router bgp 65200
      bgp router-id 10.200.0.1
+     no bgp ebgp-requires-policy
      neighbor pathosd peer-group
      neighbor pathosd remote-as external
      bgp listen range 10.42.0.0/16 peer-group pathosd

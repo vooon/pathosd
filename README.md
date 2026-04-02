@@ -131,6 +131,12 @@ git diff --exit-code schema/
 pathosd run --config /etc/pathosd/pathosd.yaml
 ```
 
+Force debug logging regardless of config:
+
+```bash
+pathosd run --debug --config /etc/pathosd/pathosd.yaml
+```
+
 ### Container
 
 ```bash

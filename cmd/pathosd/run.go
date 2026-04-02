@@ -17,10 +17,6 @@ func (r *RunCmd) Run(cli *CLI) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	daemon.Run(cfg, daemon.BuildInfo{
-		Version: version,
-		Commit:  commit,
-		Date:    date,
-	})
+	daemon.Run(cfg)
 	return nil
 }

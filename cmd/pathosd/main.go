@@ -1,29 +1,19 @@
 package main
 
 import (
-	"github.com/alecthomas/kong"
-)
+	"fmt"
 
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
+	"github.com/alecthomas/kong"
+	"github.com/prometheus/common/version"
 )
 
 type CLI struct {
 	Config string `help:"Path to configuration file." short:"c" type:"existingfile"`
 
-	Run      RunCmd      `cmd:"" default:"withargs" help:"Run the pathosd daemon."`
-	Validate ValidateCmd `cmd:"" help:"Validate configuration file."`
-	JQTest   JQTestCmd   `cmd:"" name:"jq-test" help:"Test a JQ expression against JSON input."`
-	Version  VersionCmd  `cmd:"" help:"Print version and exit."`
-}
-
-type VersionCmd struct{}
-
-func (v *VersionCmd) Run() error {
-	println("pathosd " + version + " (" + commit + ") built " + date)
-	return nil
+	Run      RunCmd           `cmd:"" default:"withargs" help:"Run the pathosd daemon."`
+	Validate ValidateCmd      `cmd:"" help:"Validate configuration file."`
+	JQTest   JQTestCmd        `cmd:"" name:"jq-test" help:"Test a JQ expression against JSON input."`
+	Version  kong.VersionFlag `help:"Print version and exit."`
 }
 
 func main() {
@@ -33,7 +23,7 @@ func main() {
 		kong.Description("Health-aware BGP VIP announcer."),
 		kong.UsageOnError(),
 		kong.Vars{
-			"version": version,
+			"version": fmt.Sprintf("pathosd %s", version.Info()),
 		},
 	)
 	err := ctx.Run(&cli)

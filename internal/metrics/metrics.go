@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	pver "github.com/prometheus/client_golang/prometheus/collectors/version"
 )
 
 // Metrics holds all pathosd-specific Prometheus metrics.
@@ -34,9 +35,6 @@ type Metrics struct {
 	CheckLastResult *prometheus.GaugeVec
 	// Check timeout exceeded
 	CheckTimeoutExceeded *prometheus.CounterVec
-
-	// Build info
-	BuildInfo *prometheus.GaugeVec
 }
 
 const (
@@ -161,11 +159,6 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_check_timeout_exceeded_total",
 			Help: "Total checks that exceeded their timeout.",
 		}, []string{"vip"}),
-
-		BuildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "pathosd_build_info",
-			Help: "Build information.",
-		}, []string{"version", "commit", "go_version"}),
 	}
 
 	reg.MustRegister(
@@ -179,13 +172,8 @@ func New(checkBuckets []float64) *Metrics {
 		m.CheckDuration,
 		m.CheckLastResult,
 		m.CheckTimeoutExceeded,
-		m.BuildInfo,
+		pver.NewCollector("pathosd"),
 	)
 
 	return m
-}
-
-// SetBuildInfo records version metadata.
-func (m *Metrics) SetBuildInfo(version, commit, goVersion string) {
-	m.BuildInfo.WithLabelValues(version, commit, goVersion).Set(1)
 }

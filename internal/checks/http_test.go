@@ -2,10 +2,12 @@ package checks
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -146,6 +148,62 @@ func (s *HTTPCheckerSuite) TestTLSInsecure() {
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200}, TLSInsecure: true})
 	result := c.Check(context.TODO())
 	s.True(result.Success)
+}
+
+func (s *HTTPCheckerSuite) TestTLSCACert() {
+	ts := s.tlsServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "tls ca ok")
+	})
+
+	cert := ts.Certificate()
+	s.Require().NotNil(cert)
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	s.Require().NotEmpty(pemData)
+
+	caPath := s.T().TempDir() + "/ca.pem"
+	err := os.WriteFile(caPath, pemData, 0o600)
+	s.Require().NoError(err)
+
+	c := s.checker(ts, &config.HTTPCheckConfig{
+		Proto:         "https",
+		URL:           "/",
+		Method:        "GET",
+		ResponseCodes: []int{200},
+		TLSCACert:     caPath,
+	})
+
+	result := c.Check(context.TODO())
+	s.True(result.Success)
+}
+
+func (s *HTTPCheckerSuite) TestNewHTTPChecker_InvalidTLSCACertPath() {
+	_, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proto:     "https",
+		Host:      "127.0.0.1",
+		Port:      443,
+		URL:       "/",
+		Method:    "GET",
+		TLSCACert: "/does/not/exist-ca.pem",
+	})
+	s.Error(err)
+	s.Contains(err.Error(), "reading tls_ca_cert")
+}
+
+func (s *HTTPCheckerSuite) TestNewHTTPChecker_InvalidTLSCACertPEM() {
+	caPath := s.T().TempDir() + "/bad-ca.pem"
+	err := os.WriteFile(caPath, []byte("not a pem cert"), 0o600)
+	s.Require().NoError(err)
+
+	_, err = NewHTTPChecker(&config.HTTPCheckConfig{
+		Proto:     "https",
+		Host:      "127.0.0.1",
+		Port:      443,
+		URL:       "/",
+		Method:    "GET",
+		TLSCACert: caPath,
+	})
+	s.Error(err)
+	s.Contains(err.Error(), "parsing tls_ca_cert")
 }
 
 func (s *HTTPCheckerSuite) TestResponseJQ_True() {

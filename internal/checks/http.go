@@ -3,11 +3,13 @@ package checks
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +27,10 @@ type HTTPChecker struct {
 }
 
 func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
+	if cfg.TLSInsecure && cfg.TLSCACert != "" {
+		return nil, fmt.Errorf("tls_ca_cert cannot be set together with tls_insecure")
+	}
+
 	transport := &http.Transport{
 		DialContext:     (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSClientConfig: &tls.Config{},
@@ -32,7 +38,25 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 	if cfg.TLSInsecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
-	// TODO: support cfg.TLSCACert
+	if cfg.TLSCACert != "" {
+		pemData, err := os.ReadFile(cfg.TLSCACert)
+		if err != nil {
+			return nil, fmt.Errorf("reading tls_ca_cert: %w", err)
+		}
+
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("loading system cert pool: %w", err)
+		}
+		if pool == nil {
+			pool = x509.NewCertPool()
+		}
+
+		if ok := pool.AppendCertsFromPEM(pemData); !ok {
+			return nil, fmt.Errorf("parsing tls_ca_cert %q: no certificates found", cfg.TLSCACert)
+		}
+		transport.TLSClientConfig.RootCAs = pool
+	}
 
 	c := &HTTPChecker{
 		cfg: *cfg,

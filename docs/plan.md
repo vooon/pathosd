@@ -107,7 +107,7 @@ Module: `github.com/vooon/pathosd`, Go 1.26, branch `first-steps`.
 
 10. **HTTP check** in `internal/checks/http.go`:
     - URL parsing (full URL vs path), TLS (insecure + CA cert), response codes, body text match
-    - ResponseRegex, ResponseJQ (gojq) — TODO
+    - ResponseRegex, ResponseJQ (gojq)
     - Default User-Agent, Accept for JQ
 
 11. **DNS check** in `internal/checks/dns.go`:

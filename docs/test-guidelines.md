@@ -40,7 +40,7 @@ type Checker interface {
   - Host header is set correctly
   - Method (GET vs HEAD)
   - HTTPS with TLSInsecure=true (use httptest.NewTLSServer)
-- Not yet implemented: TLSCACert (has TODO)
+- TLS with `TLSCACert` is supported; test with a local TLS server certificate written to a temp CA file
 - The checker builds URL as: `{proto}://{host}:{port}{url_path}`
 
 #### 2. DNS Checker (`internal/checks/dns.go`)

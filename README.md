@@ -21,7 +21,7 @@ The health checker and BGP speaker live in the same process. There is no separat
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities)
 - **VIPs start withdrawn**: No route is announced until the service proves healthy
 - **Prometheus metrics**: VIP state, check results, durations, peer status — plus GoBGP's built-in peer/route metrics
-- **HTTP API**: `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
+- **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
 - **YAML and TOML config** with JSON Schema validation
 - **Graceful restart** support for BGP sessions
 
@@ -96,6 +96,7 @@ The result feeds into the normal rise/fall state machine — it does not bypass 
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/` | GET | HTML landing page with quick links and current daemon summary |
 | `/healthz` | GET | Liveness — 200 if process is running |
 | `/readyz` | GET | Readiness — 200 if all required BGP peers are established |
 | `/status` | GET | Full daemon state: peers, VIPs, last check results |
@@ -193,7 +194,7 @@ docker run -d \
 ## Version
 
 ```bash
-pathosd version
+pathosd --version
 ```
 
 Build version, commit, and date are injected via ldflags at build time.

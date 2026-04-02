@@ -188,13 +188,13 @@ func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metric
 
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			var neighborAddrs []string
+			neighborNames := make(map[string]string, len(cfg.BGP.Neighbors))
 			for _, n := range cfg.BGP.Neighbors {
-				neighborAddrs = append(neighborAddrs, n.Address)
+				neighborNames[n.Address] = n.Name
 			}
 			watchCtx, cancel := context.WithCancel(context.Background())
 			bgpCancel = cancel
-			go bgp.WatchPeerState(watchCtx, bgpMgr.Server(), m, neighborAddrs)
+			go bgp.WatchPeerState(watchCtx, bgpMgr.Server(), m, neighborNames)
 
 			return nil
 		},

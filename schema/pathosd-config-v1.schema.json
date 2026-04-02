@@ -6,7 +6,7 @@
       "properties": {
         "listen": {
           "type": "string",
-          "description": "Listen address for the HTTP API (e.g. \":8080\" or \"127.0.0.1:8080\")."
+          "description": "Listen address for the HTTP API (e.g. \":59179\" or \"127.0.0.1:59179\"). Default: :59179."
         }
       },
       "additionalProperties": false,

@@ -52,7 +52,7 @@ func Parse(data []byte, format string) (*Config, error) {
 			return nil, fmt.Errorf("TOML parse error: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("unsupported config format %q (use .yaml, .yml, or .toml)", format)
+		return nil, fmt.Errorf("unsupported config format %q (use .yaml, .yml, .json, or .toml)", format)
 	}
 
 	return &cfg, nil
@@ -61,7 +61,7 @@ func Parse(data []byte, format string) (*Config, error) {
 func detectFormat(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".yaml", ".yml":
+	case ".yaml", ".yml", ".json":
 		return "yaml"
 	case ".toml":
 		return "toml"

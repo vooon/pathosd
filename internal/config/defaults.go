@@ -8,6 +8,10 @@ import (
 
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 func ApplyDefaults(cfg *Config) {
+	if cfg.API.Listen == "" {
+		cfg.API.Listen = ":59179"
+	}
+
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
 	}

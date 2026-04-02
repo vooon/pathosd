@@ -28,6 +28,20 @@ func TestVipHostIP(t *testing.T) {
 	}
 }
 
+func TestApplyDefaults_API(t *testing.T) {
+	t.Run("empty Listen defaults to :59179", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyDefaults(cfg)
+		assert.Equal(t, ":59179", cfg.API.Listen)
+	})
+
+	t.Run("explicit Listen preserved", func(t *testing.T) {
+		cfg := &Config{API: APIConfig{Listen: "127.0.0.1:59179"}}
+		ApplyDefaults(cfg)
+		assert.Equal(t, "127.0.0.1:59179", cfg.API.Listen)
+	})
+}
+
 func TestApplyDefaults_Logging(t *testing.T) {
 	t.Run("empty values get defaults", func(t *testing.T) {
 		cfg := &Config{}

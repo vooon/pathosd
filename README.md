@@ -70,7 +70,7 @@ go generate ./internal/config/...
 For VIPs with long check intervals, you can trigger an immediate check:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/vips/web-frontend/check
+curl -X POST http://127.0.0.1:59179/api/v1/vips/web-frontend/check
 ```
 
 The result feeds into the normal rise/fall state machine — it does not bypass hysteresis.

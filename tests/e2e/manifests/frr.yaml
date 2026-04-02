@@ -76,6 +76,7 @@ metadata:
   labels:
     app: frr
 spec:
+  clusterIP: None
   selector:
     app: frr
   ports:

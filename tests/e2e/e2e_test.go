@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -494,39 +496,69 @@ func extractASPath(path map[string]interface{}) string {
 }
 
 func extractCommunity(path map[string]interface{}) string {
+	seen := map[string]struct{}{}
+
 	if comm, ok := path["community"].(map[string]interface{}); ok {
 		s, _ := comm["string"].(string)
 		if s != "" {
-			return s
+			for _, m := range communityValueRE.FindAllString(s, -1) {
+				seen[m] = struct{}{}
+			}
 		}
 	}
 	if comms, ok := path["communities"].(map[string]interface{}); ok {
 		s, _ := comms["string"].(string)
 		if s != "" {
-			return s
+			for _, m := range communityValueRE.FindAllString(s, -1) {
+				seen[m] = struct{}{}
+			}
 		}
 	}
 	if comms, ok := path["community"].(string); ok {
-		return comms
-	}
-	raw, err := json.Marshal(path)
-	if err != nil {
-		return ""
-	}
-	matches := communityValueRE.FindAllString(string(raw), -1)
-	if len(matches) == 0 {
-		return ""
-	}
-	unique := make([]string, 0, len(matches))
-	seen := map[string]struct{}{}
-	for _, m := range matches {
-		if _, ok := seen[m]; ok {
-			continue
+		for _, m := range communityValueRE.FindAllString(comms, -1) {
+			seen[m] = struct{}{}
 		}
-		seen[m] = struct{}{}
-		unique = append(unique, m)
 	}
-	return strings.Join(unique, " ")
+
+	collectCommunityValues(path, false, seen)
+
+	if len(seen) == 0 {
+		return ""
+	}
+
+	values := make([]string, 0, len(seen))
+	for comm := range seen {
+		values = append(values, comm)
+	}
+	sort.Strings(values)
+	return strings.Join(values, " ")
+}
+
+func collectCommunityValues(value interface{}, communityContext bool, seen map[string]struct{}) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for key, nested := range v {
+			keyIsCommunity := communityContext || strings.Contains(strings.ToLower(key), "community")
+			collectCommunityValues(nested, keyIsCommunity, seen)
+		}
+	case []interface{}:
+		for _, nested := range v {
+			collectCommunityValues(nested, communityContext, seen)
+		}
+	case string:
+		for _, match := range communityValueRE.FindAllString(v, -1) {
+			seen[match] = struct{}{}
+		}
+	case float64:
+		if !communityContext {
+			return
+		}
+		if v < 0 || v > float64(^uint32(0)) || math.Trunc(v) != v {
+			return
+		}
+		n := uint32(v)
+		seen[fmt.Sprintf("%d:%d", n>>16, n&0xffff)] = struct{}{}
+	}
 }
 
 func countASN(asPath, asn string) int {

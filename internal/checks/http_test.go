@@ -46,7 +46,7 @@ func TestHTTPChecker_Success200(t *testing.T) {
 		ResponseCodes: []int{200},
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.True(t, result.Success)
 	assert.Contains(t, result.Detail, "200")
 }
@@ -67,7 +67,7 @@ func TestHTTPChecker_WrongStatusCode(t *testing.T) {
 		ResponseCodes: []int{200},
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Detail, "unexpected status")
 }
@@ -88,7 +88,7 @@ func TestHTTPChecker_MultipleResponseCodes(t *testing.T) {
 		ResponseCodes: []int{200, 204},
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.True(t, result.Success)
 }
 
@@ -109,7 +109,7 @@ func TestHTTPChecker_ResponseTextMatch(t *testing.T) {
 		ResponseText:  "healthy",
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.True(t, result.Success)
 }
 
@@ -130,7 +130,7 @@ func TestHTTPChecker_ResponseTextMismatch(t *testing.T) {
 		ResponseText:  "healthy",
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Detail, `body missing`)
 }
@@ -154,7 +154,7 @@ func TestHTTPChecker_CustomHeaders(t *testing.T) {
 		Headers:       map[string]string{"X-Custom": "test-value"},
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.True(t, result.Success)
 	assert.Equal(t, "test-value", receivedHeader)
 }
@@ -176,7 +176,7 @@ func TestHTTPChecker_HEADMethod(t *testing.T) {
 		ResponseCodes: []int{200},
 	}
 	c := NewHTTPChecker(cfg)
-	c.Check(context.Background())
+	c.Check(context.TODO())
 	assert.Equal(t, "HEAD", receivedMethod)
 }
 
@@ -197,7 +197,7 @@ func TestHTTPChecker_TLSInsecure(t *testing.T) {
 		TLSInsecure:   true,
 	}
 	c := NewHTTPChecker(cfg)
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.True(t, result.Success)
 }
 
@@ -223,7 +223,7 @@ func TestHTTPChecker_ContextTimeout(t *testing.T) {
 	}
 	c := NewHTTPChecker(cfg)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.TODO(), 100*time.Millisecond)
 	defer cancel()
 
 	result := c.Check(ctx)

@@ -10,7 +10,8 @@ import (
 
 func Setup(level, format string) *slog.Logger {
 	var handler slog.Handler
-	lvl := parseLevel(level)
+	var lvl slog.Level
+	_ = lvl.UnmarshalText([]byte(level))
 
 	switch format {
 	case "json":
@@ -30,17 +31,4 @@ func newCharmHandler(w io.Writer, level slog.Level) slog.Handler {
 		ReportTimestamp: true,
 	})
 	return l
-}
-
-func parseLevel(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>pathosd</title>
+  <link rel="stylesheet" href="/assets/landing.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>pathosd</h1>
+        <div class="meta">Router <code>{{.RouterID}}</code> · ASN {{.ASN}} · Version {{.Version}} · Commit {{.Commit}}</div>
+        <div class="meta">Updated at {{.GeneratedAt.Format "2006-01-02 15:04:05 MST"}}</div>
+      </div>
+      <nav class="links">
+        <a href="/status">JSON status</a>
+        <a href="/readyz">readyz</a>
+        <a href="/healthz">healthz</a>
+        <a href="/metrics">metrics</a>
+      </nav>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <div class="label">VIPs</div>
+        <div class="value">{{len .VIPs}}</div>
+      </section>
+      <section class="card">
+        <div class="label">Peers</div>
+        <div class="value">{{len .Peers}}</div>
+      </section>
+    </div>
+
+    <h2>VIP State</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Prefix</th>
+          <th>State</th>
+          <th>Health</th>
+          <th>Check</th>
+          <th>Last Detail</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .VIPs}}
+        <tr>
+          <td><strong>{{.Name}}</strong></td>
+          <td><code>{{.Prefix}}</code></td>
+          <td><span class="tag tag-{{.StateName}}">{{.StateName}}</span></td>
+          <td><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span></td>
+          <td>{{.CheckType}}</td>
+          <td>{{.LastCheckDetail}}</td>
+          <td>
+            <button type="button" data-trigger-check data-vip="{{.Name}}">Trigger check</button>
+            <span class="check-result" id="result-{{.Name}}"></span>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+
+    <h2>Peers</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Address</th>
+          <th>Peer ASN</th>
+          <th>Session</th>
+          <th>Required</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Peers}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td><code>{{.Address}}</code></td>
+          <td>{{.PeerASN}}</td>
+          <td><span class="tag tag-{{.SessionState}}">{{.SessionState}}</span></td>
+          <td>{{.Required}}</td>
+        </tr>
+        {{else}}
+        <tr>
+          <td colspan="5">No peer data available.</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <script src="/assets/landing.js"></script>
+</body>
+</html>

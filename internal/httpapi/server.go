@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
+	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
@@ -24,8 +28,35 @@ type ServerDeps struct {
 	Schedulers map[string]*checks.Scheduler
 }
 
+type landingPageData struct {
+	RouterID    string
+	ASN         uint32
+	Version     string
+	Commit      string
+	GeneratedAt time.Time
+	Peers       []model.PeerStatus
+	VIPs        []model.VIPStatus
+}
+
+//go:embed landing/*
+var landingFS embed.FS
+
+var landingPageTmpl = template.Must(template.ParseFS(landingFS, "landing/index.html"))
+
+var landingStaticFS = mustSubFS(landingFS, "landing")
+
+func mustSubFS(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
 func NewServer(deps ServerDeps) *http.Server {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", handleLanding(deps))
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(landingStaticFS))))
 	mux.HandleFunc("GET /healthz", handleHealthz())
 	mux.HandleFunc("GET /readyz", handleReadyz(deps.BGP, deps.Config))
 	mux.HandleFunc("GET /status", handleStatus(deps))
@@ -39,6 +70,26 @@ func handleHealthz() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
+func handleLanding(deps ServerDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data := landingPageData{
+			RouterID:    deps.Config.Router.RouterID,
+			ASN:         deps.Config.Router.ASN,
+			Version:     version.Version,
+			Commit:      version.GetRevision(),
+			GeneratedAt: time.Now(),
+			Peers:       deps.BGP.GetPeerStates(r.Context()),
+			VIPs:        deps.Policy.GetVIPStatuses(),
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := landingPageTmpl.Execute(w, data); err != nil {
+			slog.Error("failed to render landing page", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
 	}
 }
 

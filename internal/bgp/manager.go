@@ -154,7 +154,7 @@ func (m *Manager) PessimizeVIP(prefix string, prepend int, communities []string)
 
 func (m *Manager) GetPeerStates(ctx context.Context) []model.PeerStatus {
 	var peers []model.PeerStatus
-	m.server.ListPeer(ctx, &api.ListPeerRequest{}, func(p *api.Peer) {
+	if err := m.server.ListPeer(ctx, &api.ListPeerRequest{}, func(p *api.Peer) {
 		state := "unknown"
 		if p.State != nil {
 			state = strings.ToLower(p.State.SessionState.String())
@@ -183,7 +183,9 @@ func (m *Manager) GetPeerStates(ctx context.Context) []model.PeerStatus {
 			Name: name, Address: addr, PeerASN: peerASN,
 			SessionState: state, Required: required,
 		})
-	})
+	}); err != nil {
+		slog.Error("failed to list BGP peers", "error", err)
+	}
 	return peers
 }
 

@@ -18,6 +18,8 @@ data:
      address-family ipv4 unicast
       neighbor pathosd activate
      exit-address-family
+  vtysh.conf: |
+    service integrated-vtysh-config
   daemons: |
     bgpd=yes
     ospfd=no

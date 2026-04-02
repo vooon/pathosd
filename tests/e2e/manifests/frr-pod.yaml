@@ -12,14 +12,21 @@ spec:
       imagePullPolicy: IfNotPresent
       securityContext:
         capabilities:
-          add: ["NET_ADMIN", "NET_RAW"]
+          add: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
       ports:
         - name: bgp
           containerPort: 179
           protocol: TCP
       volumeMounts:
         - name: frr-config
-          mountPath: /etc/frr
+          mountPath: /etc/frr/bgpd.conf
+          subPath: bgpd.conf
+        - name: frr-config
+          mountPath: /etc/frr/daemons
+          subPath: daemons
+        - name: frr-config
+          mountPath: /etc/frr/vtysh.conf
+          subPath: vtysh.conf
   volumes:
     - name: frr-config
       configMap:

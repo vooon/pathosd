@@ -219,9 +219,9 @@ func TestE2E(t *testing.T) {
 		metricsText := string(body)
 		assert.Contains(t, metricsText, "pathosd_check_duration_seconds")
 		assert.Contains(t, metricsText, "pathosd_check_last_result")
+		assert.Contains(t, metricsText, "pathosd_check_total")
 		assert.Contains(t, metricsText, "pathosd_vip_state")
 		assert.Contains(t, metricsText, "pathosd_build_info")
-		assert.Contains(t, metricsText, "pathosd_route_state")
 	})
 
 	t.Run("trigger_check_api", func(t *testing.T) {
@@ -459,14 +459,34 @@ func firstRoutePathNoFail(routes map[string][]map[string]interface{}, prefix str
 	if !ok || len(paths) == 0 {
 		return nil, false
 	}
+
+	for _, p := range paths {
+		bestpath, ok := p["bestpath"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		overall, ok := bestpath["overall"].(bool)
+		if ok && overall {
+			return p, true
+		}
+	}
+
 	return paths[0], true
 }
 
 func extractASPath(path map[string]interface{}) string {
+	if s, ok := path["path"].(string); ok && s != "" {
+		return s
+	}
+
 	aspath, ok := path["aspath"].(map[string]interface{})
 	if !ok {
+		if s, ok := path["aspath"].(string); ok {
+			return s
+		}
 		return ""
 	}
+
 	s, _ := aspath["string"].(string)
 	return s
 }

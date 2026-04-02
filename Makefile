@@ -46,7 +46,12 @@ e2e-build:
 	k3d image import $(E2E_IMAGE) -c $(E2E_CLUSTER)
 
 e2e-deploy:
+	kubectl apply -f tests/e2e/manifests/namespace.yaml
+	kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/$(E2E_NAMESPACE) --timeout=60s
 	kubectl apply -f tests/e2e/manifests/
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
 e2e-test:
@@ -58,6 +63,11 @@ e2e-clean:
 e2e: e2e-cluster e2e-build e2e-deploy e2e-test
 
 e2e-redeploy: e2e-build
+	kubectl apply -f tests/e2e/manifests/namespace.yaml
+	kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/$(E2E_NAMESPACE) --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) delete pod -l app=pathosd --force --grace-period=0 || true
 	kubectl apply -f tests/e2e/manifests/
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s

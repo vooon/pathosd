@@ -32,6 +32,8 @@ jobs:
 
       - name: Deploy e2e stack
         run: |
+          kubectl apply -f tests/e2e/manifests/namespace.yaml
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/pathosd-e2e --timeout=60s
           kubectl apply -f tests/e2e/manifests/
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=frr --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=nginx --timeout=60s

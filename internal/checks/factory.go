@@ -12,7 +12,7 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 		if cfg.HTTP == nil {
 			return nil, fmt.Errorf("http check config is nil")
 		}
-		return NewHTTPChecker(cfg.HTTP), nil
+		return NewHTTPChecker(cfg.HTTP)
 	case "dns":
 		if cfg.DNS == nil {
 			return nil, fmt.Errorf("dns check config is nil")

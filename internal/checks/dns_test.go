@@ -146,8 +146,8 @@ func TestParseQueryType(t *testing.T) {
 		{"unknown", dns.TypeA}, // unknown treated as default (A)
 	}
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, parseQueryType(tt.input))
-		})
+		// t.Run(tt.input, func(t *testing.T) {
+		assert.Equal(t, tt.want, parseQueryType(tt.input), "input: %s", tt.input)
+		// })
 	}
 }

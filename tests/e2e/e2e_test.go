@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,6 +31,7 @@ const (
 )
 
 var pathosdAPIBaseURL string
+var communityValueRE = regexp.MustCompile(`\b\d+:\d+\b`)
 
 // DaemonStatus is a minimal shape of /status used by e2e assertions.
 type DaemonStatus struct {
@@ -507,7 +509,24 @@ func extractCommunity(path map[string]interface{}) string {
 	if comms, ok := path["community"].(string); ok {
 		return comms
 	}
-	return ""
+	raw, err := json.Marshal(path)
+	if err != nil {
+		return ""
+	}
+	matches := communityValueRE.FindAllString(string(raw), -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	unique := make([]string, 0, len(matches))
+	seen := map[string]struct{}{}
+	for _, m := range matches {
+		if _, ok := seen[m]; ok {
+			continue
+		}
+		seen[m] = struct{}{}
+		unique = append(unique, m)
+	}
+	return strings.Join(unique, " ")
 }
 
 func countASN(asPath, asn string) int {

@@ -17,6 +17,8 @@ func (r *RunCmd) Run(cli *CLI) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	daemon.Run(cfg)
+	if err := daemon.Run(cfg); err != nil {
+		return fmt.Errorf("running daemon: %w", err)
+	}
 	return nil
 }

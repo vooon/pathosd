@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/prometheus/common/version"
@@ -18,7 +20,7 @@ import (
 	"github.com/vooon/pathosd/internal/policy"
 )
 
-func Run(cfg *config.Config) {
+func Run(cfg *config.Config) error {
 	app := fx.New(
 		fx.Supply(cfg),
 		fx.Provide(
@@ -29,11 +31,44 @@ func Run(cfg *config.Config) {
 			providePolicyManager,
 			provideHTTPServer,
 		),
-		fx.Invoke(startDaemon),
+		fx.Invoke(
+			ensureLoggerInitialized,
+			registerProcessLifecycle,
+			registerBGPLifecycle,
+			registerPeerWatcherLifecycle,
+			registerSchedulersLifecycle,
+			registerHTTPServerLifecycle,
+		),
 		fx.StartTimeout(15*time.Second),
 		fx.StopTimeout(30*time.Second),
 	)
-	app.Run()
+
+	if err := app.Err(); err != nil {
+		return err
+	}
+
+	startCtx, cancelStart := context.WithTimeout(context.Background(), app.StartTimeout())
+	defer cancelStart()
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("starting daemon: %w", err)
+	}
+
+	signal := <-app.Wait()
+	if signal.Signal != nil {
+		slog.Info("shutdown signal received", "signal", signal.Signal.String())
+	} else {
+		slog.Info("shutdown requested", "exit_code", signal.ExitCode)
+	}
+
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), app.StopTimeout())
+	defer cancelStop()
+	if err := app.Stop(stopCtx); err != nil {
+		return fmt.Errorf("stopping daemon: %w", err)
+	}
+	if signal.ExitCode != 0 {
+		return fmt.Errorf("shutdown requested with non-zero exit code %d", signal.ExitCode)
+	}
+	return nil
 }
 
 func provideLogger(cfg *config.Config) *slog.Logger {
@@ -96,92 +131,141 @@ func providePolicyManager(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Ma
 	return policy.NewManager(cfg.VIPs, m, bgpMgr)
 }
 
-func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string]*checks.Scheduler) *httpapi.ServerDeps {
-	return &httpapi.ServerDeps{
+func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string]*checks.Scheduler) *http.Server {
+	return httpapi.NewServer(httpapi.ServerDeps{
 		Config:     cfg,
 		Metrics:    m,
 		BGP:        bgpMgr,
 		Policy:     pol,
 		Schedulers: scheds,
-	}
+	})
 }
 
-type daemonDeps struct {
-	fx.In
-	Lifecycle  fx.Lifecycle
-	Config     *config.Config
-	Metrics    *metrics.Metrics
-	BGP        *bgp.Manager
-	Policy     *policy.Manager
-	Schedulers map[string]*checks.Scheduler
-	HTTPDeps   *httpapi.ServerDeps
-}
+func ensureLoggerInitialized(_ *slog.Logger) {}
 
-func startDaemon(deps daemonDeps) {
-	var (
-		bgpCtx    context.Context
-		bgpCancel context.CancelFunc
-		schedCtxs []context.CancelFunc
-		httpSrv   = httpapi.NewServer(*deps.HTTPDeps)
-	)
-
-	deps.Lifecycle.Append(fx.Hook{
+func registerProcessLifecycle(lc fx.Lifecycle) {
+	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			slog.Info("starting pathosd", "version", version.Version, "revision", version.GetRevision())
-
-			// Start BGP server.
-			if err := deps.BGP.Start(ctx); err != nil {
-				return fmt.Errorf("BGP start: %w", err)
-			}
-
-			// Add BGP peers.
-			if err := deps.BGP.AddPeers(ctx); err != nil {
-				return fmt.Errorf("BGP add peers: %w", err)
-			}
-
-			// Start BGP peer watcher.
-			bgpCtx, bgpCancel = context.WithCancel(context.Background())
-			var neighborAddrs []string
-			for _, n := range deps.Config.BGP.Neighbors {
-				neighborAddrs = append(neighborAddrs, n.Address)
-			}
-			go bgp.WatchPeerState(bgpCtx, deps.BGP.Server(), deps.Metrics, neighborAddrs)
-
-			// Wire scheduler callbacks to policy manager and start schedulers.
-			for _, sched := range deps.Schedulers {
-				sched.SetCallbacks(deps.Policy.OnHealthTransition, deps.Policy.OnCheckResult)
-				schedCtx, schedCancel := context.WithCancel(context.Background())
-				schedCtxs = append(schedCtxs, schedCancel)
-				go sched.Run(schedCtx)
-				slog.Info("scheduler started", "vip", sched.VIPName())
-			}
-
-			// Start HTTP API.
-			go httpapi.ListenAndServe(context.Background(), httpSrv)
-
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			slog.Info("stopping pathosd")
+			return nil
+		},
+	})
+}
 
-			// Stop HTTP.
-			if err := httpSrv.Shutdown(ctx); err != nil {
-				slog.Error("HTTP shutdown error", "error", err)
+func registerBGPLifecycle(lc fx.Lifecycle, bgpMgr *bgp.Manager) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			if err := bgpMgr.Start(ctx); err != nil {
+				return fmt.Errorf("BGP start: %w", err)
 			}
-
-			// Stop schedulers.
-			for _, cancel := range schedCtxs {
-				cancel()
+			if err := bgpMgr.AddPeers(ctx); err != nil {
+				return fmt.Errorf("BGP add peers: %w", err)
 			}
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			bgpMgr.Stop(ctx)
+			return nil
+		},
+	})
+}
 
-			// Stop BGP watcher.
+func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager) {
+	var (
+		bgpCancel context.CancelFunc
+	)
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			var neighborAddrs []string
+			for _, n := range cfg.BGP.Neighbors {
+				neighborAddrs = append(neighborAddrs, n.Address)
+			}
+			watchCtx, cancel := context.WithCancel(context.Background())
+			bgpCancel = cancel
+			go bgp.WatchPeerState(watchCtx, bgpMgr.Server(), m, neighborAddrs)
+
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
 			if bgpCancel != nil {
 				bgpCancel()
 			}
+			return nil
+		},
+	})
+}
 
-			// Stop BGP server — sessions drop, routes withdrawn.
-			deps.BGP.Stop(ctx)
+func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Scheduler, pol *policy.Manager) {
+	var schedCancels []context.CancelFunc
 
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			schedCancels = make([]context.CancelFunc, 0, len(scheds))
+			for _, sched := range scheds {
+				sched.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
+				schedCtx, cancel := context.WithCancel(context.Background())
+				schedCancels = append(schedCancels, cancel)
+				go sched.Run(schedCtx)
+				slog.Info("scheduler started", "vip", sched.VIPName())
+			}
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			for _, cancel := range schedCancels {
+				cancel()
+			}
+			return nil
+		},
+	})
+}
+
+func registerHTTPServerLifecycle(lc fx.Lifecycle, srv *http.Server, shutdowner fx.Shutdowner) {
+	var (
+		ln        net.Listener
+		serveErrs chan error
+	)
+
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			listener, err := net.Listen("tcp", srv.Addr)
+			if err != nil {
+				return fmt.Errorf("starting HTTP API listener on %q: %w", srv.Addr, err)
+			}
+			ln = listener
+			serveErrs = make(chan error, 1)
+			go func() {
+				defer close(serveErrs)
+				slog.Info("HTTP API listening", "address", srv.Addr)
+				if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+					serveErrs <- err
+					slog.Error("HTTP API server failed", "error", err)
+					if shutdownErr := shutdowner.Shutdown(); shutdownErr != nil {
+						slog.Error("failed to trigger daemon shutdown after HTTP error", "error", shutdownErr)
+					}
+				}
+			}()
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			if err := srv.Shutdown(ctx); err != nil {
+				return fmt.Errorf("stopping HTTP API: %w", err)
+			}
+			if serveErrs == nil {
+				return nil
+			}
+			select {
+			case err, ok := <-serveErrs:
+				if ok && err != nil {
+					return fmt.Errorf("HTTP API serve loop: %w", err)
+				}
+			case <-ctx.Done():
+				return fmt.Errorf("waiting for HTTP API shutdown: %w", ctx.Err())
+			}
 			return nil
 		},
 	})

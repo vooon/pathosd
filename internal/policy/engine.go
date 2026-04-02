@@ -5,8 +5,11 @@ import (
 	"github.com/vooon/pathosd/internal/model"
 )
 
-func Evaluate(healthy bool, p *config.PolicyConfig) model.VIPState {
+func Evaluate(healthy bool, lowerPriorityFilePresent bool, p *config.PolicyConfig) model.VIPState {
 	if healthy {
+		if lowerPriorityFilePresent {
+			return model.StatePessimized
+		}
 		return model.StateAnnounced
 	}
 	switch p.FailAction {

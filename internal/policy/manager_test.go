@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -112,6 +114,26 @@ func testCustomPessimizeConfig(prepend int, communities []string) []config.VIPCo
 			},
 			Policy: config.PolicyConfig{
 				FailAction: "lower_priority",
+				LowerPriority: &config.LowerPriorityConfig{
+					ASPathPrepend: intPtr(prepend),
+					Communities:   communities,
+				},
+			},
+		},
+	}
+}
+
+func testVIPConfigWithLowerPriorityFile(path string, prepend int, communities []string) []config.VIPConfig {
+	return []config.VIPConfig{
+		{
+			Name:   pessimizeVIPName,
+			Prefix: pessimizePrefix,
+			Check: config.CheckConfig{
+				Type: config.CheckTypeHTTP,
+			},
+			Policy: config.PolicyConfig{
+				FailAction:        "withdraw",
+				LowerPriorityFile: path,
 				LowerPriority: &config.LowerPriorityConfig{
 					ASPathPrepend: intPtr(prepend),
 					Communities:   communities,
@@ -242,6 +264,31 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		assert.Equal(t, float64(2), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
 	})
 
+	t.Run("healthy transition with lower_priority_file present forces pessimized state", func(t *testing.T) {
+		m := newTestMetrics()
+		notifier := &fakeBGPNotifier{}
+
+		lockFile := filepath.Join(t.TempDir(), "drain.lock")
+		require.NoError(t, os.WriteFile(lockFile, []byte("1"), 0o600))
+
+		mgr := NewManager(testVIPConfigWithLowerPriorityFile(lockFile, 3, []string{"65535:666"}), m, notifier)
+		mgr.OnHealthTransition(checks.HealthTransition{
+			VIPName: pessimizeVIPName,
+			Healthy: true,
+			Reason:  "rise threshold reached",
+		})
+
+		status := getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, model.StatePessimized, status.State)
+		assert.Equal(t, model.HealthHealthy, status.Health)
+		assert.Empty(t, notifier.announces)
+		require.Len(t, notifier.pessimizes, 1)
+		assert.Equal(t, pessimizePrefix, notifier.pessimizes[0].prefix)
+		assert.Equal(t, 3, notifier.pessimizes[0].prepend)
+		assert.Equal(t, []string{"65535:666"}, notifier.pessimizes[0].communities)
+		assert.Equal(t, float64(3), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
+	})
+
 	t.Run("no-op same state does not notify and does not increment transition metric", func(t *testing.T) {
 		m := newTestMetrics()
 		notifier := &fakeBGPNotifier{}
@@ -338,11 +385,11 @@ func TestManager_OnHealthTransition(t *testing.T) {
 
 func TestManager_OnCheckResult(t *testing.T) {
 	tests := []struct {
-		name               string
-		result             checks.Result
+		name                string
+		result              checks.Result
 		expectedResultLabel string
-		expectedLastResult float64
-		expectedTimeout    float64
+		expectedLastResult  float64
+		expectedTimeout     float64
 	}{
 		{
 			name: "success result updates metrics",
@@ -397,6 +444,53 @@ func TestManager_OnCheckResult(t *testing.T) {
 			assert.False(t, status.LastCheckTime.IsZero())
 		})
 	}
+
+	t.Run("lower_priority_file create and remove are treated as state transitions", func(t *testing.T) {
+		m := newTestMetrics()
+		notifier := &fakeBGPNotifier{}
+
+		lockFile := filepath.Join(t.TempDir(), "drain.lock")
+		mgr := NewManager(testVIPConfigWithLowerPriorityFile(lockFile, 3, []string{"65535:666"}), m, notifier)
+
+		// Healthy without lock file -> announced.
+		mgr.OnHealthTransition(checks.HealthTransition{
+			VIPName: pessimizeVIPName,
+			Healthy: true,
+			Reason:  "rise threshold reached",
+		})
+		status := getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, model.StateAnnounced, status.State)
+		assert.Len(t, notifier.announces, 1)
+
+		// Create lock file and report a check result to force policy re-evaluation.
+		require.NoError(t, os.WriteFile(lockFile, []byte("1"), 0o600))
+		mgr.OnCheckResult(pessimizeVIPName, checks.Result{
+			Success:  true,
+			Detail:   "healthy while draining",
+			Duration: 15 * time.Millisecond,
+		})
+
+		status = getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, model.StatePessimized, status.State)
+		assert.Equal(t, "lower_priority_file created", status.LastTransitionReason)
+		require.Len(t, notifier.pessimizes, 1)
+		assert.Equal(t, 3, notifier.pessimizes[0].prepend)
+		assert.Equal(t, []string{"65535:666"}, notifier.pessimizes[0].communities)
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(pessimizeVIPName, model.StatePessimized.String())))
+
+		// Remove lock file and report another check result -> back to announced.
+		require.NoError(t, os.Remove(lockFile))
+		mgr.OnCheckResult(pessimizeVIPName, checks.Result{
+			Success:  true,
+			Detail:   "healthy and drain removed",
+			Duration: 10 * time.Millisecond,
+		})
+
+		status = getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, model.StateAnnounced, status.State)
+		assert.Equal(t, "lower_priority_file removed", status.LastTransitionReason)
+		assert.Len(t, notifier.announces, 2)
+	})
 
 	t.Run("unknown vip does not panic", func(t *testing.T) {
 		m := newTestMetrics()

@@ -2,6 +2,7 @@ package policy
 
 import (
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -36,6 +37,7 @@ type Manager struct {
 type vipState struct {
 	state                model.VIPState
 	health               model.HealthStatus
+	lowerPriorityFileOn  bool
 	lastCheckResult      checks.Result
 	lastCheckTime        time.Time
 	lastTransitionAt     time.Time
@@ -56,6 +58,7 @@ func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPN
 		mgr.vips[v.Name] = &vipState{
 			state:                model.StateWithdrawn,
 			health:               model.HealthUnknown,
+			lowerPriorityFileOn:  lowerPriorityFilePresent(v.Policy.LowerPriorityFile),
 			lastTransitionAt:     now,
 			lastTransitionReason: "initial",
 		}
@@ -82,49 +85,45 @@ func (m *Manager) OnHealthTransition(t checks.HealthTransition) {
 		vs.health = model.HealthUnhealthy
 	}
 
-	newState := Evaluate(t.Healthy, &cfg.Policy)
-	oldState := vs.state
-	if newState == oldState {
-		return
-	}
+	filePresent := lowerPriorityFilePresent(cfg.Policy.LowerPriorityFile)
+	vs.lowerPriorityFileOn = filePresent
 
-	vs.state = newState
-	vs.lastTransitionAt = time.Now()
-	vs.lastTransitionReason = t.Reason
-
-	slog.Info("VIP state transition",
-		"vip", t.VIPName, "prefix", cfg.Prefix,
-		"from", oldState.String(), "to", newState.String(),
-		"reason", t.Reason)
-
-	m.metrics.VIPState.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(newState))
-	m.metrics.VIPTransitions.WithLabelValues(cfg.Name, newState.String()).Inc()
-	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name).Set(float64(vs.lastTransitionAt.Unix()))
-
-	priority := 1.0
-	if newState == model.StatePessimized && cfg.Policy.LowerPriority != nil && cfg.Policy.LowerPriority.ASPathPrepend != nil {
-		priority = float64(*cfg.Policy.LowerPriority.ASPathPrepend)
-	}
-	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
-
-	if m.notifier != nil {
-		m.applyBGP(cfg, newState)
-	}
+	newState := Evaluate(t.Healthy, filePresent, &cfg.Policy)
+	m.transitionStateLocked(vs, cfg, newState, t.Reason)
 }
 
 func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 	m.mu.Lock()
 	vs, ok := m.vips[vipName]
-	if ok {
-		vs.lastCheckResult = result
-		vs.lastCheckTime = time.Now()
-	}
-	m.mu.Unlock()
-
 	if !ok {
+		m.mu.Unlock()
 		return
 	}
 	cfg := m.configs[vipName]
+	vs.lastCheckResult = result
+	vs.lastCheckTime = time.Now()
+
+	filePresent := lowerPriorityFilePresent(cfg.Policy.LowerPriorityFile)
+	fileChanged := filePresent != vs.lowerPriorityFileOn
+	vs.lowerPriorityFileOn = filePresent
+
+	if vs.health != model.HealthUnknown {
+		healthy := vs.health == model.HealthHealthy
+		newState := Evaluate(healthy, filePresent, &cfg.Policy)
+		if newState != vs.state {
+			reason := "policy reevaluation"
+			if fileChanged && cfg.Policy.LowerPriorityFile != "" {
+				if filePresent {
+					reason = "lower_priority_file created"
+				} else {
+					reason = "lower_priority_file removed"
+				}
+			}
+			m.transitionStateLocked(vs, cfg, newState, reason)
+		}
+	}
+	m.mu.Unlock()
+
 	checkType := cfg.Check.Type
 
 	resultLabel := "fail"
@@ -166,6 +165,44 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 		})
 	}
 	return out
+}
+
+func lowerPriorityFilePresent(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func (m *Manager) transitionStateLocked(vs *vipState, cfg *config.VIPConfig, newState model.VIPState, reason string) {
+	oldState := vs.state
+	if newState == oldState {
+		return
+	}
+
+	vs.state = newState
+	vs.lastTransitionAt = time.Now()
+	vs.lastTransitionReason = reason
+
+	slog.Info("VIP state transition",
+		"vip", cfg.Name, "prefix", cfg.Prefix,
+		"from", oldState.String(), "to", newState.String(),
+		"reason", reason)
+
+	m.metrics.VIPState.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(newState))
+	m.metrics.VIPTransitions.WithLabelValues(cfg.Name, newState.String()).Inc()
+	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name).Set(float64(vs.lastTransitionAt.Unix()))
+
+	priority := 1.0
+	if newState == model.StatePessimized && cfg.Policy.LowerPriority != nil && cfg.Policy.LowerPriority.ASPathPrepend != nil {
+		priority = float64(*cfg.Policy.LowerPriority.ASPathPrepend)
+	}
+	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
+
+	if m.notifier != nil {
+		m.applyBGP(cfg, newState)
+	}
 }
 
 func (m *Manager) applyBGP(cfg *config.VIPConfig, state model.VIPState) {

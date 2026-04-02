@@ -175,11 +175,13 @@ func applyPolicyDefaults(p *PolicyConfig) {
 		p.FailAction = "lower_priority"
 	}
 
-	if p.FailAction == "lower_priority" && p.LowerPriority == nil {
+	// Keep lower_priority block always initialized so policy consumers can rely
+	// on a stable shape regardless of fail_action.
+	if p.LowerPriority == nil {
 		p.LowerPriority = &LowerPriorityConfig{}
 	}
 
-	if p.LowerPriority != nil && p.LowerPriority.ASPathPrepend == nil {
+	if p.LowerPriority.ASPathPrepend == nil {
 		p.LowerPriority.ASPathPrepend = new(6)
 	}
 }

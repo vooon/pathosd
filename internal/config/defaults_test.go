@@ -495,10 +495,10 @@ func TestApplyDefaults_Policy(t *testing.T) {
 		assert.NotNil(t, cfg.VIPs[0].Policy.LowerPriority)
 	})
 
-	t.Run("LowerPriority not created for withdraw action", func(t *testing.T) {
+	t.Run("LowerPriority auto-created for withdraw action too", func(t *testing.T) {
 		cfg := makePolicy(PolicyConfig{FailAction: "withdraw"})
 		ApplyDefaults(cfg)
-		assert.Nil(t, cfg.VIPs[0].Policy.LowerPriority)
+		assert.NotNil(t, cfg.VIPs[0].Policy.LowerPriority)
 	})
 
 	t.Run("ASPathPrepend defaults to 6", func(t *testing.T) {
@@ -514,5 +514,13 @@ func TestApplyDefaults_Policy(t *testing.T) {
 		})
 		ApplyDefaults(cfg)
 		assert.Equal(t, 3, *cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend)
+	})
+
+	t.Run("ASPathPrepend defaults to 6 for withdraw action as well", func(t *testing.T) {
+		cfg := makePolicy(PolicyConfig{FailAction: "withdraw"})
+		ApplyDefaults(cfg)
+		assert.NotNil(t, cfg.VIPs[0].Policy.LowerPriority)
+		assert.NotNil(t, cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend)
+		assert.Equal(t, 6, *cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend)
 	})
 }

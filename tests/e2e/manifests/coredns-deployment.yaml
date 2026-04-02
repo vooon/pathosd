@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns
+  namespace: pathosd-e2e
+  labels:
+    app: coredns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coredns
+  template:
+    metadata:
+      labels:
+        app: coredns
+    spec:
+      containers:
+        - name: coredns
+          image: coredns/coredns:1.12.1
+          imagePullPolicy: IfNotPresent
+          args: ["-conf", "/etc/coredns/Corefile"]
+          ports:
+            - containerPort: 53
+              name: dns-udp
+              protocol: UDP
+            - containerPort: 53
+              name: dns-tcp
+              protocol: TCP
+          volumeMounts:
+            - name: coredns-config
+              mountPath: /etc/coredns
+      volumes:
+        - name: coredns-config
+          configMap:
+            name: coredns-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coredns
+  namespace: pathosd-e2e
+  labels:
+    app: coredns
+spec:
+  selector:
+    app: coredns
+  ports:
+    - name: dns-udp
+      port: 53
+      targetPort: 53
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      targetPort: 53
+      protocol: TCP

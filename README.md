@@ -110,6 +110,19 @@ goreleaser build --snapshot --clean
 docker build -t pathosd .
 ```
 
+## Development Checks
+
+Run these checks before opening a PR:
+
+```bash
+go build ./...
+go test ./...
+go vet ./...
+golangci-lint run
+go generate ./internal/config/...
+git diff --exit-code schema/
+```
+
 ## Running
 
 ### Binary

@@ -33,12 +33,14 @@ type Checker interface {
   - Status code mismatch (e.g. 503 when expecting 200)
   - Multiple acceptable response_codes (e.g. [200, 204])
   - ResponseText present / missing in body
+  - ResponseRegex match / no match
+  - ResponseJQ true / false / invalid JSON response
   - Context cancellation → Result.TimedOut = true
   - Custom headers are sent (verify via handler)
   - Host header is set correctly
   - Method (GET vs HEAD)
   - HTTPS with TLSInsecure=true (use httptest.NewTLSServer)
-- NOT yet implemented (don't test): ResponseRegex, ResponseJQ, TLSCACert (have TODOs)
+- Not yet implemented: TLSCACert (has TODO)
 - The checker builds URL as: `{proto}://{host}:{port}{url_path}`
 
 #### 2. DNS Checker (`internal/checks/dns.go`)
@@ -113,4 +115,6 @@ MaxLossRatio float64
 ## Build & Test Commands
 - After creating/editing Go files: verify with `go build ./...`
 - Run checker tests: `go test ./internal/checks/... -v`
+- Run all tests: `go test ./...`
+- Static checks: `go vet ./...` and `golangci-lint run`
 - Conventional Commits for commit messages

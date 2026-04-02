@@ -8,6 +8,8 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 - Fail-closed invariant: process death = BGP sessions drop = all routes withdrawn.
 - VIPs start withdrawn; must prove healthy (pass `rise` consecutive checks) before announcement.
 - DI and lifecycle via `go.uber.org/fx`; context everywhere.
+- Runtime is composed with component-owned Fx lifecycle hooks (BGP, watcher, schedulers, HTTP).
+- Startup/shutdown uses explicit `app.Start`/`app.Wait`/`app.Stop`; startup failures must propagate to CLI.
 - Config: YAML (`goccy/go-yaml`) or TOML (`BurntSushi/toml`), validated at load time.
 - CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `version`.
 - Logging: `charmbracelet/log` as `slog.Handler`.

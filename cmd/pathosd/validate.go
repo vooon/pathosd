@@ -2,22 +2,18 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/vooon/pathosd/internal/config"
 )
 
-type ValidateCmd struct{}
+type ValidateCmd struct {
+	Config string `help:"Path to configuration file." short:"c" type:"existingfile" required:""`
+}
 
-func (v *ValidateCmd) Run(cli *CLI) error {
-	if cli.Config == "" {
-		fmt.Fprintln(os.Stderr, "--config is required for the validate command")
-		os.Exit(1)
-	}
-	cfg, err := config.Load(cli.Config)
+func (v *ValidateCmd) Run() error {
+	cfg, err := config.Load(v.Config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "validation failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("validation failed: %w", err)
 	}
 
 	_ = cfg

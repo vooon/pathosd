@@ -61,7 +61,7 @@ func TestScheduler_VIPName(t *testing.T) {
 func TestScheduler_RiseFSM(t *testing.T) {
 	fake := &fakeChecker{results: []Result{successResult(), successResult()}}
 	s := makeScheduler(fake, 2, 2)
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	s.runCheck(ctx)
 	assert.False(t, s.IsHealthy(), "not healthy after 1 success")
@@ -79,7 +79,7 @@ func TestScheduler_FallFSM(t *testing.T) {
 		failResult(), failResult(), // fall
 	}}
 	s := makeScheduler(fake, 2, 2)
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	s.runCheck(ctx)
 	s.runCheck(ctx)
@@ -99,7 +99,7 @@ func TestScheduler_MixedResultResetCounters(t *testing.T) {
 		successResult(), failResult(), successResult(),
 	}}
 	s := makeScheduler(fake, 3, 2)
-	ctx := context.Background()
+	ctx := context.TODO()
 
 	s.runCheck(ctx)
 	assert.Equal(t, 1, s.ConsecutiveOK())
@@ -133,7 +133,7 @@ func TestScheduler_OnTransitionCallback(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx := context.TODO()
 	s.runCheck(ctx)
 	s.runCheck(ctx)
 
@@ -165,7 +165,7 @@ func TestScheduler_OnCheckResultCallback(t *testing.T) {
 		},
 	})
 
-	s.runCheck(context.Background())
+	s.runCheck(context.TODO())
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -178,7 +178,7 @@ func TestScheduler_LastResult(t *testing.T) {
 	fake := &fakeChecker{results: []Result{expected}}
 	s := makeScheduler(fake, 1, 1)
 
-	s.runCheck(context.Background())
+	s.runCheck(context.TODO())
 
 	assert.Equal(t, expected, s.LastResult())
 }
@@ -190,7 +190,7 @@ func TestScheduler_SetCallbacks(t *testing.T) {
 	var called bool
 	s.SetCallbacks(func(ht HealthTransition) { called = true }, nil)
 
-	s.runCheck(context.Background())
+	s.runCheck(context.TODO())
 	assert.True(t, called, "transition callback should fire when rise=1 passes")
 }
 
@@ -198,7 +198,7 @@ func TestScheduler_TriggerCheck(t *testing.T) {
 	fake := &fakeChecker{results: []Result{successResult()}}
 	s := makeScheduler(fake, 1, 1)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 2*time.Second)
 	defer cancel()
 
 	go s.Run(ctx)
@@ -213,7 +213,7 @@ func TestScheduler_TriggerCheck_ContextCancelled(t *testing.T) {
 	s := makeScheduler(fake, 1, 1)
 
 	// Run is not started; cancel context before calling TriggerCheck.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.TODO())
 	cancel()
 
 	_, err := s.TriggerCheck(ctx)

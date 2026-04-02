@@ -15,7 +15,7 @@ func TestPingChecker_Type(t *testing.T) {
 
 func TestPingChecker_EmptyDstIP(t *testing.T) {
 	c := NewPingChecker(&config.PingCheckConfig{})
-	result := c.Check(context.Background())
+	result := c.Check(context.TODO())
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Detail, "dst_ip is required")
 }

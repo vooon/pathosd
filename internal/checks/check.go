@@ -10,7 +10,7 @@ type Result struct {
 	Detail   string        `json:"detail"`
 	Duration time.Duration `json:"duration"`
 	Err      error         `json:"-"`
-	TimedOut bool          `json:"timed_out"`
+	TimedOut bool          `json:"timed_out,omitempty"`
 }
 
 type Checker interface {

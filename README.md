@@ -39,6 +39,23 @@ Validate a config file without starting the daemon:
 pathosd validate --config /etc/pathosd/pathosd.yaml
 ```
 
+### Environment Placeholders
+
+Config values can reference environment variables using VictoriaMetrics-style placeholders:
+
+```yaml
+router:
+  router_id: "%{POD_IP}"
+bgp:
+  neighbors:
+    - name: frr
+      address: "%{FRR_PEER_IP}"
+```
+
+- `%{VAR_NAME}`: replaces with the value of `VAR_NAME` from the process environment.
+- `%%{VAR_NAME}`: escapes the pattern and keeps it as literal `%{VAR_NAME}`.
+- If any referenced variable is missing, startup fails with a clear error listing missing names.
+
 ### Key Config Rules
 
 - `check.timeout` must be strictly less than `check.interval`

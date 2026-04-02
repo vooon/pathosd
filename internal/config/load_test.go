@@ -90,8 +90,20 @@ func TestParse_TOML(t *testing.T) {
 	assert.Equal(t, "web-vip", cfg.VIPs[0].Name)
 }
 
+const minimalJSON = `{"schema":"v1","router":{"asn":65001,"router_id":"10.0.0.1"},"api":{"listen":":8080"},"bgp":{"neighbors":[{"name":"spine-1","address":"10.0.0.254","peer_asn":65000}]},"vips":[{"name":"web-vip","prefix":"10.10.1.1/32","check":{"type":"http","http":{"url":"/healthz","method":"GET"}},"policy":{"fail_action":"withdraw"}}]}`
+
+func TestParse_JSON(t *testing.T) {
+	cfg, err := Parse([]byte(minimalJSON), "yaml")
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, "v1", cfg.Schema)
+	assert.Equal(t, uint32(65001), cfg.Router.ASN)
+	require.Len(t, cfg.VIPs, 1)
+	assert.Equal(t, "web-vip", cfg.VIPs[0].Name)
+}
+
 func TestParse_UnsupportedFormat(t *testing.T) {
-	_, err := Parse([]byte("{}"), "json")
+	_, err := Parse([]byte("{}"), "xml")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported config format")
 }
@@ -125,14 +137,16 @@ func TestDetectFormat(t *testing.T) {
 		{"config.TOML", "toml"},
 		{"/etc/pathosd/pathosd.yaml", "yaml"},
 		{"/etc/pathosd/pathosd.toml", "toml"},
-		{"config.json", ".json"},
+		{"config.json", "yaml"},
+		{"config.JSON", "yaml"},
 		{"config", ""},
+		{"config.ini", ".ini"},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
-			assert.Equal(t, tc.want, detectFormat(tc.path))
-		})
+		// t.Run(tc.path, func(t *testing.T) {
+		assert.Equal(t, tc.want, detectFormat(tc.path), "path: %s", tc.path)
+		// })
 	}
 }
 

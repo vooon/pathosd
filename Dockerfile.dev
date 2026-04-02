@@ -1,10 +1,18 @@
+FROM ghcr.io/goreleaser/goreleaser-cross:v1.26 AS builder
+
+WORKDIR /build
+
+COPY . .
+
+RUN goreleaser build --snapshot --single-target
+
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates
 
 LABEL org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer"
 
-COPY pathosd /usr/local/bin/pathosd
+COPY --from=builder /build/dist/pathosd_linux*/pathosd /usr/local/bin/pathosd
 
 ENTRYPOINT ["pathosd"]
 CMD ["run", "--config", "/etc/pathosd/pathosd.yaml"]

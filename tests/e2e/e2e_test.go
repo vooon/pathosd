@@ -154,12 +154,14 @@ func TestE2E(t *testing.T) {
 
 		routes := frrRoutes(t)
 		webPath := firstRoutePath(t, routes, webVIPPrefix)
-		extractedASPath := extractASPath(webPath)
-		extractedCommunity := extractCommunity(webPath)
+		webPrefixPath := frrPrefixPath(t, webVIPPrefix)
+		extractedASPath := extractASPath(webPrefixPath)
+		extractedCommunity := extractCommunity(webPrefixPath)
 
 		assert.GreaterOrEqual(t, countASN(extractedASPath, "65100"), 6)
 		if !assert.Contains(t, extractedCommunity, "65100:666", "extracted community=%q", extractedCommunity) {
-			t.Logf("selected web-vip path JSON:\n%s", prettyJSON(webPath))
+			t.Logf("selected web-vip path from show ... unicast json:\n%s", prettyJSON(webPath))
+			t.Logf("selected web-vip path from show ... unicast <prefix> json:\n%s", prettyJSON(webPrefixPath))
 			t.Logf("all web-vip paths JSON:\n%s", prettyJSON(routes[webVIPPrefix]))
 			t.Logf("raw FRR web-vip JSON:\n%s", frrShowBGPPrefix(t, webVIPPrefix))
 			t.Logf("raw FRR full BGP JSON:\n%s", frrShowBGP(t))
@@ -467,6 +469,37 @@ func frrRoutesNoFail() (map[string][]map[string]interface{}, error) {
 	return payload.Routes, nil
 }
 
+func frrPrefixPath(t *testing.T, prefix string) map[string]interface{} {
+	t.Helper()
+	path, err := frrPrefixPathNoFail(prefix)
+	require.NoError(t, err)
+	require.NotNilf(t, path, "route for prefix %s not found", prefix)
+	return path
+}
+
+func frrPrefixPathNoFail(prefix string) (map[string]interface{}, error) {
+	raw, err := kubectlNoFail(
+		"exec", "-n", e2eNamespace, "frr", "--",
+		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Paths []map[string]interface{} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal FRR prefix JSON: %w", err)
+	}
+
+	path, ok := firstPathNoFail(payload.Paths)
+	if !ok {
+		return nil, nil
+	}
+	return path, nil
+}
+
 func firstRoutePath(t *testing.T, routes map[string][]map[string]interface{}, prefix string) map[string]interface{} {
 	t.Helper()
 	path, ok := firstRoutePathNoFail(routes, prefix)
@@ -480,14 +513,25 @@ func firstRoutePathNoFail(routes map[string][]map[string]interface{}, prefix str
 		return nil, false
 	}
 
+	return firstPathNoFail(paths)
+}
+
+func firstPathNoFail(paths []map[string]interface{}) (map[string]interface{}, bool) {
+	if len(paths) == 0 {
+		return nil, false
+	}
+
 	for _, p := range paths {
-		bestpath, ok := p["bestpath"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		overall, ok := bestpath["overall"].(bool)
-		if ok && overall {
-			return p, true
+		switch bestpath := p["bestpath"].(type) {
+		case map[string]interface{}:
+			overall, ok := bestpath["overall"].(bool)
+			if ok && overall {
+				return p, true
+			}
+		case bool:
+			if bestpath {
+				return p, true
+			}
 		}
 	}
 

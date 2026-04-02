@@ -174,6 +174,46 @@ func TestProvideMetrics(t *testing.T) {
 	}
 }
 
+func TestRegisterBGPMetrics(t *testing.T) {
+	cfg := &config.Config{
+		Router: config.RouterConfig{
+			ASN:      65000,
+			RouterID: "10.0.0.1",
+		},
+		BGP: config.BGPConfig{
+			Neighbors: []config.NeighborConfig{
+				{
+					Name:    "peer-1",
+					Address: "192.0.2.1",
+					PeerASN: 65001,
+					Passive: true,
+				},
+			},
+		},
+	}
+
+	m := metrics.New(metrics.GenerateCheckBuckets(time.Second))
+	mgr := bgp.NewManager(cfg)
+
+	require.NoError(t, registerBGPMetrics(m, mgr))
+	require.NoError(t, registerBGPMetrics(m, mgr), "registration should be idempotent")
+
+	require.NoError(t, mgr.Start(context.Background()))
+	t.Cleanup(func() { mgr.Stop(context.Background()) })
+	require.NoError(t, mgr.AddPeers(context.Background()))
+
+	mfs, err := m.Registry.Gather()
+	require.NoError(t, err)
+
+	names := make(map[string]struct{}, len(mfs))
+	for _, mf := range mfs {
+		names[mf.GetName()] = struct{}{}
+	}
+
+	assert.Contains(t, names, "bgp_peer_state")
+	assert.Contains(t, names, "fsm_loop_event_timing_sec")
+}
+
 func TestProvideSchedulers(t *testing.T) {
 	t.Run("returns error for unsupported checker type", func(t *testing.T) {
 		cfg := &config.Config{

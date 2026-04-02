@@ -40,6 +40,7 @@ func Run(cfg *config.Config) error {
 		}),
 		fx.Invoke(
 			ensureLoggerInitialized,
+			registerBGPMetrics,
 			registerProcessLifecycle,
 			registerBGPLifecycle,
 			registerPeerWatcherLifecycle,
@@ -149,6 +150,13 @@ func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manag
 }
 
 func ensureLoggerInitialized(_ *slog.Logger) {}
+
+func registerBGPMetrics(m *metrics.Metrics, bgpMgr *bgp.Manager) error {
+	if err := bgpMgr.RegisterMetrics(m.Registry); err != nil {
+		return fmt.Errorf("registering GoBGP metrics: %w", err)
+	}
+	return nil
+}
 
 func registerProcessLifecycle(lc fx.Lifecycle) {
 	lc.Append(fx.Hook{

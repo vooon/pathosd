@@ -9,22 +9,50 @@ import (
 	"strings"
 
 	api "github.com/osrg/gobgp/v3/api"
+	gobgpmetrics "github.com/osrg/gobgp/v3/pkg/metrics"
 	"github.com/osrg/gobgp/v3/pkg/server"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/model"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type Manager struct {
-	server   *server.BgpServer
-	cfg      *config.Config
-	localASN uint32
+	server              *server.BgpServer
+	cfg                 *config.Config
+	localASN            uint32
+	fsmTimingsCollector gobgpmetrics.FSMTimingsCollector
 }
 
 func NewManager(cfg *config.Config) *Manager {
 	gobgpLog := slog.Default().With("component", "gobgp")
-	s := server.NewBgpServer(server.LoggerOption(newGoBGPLogger(gobgpLog, cfg.Logging.Level)))
-	return &Manager{server: s, cfg: cfg, localASN: cfg.Router.ASN}
+	fsmTimingsCollector := gobgpmetrics.NewFSMTimingsCollector()
+	s := server.NewBgpServer(
+		server.LoggerOption(newGoBGPLogger(gobgpLog, cfg.Logging.Level)),
+		server.TimingHookOption(fsmTimingsCollector),
+	)
+	return &Manager{
+		server:              s,
+		cfg:                 cfg,
+		localASN:            cfg.Router.ASN,
+		fsmTimingsCollector: fsmTimingsCollector,
+	}
+}
+
+func (m *Manager) RegisterMetrics(reg prometheus.Registerer) error {
+	collectors := []prometheus.Collector{
+		gobgpmetrics.NewBgpCollector(m.server),
+		m.fsmTimingsCollector,
+	}
+	for _, collector := range collectors {
+		if err := reg.Register(collector); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				continue
+			}
+			return fmt.Errorf("registering GoBGP collector: %w", err)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) Start(ctx context.Context) error {

@@ -140,6 +140,29 @@ go generate ./internal/config/...
 git diff --exit-code schema/
 ```
 
+## E2E Testing
+
+End-to-end tests run pathosd with FRR, nginx, and CoreDNS inside k3d/k3s and validate announce, pessimization, and withdraw behavior.
+
+- Test code: `tests/e2e/e2e_test.go` (`//go:build e2e`)
+- Manifests: `tests/e2e/manifests/`
+- Design notes: `docs/e2e-test-design.md`
+
+Run locally:
+
+```bash
+make e2e
+```
+
+Or step-by-step:
+
+```bash
+make e2e-cluster
+make e2e-build
+make e2e-deploy
+make e2e-test
+```
+
 ## Running
 
 ### Binary

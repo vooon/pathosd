@@ -44,7 +44,7 @@ spec:
         - -Z
       securityContext:
         capabilities:
-          add: ["NET_ADMIN", "NET_RAW"]
+          add: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
       ports:
         - name: bgp
           containerPort: 179

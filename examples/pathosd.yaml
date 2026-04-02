@@ -7,7 +7,7 @@ router:
   local_address: 10.0.0.1
 
 api:
-  listen: 127.0.0.1:8080
+  listen: 127.0.0.1:59179
 
 logging:
   level: info

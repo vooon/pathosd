@@ -35,7 +35,7 @@ type RouterConfig struct {
 
 // APIConfig configures the HTTP API server.
 type APIConfig struct {
-	// Listen address for the HTTP API (e.g. ":8080" or "127.0.0.1:8080").
+	// Listen address for the HTTP API (e.g. ":59179" or "127.0.0.1:59179"). Default: :59179.
 	Listen string `yaml:"listen" json:"listen" toml:"listen" jsonschema:"required"`
 }
 

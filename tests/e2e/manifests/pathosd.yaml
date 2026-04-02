@@ -20,7 +20,7 @@ data:
       keepalive_time: 10s
       neighbors:
         - name: frr
-          address: __FRR_SERVICE_HOST__
+          address: __FRR_PEER_IP__
           peer_asn: 65200
           required: true
           port: 179
@@ -83,15 +83,25 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              set -eu
+              peer_host="frr.pathosd-e2e.svc.cluster.local"
               i=0
-              until nc -z -w 1 frr.pathosd-e2e.svc.cluster.local 179; do
+              while :; do
+                peer_ip="$(nslookup "${peer_host}" 2>/dev/null | awk '/^Address([[:space:]]+[0-9]+)?:/ {print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1 || true)"
+                if [ -n "${peer_ip}" ] && nc -z -w 1 "${peer_ip}" 179; then
+                  printf '%s\n' "${peer_ip}" > /work/frr-peer-ip
+                  exit 0
+                fi
                 i=$((i+1))
                 if [ "$i" -ge 120 ]; then
-                  echo "timed out waiting for frr:179" >&2
+                  echo "timed out waiting for frr bgp endpoint" >&2
                   exit 1
                 fi
                 sleep 1
               done
+          volumeMounts:
+            - name: runtime-data
+              mountPath: /work
       containers:
         - name: pathosd
           image: pathosd:e2e
@@ -100,14 +110,15 @@ spec:
           args:
             - |
               set -eu
-              if [ -z "${FRR_SERVICE_HOST:-}" ]; then
-                echo "FRR_SERVICE_HOST is not set" >&2
+              FRR_PEER_IP="$(cat /work/frr-peer-ip 2>/dev/null || true)"
+              if [ -z "${FRR_PEER_IP}" ]; then
+                echo "FRR peer IP is not available" >&2
                 exit 1
               fi
 
               cp /etc/pathosd-template/pathosd.yaml /tmp/pathosd.yaml
               sed -i "s/__POD_IP__/${POD_IP}/g" /tmp/pathosd.yaml
-              sed -i "s/__FRR_SERVICE_HOST__/${FRR_SERVICE_HOST}/g" /tmp/pathosd.yaml
+              sed -i "s/__FRR_PEER_IP__/${FRR_PEER_IP}/g" /tmp/pathosd.yaml
 
               exec /usr/local/bin/pathosd run --config /tmp/pathosd.yaml
           env:
@@ -137,10 +148,14 @@ spec:
           volumeMounts:
             - name: pathosd-config
               mountPath: /etc/pathosd-template
+            - name: runtime-data
+              mountPath: /work
       volumes:
         - name: pathosd-config
           configMap:
             name: pathosd-config
+        - name: runtime-data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

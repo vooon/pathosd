@@ -22,7 +22,8 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.Config) *Manager {
-	s := server.NewBgpServer(server.LoggerOption(newGoBGPLogger(slog.Default(), cfg.Logging.Level)))
+	gobgpLog := slog.Default().With("component", "gobgp")
+	s := server.NewBgpServer(server.LoggerOption(newGoBGPLogger(gobgpLog, cfg.Logging.Level)))
 	return &Manager{server: s, cfg: cfg, localASN: cfg.Router.ASN}
 }
 

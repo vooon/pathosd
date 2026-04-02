@@ -76,3 +76,9 @@ func TestGoBGPLoggerHonorsLevel(t *testing.T) {
 	assert.Equal(t, "debug-message-2", records[1].message)
 	assert.Equal(t, slog.LevelDebug, records[1].level)
 }
+
+func TestNormalizeFieldKey(t *testing.T) {
+	assert.Equal(t, "topic", normalizeFieldKey("Topic"))
+	assert.Equal(t, "key", normalizeFieldKey("Key"))
+	assert.Equal(t, "field", normalizeFieldKey(""))
+}

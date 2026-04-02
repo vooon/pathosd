@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	gobgplog "github.com/osrg/gobgp/v3/pkg/log"
@@ -77,9 +78,16 @@ func (l *goBGPLogger) log(level gobgplog.LogLevel, msg string, fields gobgplog.F
 
 	attrs := make([]any, 0, len(fields)*2)
 	for k, v := range fields {
-		attrs = append(attrs, k, v)
+		attrs = append(attrs, normalizeFieldKey(k), v)
 	}
 	l.logger.Log(context.Background(), slogLevel(level), msg, attrs...)
+}
+
+func normalizeFieldKey(k string) string {
+	if k == "" {
+		return "field"
+	}
+	return strings.ToLower(k)
 }
 
 func slogLevel(level gobgplog.LogLevel) slog.Level {

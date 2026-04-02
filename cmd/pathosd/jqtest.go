@@ -14,7 +14,7 @@ type JQTestCmd struct {
 	File       string `help:"JSON file to read (default: stdin)." short:"f" type:"existingfile"`
 }
 
-func (cmd *JQTestCmd) Run() error {
+func (cmd *JQTestCmd) Run() (err error) {
 	query, err := gojq.Parse(cmd.Expression)
 	if err != nil {
 		return fmt.Errorf("invalid JQ expression: %w", err)
@@ -26,7 +26,11 @@ func (cmd *JQTestCmd) Run() error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() {
+			if closeErr := f.Close(); closeErr != nil && err == nil {
+				err = fmt.Errorf("closing %s: %w", cmd.File, closeErr)
+			}
+		}()
 		input = f
 	}
 

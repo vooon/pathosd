@@ -67,9 +67,7 @@ func NewServer(deps ServerDeps) *http.Server {
 
 func handleHealthz() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
 
@@ -107,13 +105,10 @@ func handleReadyz(bgpMgr *bgp.Manager, cfg *config.Config) http.HandlerFunc {
 				unready = append(unready, p)
 			}
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if allReady {
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ready", "peers": peers})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ready", "peers": peers})
 		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]interface{}{"status": "not_ready", "unready": unready, "peers": peers})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"status": "not_ready", "unready": unready, "peers": peers})
 		}
 	}
 }
@@ -128,8 +123,7 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 			Peers:    deps.BGP.GetPeerStates(r.Context()),
 			VIPs:     deps.Policy.GetVIPStatuses(),
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
+		writeJSON(w, http.StatusOK, status)
 	}
 }
 
@@ -138,21 +132,24 @@ func handleTriggerCheck(schedulers map[string]*checks.Scheduler) http.HandlerFun
 		name := r.PathValue("name")
 		sched, ok := schedulers[name]
 		if !ok {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "VIP not found: " + name})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "VIP not found: " + name})
 			return
 		}
 		result, err := sched.TriggerCheck(r.Context())
 		if err != nil {
 			slog.Error("ad-hoc check failed", "vip", name, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"vip": name, "result": result})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"vip": name, "result": result})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		slog.Error("failed to write JSON response", "status", status, "error", err)
 	}
 }
 

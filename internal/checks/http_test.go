@@ -68,7 +68,7 @@ func (s *HTTPCheckerSuite) TestNewHTTPChecker_InvalidJQ() {
 
 func (s *HTTPCheckerSuite) TestSuccess200() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "healthy")
+		_, _ = fmt.Fprint(w, "healthy")
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200}})
 	result := c.Check(context.TODO())
@@ -97,7 +97,7 @@ func (s *HTTPCheckerSuite) TestMultipleResponseCodes() {
 
 func (s *HTTPCheckerSuite) TestResponseTextMatch() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "status: healthy")
+		_, _ = fmt.Fprint(w, "status: healthy")
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200}, ResponseText: "healthy"})
 	result := c.Check(context.TODO())
@@ -106,7 +106,7 @@ func (s *HTTPCheckerSuite) TestResponseTextMatch() {
 
 func (s *HTTPCheckerSuite) TestResponseTextMismatch() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "status: degraded")
+		_, _ = fmt.Fprint(w, "status: degraded")
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200}, ResponseText: "healthy"})
 	result := c.Check(context.TODO())
@@ -118,7 +118,7 @@ func (s *HTTPCheckerSuite) TestCustomHeaders() {
 	var receivedHeader string
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeader = r.Header.Get("X-Custom")
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
@@ -141,7 +141,7 @@ func (s *HTTPCheckerSuite) TestHEADMethod() {
 
 func (s *HTTPCheckerSuite) TestTLSInsecure() {
 	ts := s.tlsServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "tls ok")
+		_, _ = fmt.Fprint(w, "tls ok")
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200}, TLSInsecure: true})
 	result := c.Check(context.TODO())
@@ -151,7 +151,7 @@ func (s *HTTPCheckerSuite) TestTLSInsecure() {
 func (s *HTTPCheckerSuite) TestResponseJQ_True() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"ok"}`)
+		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
@@ -164,7 +164,7 @@ func (s *HTTPCheckerSuite) TestResponseJQ_True() {
 func (s *HTTPCheckerSuite) TestResponseJQ_False() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"degraded"}`)
+		_, _ = fmt.Fprint(w, `{"status":"degraded"}`)
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
@@ -177,7 +177,7 @@ func (s *HTTPCheckerSuite) TestResponseJQ_False() {
 
 func (s *HTTPCheckerSuite) TestResponseJQ_NotJSON() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `not json`)
+		_, _ = fmt.Fprint(w, `not json`)
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
@@ -190,7 +190,7 @@ func (s *HTTPCheckerSuite) TestResponseJQ_NotJSON() {
 
 func (s *HTTPCheckerSuite) TestResponseRegex_Match() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `status: healthy (v1.2.3)`)
+		_, _ = fmt.Fprint(w, `status: healthy (v1.2.3)`)
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
@@ -202,7 +202,7 @@ func (s *HTTPCheckerSuite) TestResponseRegex_Match() {
 
 func (s *HTTPCheckerSuite) TestResponseRegex_NoMatch() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `status: degraded`)
+		_, _ = fmt.Fprint(w, `status: degraded`)
 	})
 	c := s.checker(ts, &config.HTTPCheckConfig{
 		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},

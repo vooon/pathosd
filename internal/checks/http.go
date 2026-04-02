@@ -83,7 +83,7 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 		timedOut := ctx.Err() == context.DeadlineExceeded
 		return Result{Duration: dur, Err: err, Detail: err.Error(), TimedOut: timedOut}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !slices.Contains(c.cfg.ResponseCodes, resp.StatusCode) {
 		return Result{Duration: dur, Detail: fmt.Sprintf("unexpected status %d (want %v)", resp.StatusCode, c.cfg.ResponseCodes)}

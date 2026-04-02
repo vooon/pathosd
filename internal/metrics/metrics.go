@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	pver "github.com/prometheus/client_golang/prometheus/collectors/version"
 )
 
@@ -103,8 +104,8 @@ func New(checkBuckets []float64) *Metrics {
 	reg := prometheus.NewRegistry()
 
 	// Include Go runtime and process collectors
-	reg.MustRegister(prometheus.NewGoCollector())
-	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
 	m := &Metrics{
 		Registry: reg,

@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vooon/pathosd/internal/bgp"
 	"github.com/vooon/pathosd/internal/checks"
@@ -19,27 +19,18 @@ import (
 	"github.com/vooon/pathosd/internal/policy"
 )
 
-type fakeChecker struct {
-	mu     sync.Mutex
-	calls  int
-	result checks.Result
+type mockChecker struct {
+	mock.Mock
 }
 
-func (f *fakeChecker) Check(_ context.Context) checks.Result {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls++
-	return f.result
+func (m *mockChecker) Check(ctx context.Context) checks.Result {
+	args := m.Called(ctx)
+	result, _ := args.Get(0).(checks.Result)
+	return result
 }
 
-func (f *fakeChecker) Type() string {
+func (m *mockChecker) Type() string {
 	return "fake"
-}
-
-func (f *fakeChecker) Calls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.calls
 }
 
 func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
@@ -108,7 +99,7 @@ func performRequest(t *testing.T, srv *http.Server, method, path string) *httpte
 }
 
 func TestNewServer_Healthz(t *testing.T) {
-	srv := newTestServer(t, &fakeChecker{result: checks.Result{Success: true}})
+	srv := newTestServer(t, &mockChecker{})
 
 	rr := performRequest(t, srv, http.MethodGet, "/healthz")
 
@@ -118,7 +109,7 @@ func TestNewServer_Healthz(t *testing.T) {
 }
 
 func TestNewServer_LandingAndAssets(t *testing.T) {
-	srv := newTestServer(t, &fakeChecker{result: checks.Result{Success: true}})
+	srv := newTestServer(t, &mockChecker{})
 
 	t.Run("landing page", func(t *testing.T) {
 		rr := performRequest(t, srv, http.MethodGet, "/")
@@ -151,7 +142,7 @@ func TestNewServer_LandingAndAssets(t *testing.T) {
 }
 
 func TestNewServer_Status(t *testing.T) {
-	srv := newTestServer(t, &fakeChecker{result: checks.Result{Success: true}})
+	srv := newTestServer(t, &mockChecker{})
 
 	rr := performRequest(t, srv, http.MethodGet, "/status")
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -172,19 +163,18 @@ func TestNewServer_Status(t *testing.T) {
 }
 
 func TestNewServer_TriggerCheck(t *testing.T) {
-	checker := &fakeChecker{
-		result: checks.Result{
-			Success: true,
-			Detail:  "ok",
-		},
-	}
+	checker := &mockChecker{}
+	checker.On("Check", mock.Anything).Return(checks.Result{
+		Success: true,
+		Detail:  "ok",
+	}).Once()
 	srv := newTestServer(t, checker)
 
 	t.Run("success", func(t *testing.T) {
 		rr := performRequest(t, srv, http.MethodPost, "/api/v1/vips/vip-1/check")
 		require.Equal(t, http.StatusOK, rr.Code)
 		assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
-		assert.GreaterOrEqual(t, checker.Calls(), 1)
+		checker.AssertExpectations(t)
 
 		var payload map[string]any
 		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &payload))

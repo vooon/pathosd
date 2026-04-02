@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pathosd
+  namespace: pathosd-e2e
+  labels:
+    app: pathosd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pathosd
+  template:
+    metadata:
+      labels:
+        app: pathosd
+    spec:
+      containers:
+        - name: pathosd
+          image: pathosd:e2e
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              set -eu
+              if [ -z "${FRR_SERVICE_HOST:-}" ]; then
+                echo "FRR_SERVICE_HOST is not set" >&2
+                exit 1
+              fi
+
+              cp /etc/pathosd-template/pathosd.yaml /tmp/pathosd.yaml
+              sed -i "s/__POD_IP__/${POD_IP}/g" /tmp/pathosd.yaml
+              sed -i "s/__FRR_SERVICE_HOST__/${FRR_SERVICE_HOST}/g" /tmp/pathosd.yaml
+
+              exec /usr/local/bin/pathosd run --config /tmp/pathosd.yaml
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 59179
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 59179
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 59179
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: pathosd-config
+              mountPath: /etc/pathosd-template
+      volumes:
+        - name: pathosd-config
+          configMap:
+            name: pathosd-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pathosd
+  namespace: pathosd-e2e
+  labels:
+    app: pathosd
+spec:
+  selector:
+    app: pathosd
+  ports:
+    - name: http
+      port: 59179
+      targetPort: 59179
+      protocol: TCP

@@ -1,0 +1,54 @@
+name: E2E Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main, first-steps, integration-tests]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: nolar/setup-k3d-k3s@v1
+        with:
+          version: v1.31
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and load pathosd image
+        run: |
+          docker build -f Dockerfile.e2e -t pathosd:e2e .
+          k3d image import pathosd:e2e
+
+      - name: Deploy e2e stack
+        run: |
+          kubectl apply -f tests/e2e/manifests/
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=frr --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=nginx --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=coredns --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=pathosd --timeout=120s
+
+      - name: Run e2e tests
+        run: go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...
+
+      - name: Debug on failure
+        if: failure()
+        run: |
+          echo "=== Pod Status ==="
+          kubectl -n pathosd-e2e get pods -o wide
+          echo "=== pathosd logs ==="
+          kubectl -n pathosd-e2e logs -l app=pathosd --tail=100 || true
+          echo "=== FRR logs ==="
+          kubectl -n pathosd-e2e logs frr --tail=50 || true
+          echo "=== FRR BGP summary ==="
+          kubectl -n pathosd-e2e exec frr -- vtysh -c "show bgp summary" || true

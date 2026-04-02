@@ -33,7 +33,10 @@ func Run(cfg *config.Config) error {
 			provideHTTPServer,
 		),
 		fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
-			return &fxevent.SlogLogger{Logger: logger.With("component", "fx")}
+			fxlog := &fxevent.SlogLogger{Logger: logger.With("component", "fx")}
+			fxlog.UseLogLevel(slog.LevelDebug)
+			fxlog.UseErrorLevel(slog.LevelError)
+			return fxlog
 		}),
 		fx.Invoke(
 			ensureLoggerInitialized,

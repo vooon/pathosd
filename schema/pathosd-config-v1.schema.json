@@ -158,7 +158,7 @@
       "required": [
         "Duration"
       ],
-      "description": "Duration wraps time.Duration for YAML/TOML/JSON unmarshaling from strings like \"1s\", \"500ms\"."
+      "description": "Duration wraps time.Duration for JSON and TOML unmarshaling from strings like \"1s\", \"500ms\"."
     },
     "HTTPCheckConfig": {
       "properties": {

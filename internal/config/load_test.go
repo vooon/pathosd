@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -184,4 +186,94 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	cfg, err := Load("../../examples/pathosd.yaml")
 	require.NoError(t, err)
 	assert.NotNil(t, cfg.BGP.GracefulRestart, "GracefulRestart should be set after Load")
+}
+
+func TestExpandEnvPlaceholders(t *testing.T) {
+	t.Setenv("TEST_IP", "10.0.0.10")
+	got, err := expandEnvPlaceholders([]byte("address: %{TEST_IP}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "address: 10.0.0.10\n", string(got))
+}
+
+func TestExpandEnvPlaceholders_MissingVariable(t *testing.T) {
+	got, err := expandEnvPlaceholders([]byte("address: %{MISSING_IP}\n"))
+	require.Error(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, err.Error(), "MISSING_IP")
+}
+
+func TestExpandEnvPlaceholders_EscapedPlaceholder(t *testing.T) {
+	t.Setenv("TEST_IP", "10.0.0.10")
+	got, err := expandEnvPlaceholders([]byte("literal: %%{TEST_IP}\nactual: %{TEST_IP}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "literal: %{TEST_IP}\nactual: 10.0.0.10\n", string(got))
+}
+
+func TestLoad_EnvPlaceholdersYAML(t *testing.T) {
+	t.Setenv("PATHOSD_TEST_ROUTER_ID", "10.0.0.44")
+	t.Setenv("PATHOSD_TEST_NEIGHBOR_IP", "10.0.0.254")
+
+	content := `
+schema: v1
+router:
+  asn: 65001
+  router_id: "%{PATHOSD_TEST_ROUTER_ID}"
+api:
+  listen: ":8080"
+bgp:
+  neighbors:
+    - name: spine-1
+      address: "%{PATHOSD_TEST_NEIGHBOR_IP}"
+      peer_asn: 65000
+vips:
+  - name: web-vip
+    prefix: 10.10.1.1/32
+    check:
+      type: http
+      http:
+        url: /healthz
+    policy:
+      fail_action: withdraw
+`
+
+	cfgPath := filepath.Join(t.TempDir(), "pathosd.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
+
+	cfg, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.0.44", cfg.Router.RouterID)
+	assert.Equal(t, "10.0.0.254", cfg.BGP.Neighbors[0].Address)
+}
+
+func TestLoad_EnvPlaceholdersMissingVariable(t *testing.T) {
+	content := `
+schema: v1
+router:
+  asn: 65001
+  router_id: "%{PATHOSD_TEST_ROUTER_ID_MISSING}"
+api:
+  listen: ":8080"
+bgp:
+  neighbors:
+    - name: spine-1
+      address: 10.0.0.254
+      peer_asn: 65000
+vips:
+  - name: web-vip
+    prefix: 10.10.1.1/32
+    check:
+      type: http
+      http:
+        url: /healthz
+    policy:
+      fail_action: withdraw
+`
+
+	cfgPath := filepath.Join(t.TempDir(), "pathosd.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expanding environment placeholders")
+	assert.Contains(t, err.Error(), "PATHOSD_TEST_ROUTER_ID_MISSING")
 }

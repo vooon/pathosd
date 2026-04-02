@@ -8,8 +8,8 @@ data:
     schema: v1
     router:
       asn: 65100
-      router_id: __POD_IP__
-      local_address: __POD_IP__
+      router_id: "%{POD_IP}"
+      local_address: "%{POD_IP}"
     api:
       listen: ":59179"
     logging:
@@ -20,7 +20,7 @@ data:
       keepalive_time: 10s
       neighbors:
         - name: frr
-          address: __FRR_PEER_IP__
+          address: "%{FRR_PEER_IP}"
           peer_asn: 65200
           required: true
           port: 179
@@ -110,17 +110,13 @@ spec:
           args:
             - |
               set -eu
-              FRR_PEER_IP="$(cat /work/frr-peer-ip 2>/dev/null || true)"
+              export FRR_PEER_IP="$(cat /work/frr-peer-ip 2>/dev/null || true)"
               if [ -z "${FRR_PEER_IP}" ]; then
                 echo "FRR peer IP is not available" >&2
                 exit 1
               fi
 
-              cp /etc/pathosd-template/pathosd.yaml /tmp/pathosd.yaml
-              sed -i "s/__POD_IP__/${POD_IP}/g" /tmp/pathosd.yaml
-              sed -i "s/__FRR_PEER_IP__/${FRR_PEER_IP}/g" /tmp/pathosd.yaml
-
-              exec /usr/local/bin/pathosd run --config /tmp/pathosd.yaml
+              exec /usr/local/bin/pathosd run --config /etc/pathosd/pathosd.yaml
           env:
             - name: POD_IP
               valueFrom:
@@ -147,7 +143,7 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: pathosd-config
-              mountPath: /etc/pathosd-template
+              mountPath: /etc/pathosd
             - name: runtime-data
               mountPath: /work
       volumes:

@@ -18,13 +18,26 @@ data:
      address-family ipv4 unicast
       neighbor pathosd activate
      exit-address-family
-  zebra.conf: |
-    frr version 10.3
-    frr defaults traditional
-    hostname zebra
-    log stdout informational
   vtysh.conf: |
     service integrated-vtysh-config
+  daemons: |
+    bgpd=yes
+    ospfd=no
+    ospf6d=no
+    ripd=no
+    ripngd=no
+    isisd=no
+    pimd=no
+    ldpd=no
+    nhrpd=no
+    eigrpd=no
+    babeld=no
+    sharpd=no
+    pbrd=no
+    bfdd=no
+    fabricd=no
+    vrrpd=no
+    pathd=no
 ---
 apiVersion: v1
 kind: Pod
@@ -38,13 +51,6 @@ spec:
     - name: frr
       image: quay.io/frrouting/frr:10.3.1
       imagePullPolicy: IfNotPresent
-      command: ["/bin/sh", "-ec"]
-      args:
-        - |
-          set -eu
-          mkdir -p /var/run/frr
-          /usr/lib/frr/zebra -d -f /etc/frr/zebra.conf -A 127.0.0.1
-          exec /usr/lib/frr/bgpd -f /etc/frr/bgpd.conf -A 0.0.0.0 -p 179
       securityContext:
         capabilities:
           add: ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
@@ -64,8 +70,8 @@ spec:
           mountPath: /etc/frr/bgpd.conf
           subPath: bgpd.conf
         - name: frr-config
-          mountPath: /etc/frr/zebra.conf
-          subPath: zebra.conf
+          mountPath: /etc/frr/daemons
+          subPath: daemons
         - name: frr-config
           mountPath: /etc/frr/vtysh.conf
           subPath: vtysh.conf

@@ -28,10 +28,14 @@ type BGPNotifier interface {
 
 type Manager struct {
 	mu       sync.Mutex
-	vips     map[string]*vipState
-	configs  map[string]*config.VIPConfig
+	vips     map[string]*vipEntry
 	metrics  *metrics.Metrics
 	notifier BGPNotifier
+}
+
+type vipEntry struct {
+	cfg   *config.VIPConfig
+	state vipState
 }
 
 type vipState struct {
@@ -46,21 +50,22 @@ type vipState struct {
 
 func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPNotifier) *Manager {
 	mgr := &Manager{
-		vips:     make(map[string]*vipState, len(vipConfigs)),
-		configs:  make(map[string]*config.VIPConfig, len(vipConfigs)),
+		vips:     make(map[string]*vipEntry, len(vipConfigs)),
 		metrics:  m,
 		notifier: notifier,
 	}
 	now := time.Now()
 	for i := range vipConfigs {
 		v := &vipConfigs[i]
-		mgr.configs[v.Name] = v
-		mgr.vips[v.Name] = &vipState{
-			state:                model.StateWithdrawn,
-			health:               model.HealthUnknown,
-			lowerPriorityFileOn:  lowerPriorityFilePresent(v.Policy.LowerPriorityFile),
-			lastTransitionAt:     now,
-			lastTransitionReason: "initial",
+		mgr.vips[v.Name] = &vipEntry{
+			cfg: v,
+			state: vipState{
+				state:                model.StateWithdrawn,
+				health:               model.HealthUnknown,
+				lowerPriorityFileOn:  lowerPriorityFilePresent(v.Policy.LowerPriorityFile),
+				lastTransitionAt:     now,
+				lastTransitionReason: "initial",
+			},
 		}
 		m.VIPState.WithLabelValues(v.Name, v.Prefix).Set(float64(model.StateWithdrawn))
 		m.VIPPriority.WithLabelValues(v.Name, v.Prefix).Set(1)
@@ -72,12 +77,13 @@ func (m *Manager) OnHealthTransition(t checks.HealthTransition) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	vs, ok := m.vips[t.VIPName]
+	entry, ok := m.vips[t.VIPName]
 	if !ok {
 		slog.Error("transition for unknown VIP", "vip", t.VIPName)
 		return
 	}
-	cfg := m.configs[t.VIPName]
+	cfg := entry.cfg
+	vs := &entry.state
 
 	if t.Healthy {
 		vs.health = model.HealthHealthy
@@ -94,12 +100,13 @@ func (m *Manager) OnHealthTransition(t checks.HealthTransition) {
 
 func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 	m.mu.Lock()
-	vs, ok := m.vips[vipName]
+	entry, ok := m.vips[vipName]
 	if !ok {
 		m.mu.Unlock()
 		return
 	}
-	cfg := m.configs[vipName]
+	cfg := entry.cfg
+	vs := &entry.state
 	vs.lastCheckResult = result
 	vs.lastCheckTime = time.Now()
 
@@ -147,8 +154,9 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 	defer m.mu.Unlock()
 
 	out := make([]model.VIPStatus, 0, len(m.vips))
-	for name, vs := range m.vips {
-		cfg := m.configs[name]
+	for name, entry := range m.vips {
+		cfg := entry.cfg
+		vs := entry.state
 		out = append(out, model.VIPStatus{
 			Name:                 name,
 			Prefix:               cfg.Prefix,

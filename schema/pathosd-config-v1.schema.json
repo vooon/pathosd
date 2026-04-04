@@ -30,6 +30,17 @@
           "$ref": "#/$defs/Duration",
           "description": "BGP keepalive interval. Default: 30s."
         },
+        "listen_address": {
+          "type": "string",
+          "format": "ipv4",
+          "description": "Local address to listen for inbound BGP TCP sessions. If empty, falls back to router.local_address, then 0.0.0.0."
+        },
+        "listen_port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "TCP port to listen on for inbound BGP TCP sessions. Default: 179."
+        },
         "neighbors": {
           "items": {
             "$ref": "#/$defs/NeighborConfig"
@@ -45,6 +56,8 @@
         "graceful_restart",
         "hold_time",
         "keepalive_time",
+        "listen_address",
+        "listen_port",
         "neighbors"
       ],
       "description": "BGPConfig defines global BGP parameters and neighbors."
@@ -325,6 +338,11 @@
           "type": "integer",
           "description": "TCP port for the BGP session. Default: 179."
         },
+        "local_address": {
+          "type": "string",
+          "format": "ipv4",
+          "description": "Local source address for active peering with this neighbor. If empty, falls back to router.local_address."
+        },
         "passive": {
           "type": "boolean",
           "description": "Wait for the peer to initiate the connection instead of connecting actively."
@@ -338,6 +356,7 @@
         "peer_asn",
         "required",
         "port",
+        "local_address",
         "passive"
       ],
       "description": "NeighborConfig defines a BGP peer."

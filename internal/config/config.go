@@ -55,6 +55,10 @@ type BGPConfig struct {
 	HoldTime *Duration `yaml:"hold_time" json:"hold_time" toml:"hold_time"`
 	// BGP keepalive interval. Default: 30s.
 	KeepaliveTime *Duration `yaml:"keepalive_time" json:"keepalive_time" toml:"keepalive_time"`
+	// Local address to listen for inbound BGP TCP sessions. If empty, falls back to router.local_address, then 0.0.0.0.
+	ListenAddress string `yaml:"listen_address" json:"listen_address" toml:"listen_address" jsonschema:"format=ipv4"`
+	// TCP port to listen on for inbound BGP TCP sessions. Default: 179.
+	ListenPort int `yaml:"listen_port" json:"listen_port" toml:"listen_port" jsonschema:"minimum=1,maximum=65535"`
 	// List of BGP neighbors (peers) to establish sessions with.
 	Neighbors []NeighborConfig `yaml:"neighbors" json:"neighbors" toml:"neighbors" jsonschema:"required,minItems=1"`
 }
@@ -71,6 +75,8 @@ type NeighborConfig struct {
 	Required *bool `yaml:"required" json:"required" toml:"required"`
 	// TCP port for the BGP session. Default: 179.
 	Port uint16 `yaml:"port" json:"port" toml:"port"`
+	// Local source address for active peering with this neighbor. If empty, falls back to router.local_address.
+	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address" jsonschema:"format=ipv4"`
 	// Wait for the peer to initiate the connection instead of connecting actively.
 	Passive bool `yaml:"passive" json:"passive" toml:"passive"`
 }

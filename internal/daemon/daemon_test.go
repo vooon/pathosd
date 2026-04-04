@@ -181,6 +181,7 @@ func TestRegisterBGPMetrics(t *testing.T) {
 			RouterID: "10.0.0.1",
 		},
 		BGP: config.BGPConfig{
+			ListenPort: 11790,
 			Neighbors: []config.NeighborConfig{
 				{
 					Name:    "peer-1",
@@ -361,7 +362,8 @@ func TestRegisterBGPLifecycle(t *testing.T) {
 			RouterID: "10.0.0.1",
 		},
 		BGP: config.BGPConfig{
-			Neighbors: []config.NeighborConfig{},
+			ListenPort: 11791,
+			Neighbors:  []config.NeighborConfig{},
 		},
 	}
 	mgr := bgp.NewManager(cfg)
@@ -383,6 +385,7 @@ func TestRegisterPeerWatcherLifecycle(t *testing.T) {
 			RouterID: "10.0.0.1",
 		},
 		BGP: config.BGPConfig{
+			ListenPort: 11792,
 			Neighbors: []config.NeighborConfig{
 				{Name: "peer1", Address: "10.0.0.2", PeerASN: 65001},
 			},
@@ -492,7 +495,8 @@ func TestRun_ReturnsErrorOnStartFailure(t *testing.T) {
 			Listen: "bad addr",
 		},
 		BGP: config.BGPConfig{
-			Neighbors: []config.NeighborConfig{},
+			ListenPort: 11793,
+			Neighbors:  []config.NeighborConfig{},
 		},
 		VIPs: []config.VIPConfig{},
 	}

@@ -46,10 +46,14 @@ Config values can reference environment variables using VictoriaMetrics-style pl
 ```yaml
 router:
   router_id: "%{POD_IP}"
+  local_address: "%{PATHOSD_LOCAL_IP}"
 bgp:
+  listen_address: "%{PATHOSD_LISTEN_IP}"
+  listen_port: 1179
   neighbors:
     - name: frr
       address: "%{FRR_PEER_IP}"
+      local_address: "%{PATHOSD_LOCAL_IP}"
 ```
 
 - `%{VAR_NAME}`: replaces with the value of `VAR_NAME` from the process environment.
@@ -63,6 +67,37 @@ bgp:
 - Each VIP name and prefix must be unique
 - At least one neighbor and one VIP are required
 - `lower_priority` block is only valid when `fail_action` is `lower_priority`
+
+### OpenWrt/FRR Localhost Peering
+
+For localhost peering, always use distinct loopback IPs on each side and set explicit bind addresses:
+
+```yaml
+router:
+  local_address: 127.0.0.1
+bgp:
+  listen_address: 127.0.0.1
+  listen_port: 1179
+  neighbors:
+    - name: frr-local
+      address: 127.0.0.2
+      port: 179
+      local_address: 127.0.0.1
+      passive: false
+```
+
+Recommended patterns:
+
+- Active `pathosd -> FRR`: set `passive: false`, `neighbor.address=<frr-ip>`, `neighbor.port=179`, and `neighbor.local_address=<pathosd-ip>`.
+- Passive `pathosd` with FRR active: set `passive: true` and keep `bgp.listen_port` on pathosd (for example `1179`), then configure FRR to connect to that port.
+
+FRR example when pathosd listens on `1179`:
+
+```frr
+router bgp 65000
+  neighbor 127.0.0.1 remote-as 65001
+  neighbor 127.0.0.1 port 1179
+```
 
 ### JSON Schema
 

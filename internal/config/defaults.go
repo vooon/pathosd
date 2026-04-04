@@ -22,6 +22,9 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.BGP.GracefulRestart == nil {
 		cfg.BGP.GracefulRestart = new(true)
 	}
+	if cfg.BGP.ListenPort == 0 {
+		cfg.BGP.ListenPort = 179
+	}
 
 	for i := range cfg.BGP.Neighbors {
 		n := &cfg.BGP.Neighbors[i]

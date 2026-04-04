@@ -45,7 +45,9 @@ func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 		API: config.APIConfig{
 			Listen: ":0",
 		},
-		BGP: config.BGPConfig{},
+		BGP: config.BGPConfig{
+			ListenPort: 11794,
+		},
 		VIPs: []config.VIPConfig{
 			{
 				Name:   "vip-1",

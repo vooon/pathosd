@@ -4,7 +4,7 @@ schema: v1
 router:
   asn: 65001
   router_id: 10.0.0.1
-  local_address: 10.0.0.1
+  local_address: 127.0.0.1
 
 api:
   listen: 127.0.0.1:59179
@@ -17,17 +17,18 @@ bgp:
   graceful_restart: true
   hold_time: 90s
   keepalive_time: 30s
+  # pathosd listens on 1179, FRR stays on 179.
+  listen_address: 127.0.0.1
+  listen_port: 1179
   neighbors:
-    - name: spine-1
-      address: 10.0.0.254
+    # Active pathosd -> FRR localhost peering.
+    - name: frr-local
+      address: 127.0.0.2
       peer_asn: 65000
       required: true
       port: 179
-    - name: spine-2
-      address: 10.0.0.253
-      peer_asn: 65000
-      required: true
-      port: 179
+      local_address: 127.0.0.1
+      passive: false
 
 vips:
   # HTTP health check — full URL form (proto, Host header, path derived from url)

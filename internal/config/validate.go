@@ -55,6 +55,15 @@ func Validate(cfg *Config) []error {
 	}
 
 	// BGP neighbors
+	if cfg.BGP.ListenAddress != "" {
+		if ip := net.ParseIP(cfg.BGP.ListenAddress); ip == nil {
+			add("bgp.listen_address", fmt.Sprintf("must be a valid IP address, got %q", cfg.BGP.ListenAddress))
+		}
+	}
+	if cfg.BGP.ListenPort != 0 && (cfg.BGP.ListenPort < 1 || cfg.BGP.ListenPort > 65535) {
+		add("bgp.listen_port", fmt.Sprintf("must be in range 1..65535, got %d", cfg.BGP.ListenPort))
+	}
+
 	if len(cfg.BGP.Neighbors) == 0 {
 		add("bgp.neighbors", "at least one neighbor is required")
 	}
@@ -75,6 +84,11 @@ func Validate(cfg *Config) []error {
 			add(prefix+".address", "required")
 		} else if ip := net.ParseIP(n.Address); ip == nil {
 			add(prefix+".address", fmt.Sprintf("must be a valid IP address, got %q", n.Address))
+		}
+		if n.LocalAddress != "" {
+			if ip := net.ParseIP(n.LocalAddress); ip == nil {
+				add(prefix+".local_address", fmt.Sprintf("must be a valid IP address, got %q", n.LocalAddress))
+			}
 		}
 
 		if n.PeerASN == 0 {

@@ -75,6 +75,18 @@ func TestApplyDefaults_BGP(t *testing.T) {
 		assert.False(t, *cfg.BGP.GracefulRestart)
 	})
 
+	t.Run("listen_port defaults to 179", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyDefaults(cfg)
+		assert.Equal(t, 179, cfg.BGP.ListenPort)
+	})
+
+	t.Run("listen_port preserved when set", func(t *testing.T) {
+		cfg := &Config{BGP: BGPConfig{ListenPort: 1179}}
+		ApplyDefaults(cfg)
+		assert.Equal(t, 1179, cfg.BGP.ListenPort)
+	})
+
 	t.Run("neighbor Port defaults to 179", func(t *testing.T) {
 		cfg := &Config{
 			BGP: BGPConfig{
@@ -115,6 +127,16 @@ func TestApplyDefaults_BGP(t *testing.T) {
 		ApplyDefaults(cfg)
 		assert.NotNil(t, cfg.BGP.Neighbors[0].Required)
 		assert.False(t, *cfg.BGP.Neighbors[0].Required)
+	})
+
+	t.Run("neighbor local_address preserved when set", func(t *testing.T) {
+		cfg := &Config{
+			BGP: BGPConfig{
+				Neighbors: []NeighborConfig{{Name: "n1", LocalAddress: "127.0.0.1"}},
+			},
+		}
+		ApplyDefaults(cfg)
+		assert.Equal(t, "127.0.0.1", cfg.BGP.Neighbors[0].LocalAddress)
 	})
 }
 

@@ -244,6 +244,119 @@ func TestManagerBuildPath(t *testing.T) {
 	}
 }
 
+func TestManagerBuildGlobalConfig(t *testing.T) {
+	t.Run("uses configured listen address and port", func(t *testing.T) {
+		m := &Manager{
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:      65000,
+					RouterID: "10.0.0.1",
+				},
+				BGP: config.BGPConfig{
+					ListenAddress: "127.0.0.1",
+					ListenPort:    1179,
+				},
+			},
+		}
+
+		global := m.buildGlobalConfig()
+		assert.Equal(t, int32(1179), global.ListenPort)
+		assert.Equal(t, []string{"127.0.0.1"}, global.ListenAddresses)
+	})
+
+	t.Run("falls back to router.local_address and default listen port", func(t *testing.T) {
+		m := &Manager{
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:          65000,
+					RouterID:     "10.0.0.1",
+					LocalAddress: "127.0.0.2",
+				},
+			},
+		}
+
+		global := m.buildGlobalConfig()
+		assert.Equal(t, int32(179), global.ListenPort)
+		assert.Equal(t, []string{"127.0.0.2"}, global.ListenAddresses)
+	})
+
+	t.Run("falls back to wildcard listen address when no local_address", func(t *testing.T) {
+		m := &Manager{
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:      65000,
+					RouterID: "10.0.0.1",
+				},
+			},
+		}
+
+		global := m.buildGlobalConfig()
+		assert.Equal(t, []string{"0.0.0.0"}, global.ListenAddresses)
+	})
+}
+
+func TestManagerBuildPeer(t *testing.T) {
+	newManager := func(routerLocalAddress string) *Manager {
+		graceful := true
+		return &Manager{
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:          65000,
+					RouterID:     "10.0.0.1",
+					LocalAddress: routerLocalAddress,
+				},
+				BGP: config.BGPConfig{
+					GracefulRestart: &graceful,
+				},
+			},
+		}
+	}
+
+	t.Run("passive peer keeps passive mode and local bind fallback", func(t *testing.T) {
+		m := newManager("127.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name:    "frr",
+			Address: "127.0.0.2",
+			PeerASN: 65002,
+			Port:    179,
+			Passive: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, peer.Transport)
+		assert.True(t, peer.Transport.PassiveMode)
+		assert.Equal(t, "127.0.0.1", peer.Transport.LocalAddress)
+		assert.Equal(t, uint32(179), peer.Transport.RemotePort)
+	})
+
+	t.Run("active peer uses neighbor local_address override", func(t *testing.T) {
+		m := newManager("127.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name:         "frr",
+			Address:      "127.0.0.2",
+			PeerASN:      65002,
+			Port:         179,
+			LocalAddress: "127.0.0.3",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, peer.Transport)
+		assert.False(t, peer.Transport.PassiveMode)
+		assert.Equal(t, "127.0.0.3", peer.Transport.LocalAddress)
+		assert.Equal(t, uint32(179), peer.Transport.RemotePort)
+	})
+
+	t.Run("active localhost self-endpoint is rejected", func(t *testing.T) {
+		m := newManager("127.0.0.2")
+		_, err := m.buildPeer(config.NeighborConfig{
+			Name:    "loop",
+			Address: "127.0.0.2",
+			PeerASN: 65002,
+			Port:    179,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must differ from neighbor address")
+	})
+}
+
 func startTestBGPServer(t *testing.T) *Manager {
 	t.Helper()
 
@@ -253,7 +366,8 @@ func startTestBGPServer(t *testing.T) *Manager {
 			RouterID: "10.0.0.1",
 		},
 		BGP: config.BGPConfig{
-			Neighbors: []config.NeighborConfig{},
+			ListenPort: 1179,
+			Neighbors:  []config.NeighborConfig{},
 		},
 	}
 

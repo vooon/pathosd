@@ -3,7 +3,7 @@ schema = "v1"
 [router]
 asn = 65001
 router_id = "10.0.0.1"
-local_address = "10.0.0.1"
+local_address = "127.0.0.1"
 
 [api]
 listen = "127.0.0.1:59179"
@@ -16,20 +16,17 @@ format = "text"
 graceful_restart = true
 hold_time = "90s"
 keepalive_time = "30s"
+listen_address = "127.0.0.1"
+listen_port = 1179
 
 [[bgp.neighbors]]
-name = "spine-1"
-address = "10.0.0.254"
+name = "frr-local"
+address = "127.0.0.2"
 peer_asn = 65000
 required = true
 port = 179
-
-[[bgp.neighbors]]
-name = "spine-2"
-address = "10.0.0.253"
-peer_asn = 65000
-required = true
-port = 179
+local_address = "127.0.0.1"
+passive = false
 
 # HTTP health check — full URL form
 [[vips]]

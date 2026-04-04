@@ -193,6 +193,25 @@ func TestValidate_Logging(t *testing.T) {
 }
 
 func TestValidate_Neighbors(t *testing.T) {
+	t.Run("valid bgp.listen settings", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.ListenAddress = "127.0.0.1"
+		cfg.BGP.ListenPort = 1179
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("invalid bgp.listen_address", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.ListenAddress = "invalid"
+		assertErrorContains(t, Validate(cfg), "bgp.listen_address")
+	})
+
+	t.Run("invalid bgp.listen_port", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.ListenPort = 70000
+		assertErrorContains(t, Validate(cfg), "bgp.listen_port")
+	})
+
 	t.Run("empty neighbor list", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.BGP.Neighbors = nil
@@ -216,6 +235,18 @@ func TestValidate_Neighbors(t *testing.T) {
 		cfg := validConfig()
 		cfg.BGP.Neighbors[0].Address = "notanip"
 		assertErrorContains(t, Validate(cfg), ".address")
+	})
+
+	t.Run("valid neighbor local_address", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].LocalAddress = "127.0.0.1"
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("invalid neighbor local_address", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].LocalAddress = "invalid"
+		assertErrorContains(t, Validate(cfg), ".local_address")
 	})
 
 	t.Run("missing peer_asn", func(t *testing.T) {

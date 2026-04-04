@@ -58,18 +58,8 @@ func (m *Manager) RegisterMetrics(reg prometheus.Registerer) error {
 func (m *Manager) Start(ctx context.Context) error {
 	go m.server.Serve()
 
-	localAddr := m.cfg.Router.LocalAddress
-	if localAddr == "" {
-		localAddr = m.cfg.Router.RouterID
-	}
-
 	req := &api.StartBgpRequest{
-		Global: &api.Global{
-			Asn:             m.cfg.Router.ASN,
-			RouterId:        m.cfg.Router.RouterID,
-			ListenPort:      -1,
-			ListenAddresses: []string{localAddr},
-		},
+		Global: m.buildGlobalConfig(),
 	}
 	if err := m.server.StartBgp(ctx, req); err != nil {
 		return fmt.Errorf("starting BGP: %w", err)
@@ -80,40 +70,9 @@ func (m *Manager) Start(ctx context.Context) error {
 
 func (m *Manager) AddPeers(ctx context.Context) error {
 	for _, n := range m.cfg.BGP.Neighbors {
-		peer := &api.Peer{
-			Conf: &api.PeerConf{
-				NeighborAddress: n.Address,
-				PeerAsn:         n.PeerASN,
-				Description:     n.Name,
-			},
-			Transport: &api.Transport{
-				RemotePort: uint32(n.Port),
-			},
-			AfiSafis: []*api.AfiSafi{{
-				Config: &api.AfiSafiConfig{
-					Family:  &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-					Enabled: true,
-				},
-			}},
-		}
-
-		if n.Passive {
-			peer.Transport.PassiveMode = true
-		}
-
-		if m.cfg.BGP.GracefulRestart != nil && *m.cfg.BGP.GracefulRestart {
-			peer.GracefulRestart = &api.GracefulRestart{Enabled: true}
-		}
-
-		if m.cfg.BGP.HoldTime != nil {
-			peer.Timers = &api.Timers{
-				Config: &api.TimersConfig{
-					HoldTime: uint64(m.cfg.BGP.HoldTime.Seconds()),
-				},
-			}
-			if m.cfg.BGP.KeepaliveTime != nil {
-				peer.Timers.Config.KeepaliveInterval = uint64(m.cfg.BGP.KeepaliveTime.Seconds())
-			}
+		peer, err := m.buildPeer(n)
+		if err != nil {
+			return fmt.Errorf("building peer %s (%s): %w", n.Name, n.Address, err)
 		}
 
 		if err := m.server.AddPeer(ctx, &api.AddPeerRequest{Peer: peer}); err != nil {
@@ -122,6 +81,87 @@ func (m *Manager) AddPeers(ctx context.Context) error {
 		slog.Info("BGP peer added", "name", n.Name, "address", n.Address, "peer_asn", n.PeerASN)
 	}
 	return nil
+}
+
+func (m *Manager) buildGlobalConfig() *api.Global {
+	listenPort := m.cfg.BGP.ListenPort
+	if listenPort == 0 {
+		listenPort = 179
+	}
+
+	return &api.Global{
+		Asn:             m.cfg.Router.ASN,
+		RouterId:        m.cfg.Router.RouterID,
+		ListenPort:      int32(listenPort),
+		ListenAddresses: []string{m.effectiveListenAddress()},
+	}
+}
+
+func (m *Manager) effectiveListenAddress() string {
+	if m.cfg.BGP.ListenAddress != "" {
+		return m.cfg.BGP.ListenAddress
+	}
+	if m.cfg.Router.LocalAddress != "" {
+		return m.cfg.Router.LocalAddress
+	}
+	return "0.0.0.0"
+}
+
+func (m *Manager) peerLocalAddress(n config.NeighborConfig) string {
+	if n.LocalAddress != "" {
+		return n.LocalAddress
+	}
+	return m.cfg.Router.LocalAddress
+}
+
+func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
+	localAddress := m.peerLocalAddress(n)
+	if !n.Passive && localAddress != "" && localAddress == n.Address {
+		return nil, fmt.Errorf(
+			"active peer local_address %q must differ from neighbor address %q to avoid self-dial",
+			localAddress,
+			n.Address,
+		)
+	}
+
+	peer := &api.Peer{
+		Conf: &api.PeerConf{
+			NeighborAddress: n.Address,
+			PeerAsn:         n.PeerASN,
+			Description:     n.Name,
+		},
+		Transport: &api.Transport{
+			LocalAddress: localAddress,
+			RemotePort:   uint32(n.Port),
+		},
+		AfiSafis: []*api.AfiSafi{{
+			Config: &api.AfiSafiConfig{
+				Family:  &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+				Enabled: true,
+			},
+		}},
+	}
+
+	if n.Passive {
+		peer.Transport.PassiveMode = true
+	}
+
+	if m.cfg.BGP.GracefulRestart != nil && *m.cfg.BGP.GracefulRestart {
+		peer.GracefulRestart = &api.GracefulRestart{Enabled: true}
+	}
+
+	if m.cfg.BGP.HoldTime != nil {
+		peer.Timers = &api.Timers{
+			Config: &api.TimersConfig{
+				HoldTime: uint64(m.cfg.BGP.HoldTime.Seconds()),
+			},
+		}
+		if m.cfg.BGP.KeepaliveTime != nil {
+			peer.Timers.Config.KeepaliveInterval = uint64(m.cfg.BGP.KeepaliveTime.Seconds())
+		}
+	}
+
+	return peer, nil
 }
 
 func (m *Manager) AnnounceVIP(prefix string) error {

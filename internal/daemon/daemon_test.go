@@ -52,14 +52,6 @@ func (c *countingChecker) Check(ctx context.Context) checks.Result {
 
 func (c *countingChecker) Type() string { return "fake" }
 
-func durationPtr(v time.Duration) *config.Duration {
-	return &config.Duration{Duration: v}
-}
-
-func intPtr(v int) *int {
-	return &v
-}
-
 func httpCheckConfigFromServerURL(t *testing.T, serverURL string) *config.HTTPCheckConfig {
 	t.Helper()
 
@@ -135,14 +127,14 @@ func TestProvideMetrics(t *testing.T) {
 						Name:   "vip-a",
 						Prefix: "10.0.0.1/32",
 						Check: config.CheckConfig{
-							Timeout: durationPtr(200 * time.Millisecond),
+							Timeout: new(config.Duration{Duration: 200 * time.Millisecond}),
 						},
 					},
 					{
 						Name:   "vip-b",
 						Prefix: "10.0.0.2/32",
 						Check: config.CheckConfig{
-							Timeout: durationPtr(2 * time.Second),
+							Timeout: new(config.Duration{Duration: 2 * time.Second}),
 						},
 					},
 				},
@@ -224,8 +216,8 @@ func TestProvideSchedulers(t *testing.T) {
 					Prefix: "10.0.0.10/32",
 					Check: config.CheckConfig{
 						Type:     "nope",
-						Interval: durationPtr(100 * time.Millisecond),
-						Timeout:  durationPtr(50 * time.Millisecond),
+						Interval: new(config.Duration{Duration: 100 * time.Millisecond}),
+						Timeout:  new(config.Duration{Duration: 50 * time.Millisecond}),
 					},
 				},
 			},
@@ -256,10 +248,10 @@ func TestProvideSchedulers(t *testing.T) {
 					Prefix: "10.0.0.11/32",
 					Check: config.CheckConfig{
 						Type:     config.CheckTypeHTTP,
-						Interval: durationPtr(100 * time.Millisecond),
-						Timeout:  durationPtr(50 * time.Millisecond),
-						Rise:     intPtr(2),
-						Fall:     intPtr(1),
+						Interval: new(config.Duration{Duration: 100 * time.Millisecond}),
+						Timeout:  new(config.Duration{Duration: 50 * time.Millisecond}),
+						Rise:     new(2),
+						Fall:     new(1),
 						HTTP:     httpCfg,
 					},
 				},

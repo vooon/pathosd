@@ -97,6 +97,8 @@ vips:
       fall: 3
       ping:
         dst_ip: 10.0.0.1
+        # Set true to use raw ICMP (requires root/CAP_NET_RAW). Default is false (UDP mode).
+        privileged: false
         count: 3
         timeout: 500ms
         interval: 100ms

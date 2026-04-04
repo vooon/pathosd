@@ -224,7 +224,7 @@ docker run -d \
   pathosd run --config /etc/pathosd/pathosd.yaml
 ```
 
-> `NET_RAW` capability is required for ICMP ping checks. If only HTTP/DNS checks are used, it can be omitted.
+> `NET_RAW` capability is required for ICMP ping checks when `check.ping.privileged=true` (raw ICMP mode). The default `privileged=false` uses unprivileged UDP ping.
 
 ## Version
 

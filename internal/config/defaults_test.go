@@ -485,6 +485,18 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 		assert.NotNil(t, cfg.VIPs[0].Check.Ping)
 		assert.Equal(t, 1, cfg.VIPs[0].Check.Ping.Count)
 	})
+
+	t.Run("Privileged defaults to false", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{})
+		ApplyDefaults(cfg)
+		assert.False(t, cfg.VIPs[0].Check.Ping.Privileged)
+	})
+
+	t.Run("Privileged preserved when true", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{Privileged: true})
+		ApplyDefaults(cfg)
+		assert.True(t, cfg.VIPs[0].Check.Ping.Privileged)
+	})
 }
 
 func TestApplyDefaults_Policy(t *testing.T) {

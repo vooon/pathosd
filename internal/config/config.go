@@ -159,6 +159,8 @@ type PingCheckConfig struct {
 	DstIP string `yaml:"dst_ip" json:"dst_ip" toml:"dst_ip"`
 	// Source IP address for outgoing ICMP packets.
 	SrcIP string `yaml:"src_ip" json:"src_ip" toml:"src_ip"`
+	// Use privileged raw ICMP socket mode. Requires root/CAP_NET_RAW. Default: false (unprivileged UDP mode).
+	Privileged bool `yaml:"privileged,omitempty" json:"privileged,omitempty" toml:"privileged,omitempty" jsonschema:"default=false"`
 	// Number of ICMP echo requests to send per check cycle. Default: 1.
 	Count int `yaml:"count" json:"count" toml:"count" jsonschema:"minimum=1,maximum=60,default=1"`
 	// Per-packet timeout for ICMP replies.

@@ -371,6 +371,11 @@
           "type": "string",
           "description": "Source IP address for outgoing ICMP packets."
         },
+        "privileged": {
+          "type": "boolean",
+          "description": "Use privileged raw ICMP socket mode. Requires root/CAP_NET_RAW. Default: false (unprivileged UDP mode).",
+          "default": false
+        },
         "count": {
           "type": "integer",
           "maximum": 60,

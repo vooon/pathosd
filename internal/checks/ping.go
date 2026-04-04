@@ -22,25 +22,9 @@ func (c *PingChecker) Type() string { return "ping" }
 func (c *PingChecker) Check(ctx context.Context) Result {
 	start := time.Now()
 
-	if c.cfg.DstIP == "" {
-		return Result{Duration: time.Since(start), Detail: "dst_ip is required"}
-	}
-
-	pinger, err := probing.NewPinger(c.cfg.DstIP)
+	pinger, err := c.newConfiguredPinger()
 	if err != nil {
 		return Result{Duration: time.Since(start), Err: err, Detail: err.Error()}
-	}
-	pinger.Count = c.cfg.Count
-	pinger.SetPrivileged(false)
-
-	if c.cfg.SrcIP != "" {
-		pinger.Source = c.cfg.SrcIP
-	}
-	if c.cfg.Timeout != nil {
-		pinger.Timeout = c.cfg.Timeout.Duration
-	}
-	if c.cfg.Interval != nil {
-		pinger.Interval = c.cfg.Interval.Duration
 	}
 
 	done := make(chan error, 1)
@@ -62,4 +46,30 @@ func (c *PingChecker) Check(ctx context.Context) Result {
 		}
 		return Result{Success: true, Duration: dur, Detail: fmt.Sprintf("ping OK %d/%d loss=%.1f%%", stats.PacketsRecv, stats.PacketsSent, stats.PacketLoss)}
 	}
+}
+
+func (c *PingChecker) newConfiguredPinger() (*probing.Pinger, error) {
+	if c.cfg.DstIP == "" {
+		return nil, fmt.Errorf("dst_ip is required")
+	}
+
+	pinger, err := probing.NewPinger(c.cfg.DstIP)
+	if err != nil {
+		return nil, err
+	}
+
+	pinger.Count = c.cfg.Count
+	pinger.SetPrivileged(c.cfg.Privileged)
+
+	if c.cfg.SrcIP != "" {
+		pinger.Source = c.cfg.SrcIP
+	}
+	if c.cfg.Timeout != nil {
+		pinger.Timeout = c.cfg.Timeout.Duration
+	}
+	if c.cfg.Interval != nil {
+		pinger.Interval = c.cfg.Interval.Duration
+	}
+
+	return pinger, nil
 }

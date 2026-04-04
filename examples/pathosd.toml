@@ -106,6 +106,7 @@ prefix = "10.10.3.1/32"
 
     [vips.check.ping]
     dst_ip = "10.0.0.1"
+    privileged = false # true = raw ICMP, requires root/CAP_NET_RAW
     count = 3
     timeout = "500ms"
     interval = "100ms"

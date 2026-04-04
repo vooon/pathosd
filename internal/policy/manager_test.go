@@ -71,10 +71,6 @@ func newTestMetrics() *metrics.Metrics {
 	return metrics.New([]float64{0.1, 0.5, 1.0})
 }
 
-func intPtr(v int) *int {
-	return &v
-}
-
 func testVIPConfigs() []config.VIPConfig {
 	return []config.VIPConfig{
 		{
@@ -96,7 +92,7 @@ func testVIPConfigs() []config.VIPConfig {
 			Policy: config.PolicyConfig{
 				FailAction: "lower_priority",
 				LowerPriority: &config.LowerPriorityConfig{
-					ASPathPrepend: intPtr(2),
+					ASPathPrepend: new(2),
 					Communities:   []string{"65535:100"},
 				},
 			},
@@ -115,7 +111,7 @@ func testCustomPessimizeConfig(prepend int, communities []string) []config.VIPCo
 			Policy: config.PolicyConfig{
 				FailAction: "lower_priority",
 				LowerPriority: &config.LowerPriorityConfig{
-					ASPathPrepend: intPtr(prepend),
+					ASPathPrepend: new(prepend),
 					Communities:   communities,
 				},
 			},
@@ -135,7 +131,7 @@ func testVIPConfigWithLowerPriorityFile(path string, prepend int, communities []
 				FailAction:        "withdraw",
 				LowerPriorityFile: path,
 				LowerPriority: &config.LowerPriorityConfig{
-					ASPathPrepend: intPtr(prepend),
+					ASPathPrepend: new(prepend),
 					Communities:   communities,
 				},
 			},

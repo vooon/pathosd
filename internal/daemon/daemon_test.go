@@ -194,10 +194,10 @@ func TestRegisterBGPMetrics(t *testing.T) {
 	}
 
 	m := metrics.New(metrics.GenerateCheckBuckets(time.Second))
-	mgr := bgp.NewManager(cfg)
+	mgr := bgp.NewManager(cfg, m)
 
-	require.NoError(t, registerBGPMetrics(m, mgr))
-	require.NoError(t, registerBGPMetrics(m, mgr), "registration should be idempotent")
+	require.NoError(t, mgr.RegisterMetrics(m.Registry))
+	require.NoError(t, mgr.RegisterMetrics(m.Registry), "registration should be idempotent")
 
 	require.NoError(t, mgr.Start(context.Background()))
 	t.Cleanup(func() { mgr.Stop(context.Background()) })
@@ -366,7 +366,7 @@ func TestRegisterBGPLifecycle(t *testing.T) {
 			Neighbors:  []config.NeighborConfig{},
 		},
 	}
-	mgr := bgp.NewManager(cfg)
+	mgr := bgp.NewManager(cfg, nil)
 
 	lc := &hookCollector{}
 	registerBGPLifecycle(lc, mgr)
@@ -391,7 +391,7 @@ func TestRegisterPeerWatcherLifecycle(t *testing.T) {
 			},
 		},
 	}
-	mgr := bgp.NewManager(cfg)
+	mgr := bgp.NewManager(cfg, nil)
 	require.NoError(t, mgr.Start(context.Background()))
 	t.Cleanup(func() { mgr.Stop(context.Background()) })
 

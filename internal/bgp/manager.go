@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	api "github.com/osrg/gobgp/v3/api"
 	gobgpmetrics "github.com/osrg/gobgp/v3/pkg/metrics"
 	"github.com/osrg/gobgp/v3/pkg/server"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vooon/pathosd/internal/config"
+	pathosmetrics "github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/model"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -22,9 +26,15 @@ type Manager struct {
 	cfg                 *config.Config
 	localASN            uint32
 	fsmTimingsCollector gobgpmetrics.FSMTimingsCollector
+	mu                  sync.Mutex
+	installedRouteUUID  map[string][]byte
+	metrics             *pathosmetrics.Metrics
+	routeStateByPrefix  map[string]map[string]routeStateLabels
 }
 
-func NewManager(cfg *config.Config) *Manager {
+type routeUUID []byte
+
+func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
 	gobgpLog := slog.Default().With("component", "gobgp")
 	fsmTimingsCollector := gobgpmetrics.NewFSMTimingsCollector()
 	s := server.NewBgpServer(
@@ -36,6 +46,9 @@ func NewManager(cfg *config.Config) *Manager {
 		cfg:                 cfg,
 		localASN:            cfg.Router.ASN,
 		fsmTimingsCollector: fsmTimingsCollector,
+		metrics:             metrics,
+		installedRouteUUID:  make(map[string][]byte),
+		routeStateByPrefix:  make(map[string]map[string]routeStateLabels),
 	}
 }
 
@@ -165,22 +178,7 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 }
 
 func (m *Manager) AnnounceVIP(prefix string) error {
-	nlri, attrs, err := m.buildPath(prefix, 0, nil)
-	if err != nil {
-		return err
-	}
-	_, err = m.server.AddPath(context.Background(), &api.AddPathRequest{
-		Path: &api.Path{
-			Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-			Nlri:   nlri,
-			Pattrs: attrs,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("announcing %s: %w", prefix, err)
-	}
-	slog.Info("BGP announce", "prefix", prefix)
-	return nil
+	return m.upsertVIP(prefix, 0, nil, "announce")
 }
 
 func (m *Manager) WithdrawVIP(prefix string) error {
@@ -188,37 +186,133 @@ func (m *Manager) WithdrawVIP(prefix string) error {
 	if err != nil {
 		return err
 	}
-	err = m.server.DeletePath(context.Background(), &api.DeletePathRequest{
-		Path: &api.Path{
-			Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-			Nlri:   nlri,
-			Pattrs: attrs,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("withdrawing %s: %w", prefix, err)
+	path := &api.Path{
+		Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+		Nlri:   nlri,
+		Pattrs: attrs,
 	}
+
+	uuid := m.installedUUID(prefix)
+
+	if len(uuid) > 0 {
+		err = m.server.DeletePath(context.Background(), &api.DeletePathRequest{
+			Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+			Uuid:   uuid,
+		})
+	} else {
+		err = m.server.DeletePath(context.Background(), &api.DeletePathRequest{
+			Path: path,
+		})
+	}
+	if err != nil {
+		return m.pathOpError("withdraw", prefix, err)
+	}
+
+	m.clearInstalledUUID(prefix)
+
+	m.syncRouteStateMetric(context.Background(), prefix)
 	slog.Info("BGP withdraw", "prefix", prefix)
 	return nil
 }
 
 func (m *Manager) PessimizeVIP(prefix string, prepend int, communities []string) error {
-	nlri, attrs, err := m.buildPath(prefix, prepend, communities)
+	return m.upsertVIP(prefix, prepend, communities, "pessimize")
+}
+
+func (m *Manager) upsertVIP(prefix string, prepend int, communities []string, operation string) error {
+	if prepend > 0 && m.hasIBGPPeer() {
+		slog.Warn(
+			"ignoring local ASN prepend for iBGP-originated route",
+			"operation", operation,
+			"prefix", prefix,
+			"prepend", prepend,
+		)
+	}
+
+	nlri, attrs, err := m.buildPath(prefix, 0, nil)
+	if prepend > 0 || len(communities) > 0 {
+		nlri, attrs, err = m.buildPath(prefix, prepend, communities)
+	}
 	if err != nil {
 		return err
 	}
-	_, err = m.server.AddPath(context.Background(), &api.AddPathRequest{
+
+	path := &api.Path{
+		Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+		Nlri:   nlri,
+		Pattrs: attrs,
+	}
+
+	oldUUID := m.installedUUID(prefix)
+
+	if len(oldUUID) > 0 {
+		if err := m.server.DeletePath(context.Background(), &api.DeletePathRequest{
+			Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+			Uuid:   oldUUID,
+		}); err != nil {
+			return m.pathOpError(operation, prefix, fmt.Errorf("deleting previous path: %w", err))
+		}
+	}
+
+	resp, err := m.server.AddPath(context.Background(), &api.AddPathRequest{
 		Path: &api.Path{
 			Family: &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-			Nlri:   nlri,
-			Pattrs: attrs,
+			Nlri:   path.Nlri,
+			Pattrs: path.Pattrs,
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("pessimizing %s: %w", prefix, err)
+		return m.pathOpError(operation, prefix, err)
 	}
-	slog.Info("BGP pessimize", "prefix", prefix, "prepend", prepend, "communities", communities)
+
+	m.storeInstalledUUID(prefix, resp.GetUuid())
+
+	m.syncRouteStateMetric(context.Background(), prefix)
+	if operation == "announce" {
+		slog.Info("BGP announce", "prefix", prefix, "uuid", fmt.Sprintf("%x", resp.GetUuid()))
+		return nil
+	}
+	slog.Info(
+		"BGP pessimize",
+		"prefix", prefix,
+		"prepend", prepend,
+		"communities", communities,
+		"uuid", fmt.Sprintf("%x", resp.GetUuid()),
+	)
 	return nil
+}
+
+func (m *Manager) pathOpError(operation, prefix string, err error) error {
+	peerCtx := m.peerContext(context.Background())
+	slog.Error(
+		"BGP route operation failed",
+		"operation", operation,
+		"prefix", prefix,
+		"error", err,
+		"peers", peerCtx,
+	)
+	return fmt.Errorf("%s prefix %q failed (peers: %s): %w", operation, prefix, peerCtx, err)
+}
+
+func (m *Manager) peerContext(ctx context.Context) string {
+	peerStates := m.GetPeerStates(ctx)
+	if len(peerStates) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(peerStates))
+	for _, p := range peerStates {
+		name := p.Name
+		if name == "" {
+			name = "unknown"
+		}
+		addr := p.Address
+		if addr == "" {
+			addr = "unknown"
+		}
+		parts = append(parts, fmt.Sprintf("%s(%s,asn=%d,state=%s)", name, addr, p.PeerASN, p.SessionState))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
 
 func (m *Manager) GetPeerStates(ctx context.Context) []model.PeerStatus {
@@ -282,14 +376,27 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 		nextHop = m.cfg.Router.RouterID
 	}
 
-	origin, _ := anypb.New(&api.OriginAttribute{Origin: 0})
-	nh, _ := anypb.New(&api.NextHopAttribute{NextHop: nextHop})
-	asPath, _ := anypb.New(&api.AsPathAttribute{
-		Segments: []*api.AsSegment{{
+	origin, err := anypb.New(&api.OriginAttribute{Origin: 0})
+	if err != nil {
+		return nil, nil, fmt.Errorf("building origin attribute: %w", err)
+	}
+
+	nh, err := anypb.New(&api.NextHopAttribute{NextHop: nextHop})
+	if err != nil {
+		return nil, nil, fmt.Errorf("building next-hop attribute: %w", err)
+	}
+
+	asPathAttr := &api.AsPathAttribute{}
+	if !m.hasIBGPPeer() {
+		asPathAttr.Segments = []*api.AsSegment{{
 			Type:    api.AsSegment_AS_SEQUENCE,
 			Numbers: buildASPath(m.localASN, prepend),
-		}},
-	})
+		}}
+	}
+	asPath, err := anypb.New(asPathAttr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("building as-path attribute: %w", err)
+	}
 
 	attrs := []*anypb.Any{origin, nh, asPath}
 
@@ -298,11 +405,45 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 		if err != nil {
 			return nil, nil, err
 		}
-		commAttr, _ := anypb.New(&api.CommunitiesAttribute{Communities: comms})
+		commAttr, err := anypb.New(&api.CommunitiesAttribute{Communities: comms})
+		if err != nil {
+			return nil, nil, fmt.Errorf("building communities attribute: %w", err)
+		}
 		attrs = append(attrs, commAttr)
 	}
 
 	return nlri, attrs, nil
+}
+
+func (m *Manager) hasIBGPPeer() bool {
+	for _, n := range m.cfg.BGP.Neighbors {
+		if n.PeerASN == m.localASN {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneUUID(uuid []byte) routeUUID {
+	return routeUUID(slices.Clone(uuid))
+}
+
+func (m *Manager) installedUUID(prefix string) routeUUID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cloneUUID(m.installedRouteUUID[prefix])
+}
+
+func (m *Manager) storeInstalledUUID(prefix string, uuid []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.installedRouteUUID[prefix] = cloneUUID(uuid)
+}
+
+func (m *Manager) clearInstalledUUID(prefix string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.installedRouteUUID, prefix)
 }
 
 func buildASPath(localASN uint32, prepend int) []uint32 {

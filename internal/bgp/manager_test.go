@@ -2,12 +2,15 @@ package bgp
 
 import (
 	"context"
+	"net"
 	"testing"
+	"time"
 
 	api "github.com/osrg/gobgp/v3/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/metrics"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -242,6 +245,31 @@ func TestManagerBuildPath(t *testing.T) {
 			assert.Nil(t, decoded.communities)
 		})
 	}
+
+	t.Run("iBGP peers keep local AS out of AS_PATH for valid same-AS export", func(t *testing.T) {
+		manager := &Manager{
+			localASN: 65000,
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:      65000,
+					RouterID: "10.0.0.1",
+				},
+				BGP: config.BGPConfig{
+					Neighbors: []config.NeighborConfig{
+						{Name: "ibgp-peer", Address: "10.0.0.2", PeerASN: 65000, Port: 179},
+					},
+				},
+			},
+		}
+
+		_, attrs, err := manager.buildPath("10.1.0.99/32", 4, []string{"65535:666"})
+		require.NoError(t, err)
+		decoded := decodePathAttrs(t, attrs)
+		require.NotNil(t, decoded.asPath)
+		assert.Empty(t, decoded.asPath.Segments)
+		require.NotNil(t, decoded.communities)
+		assert.Equal(t, []uint32{0xFFFF029A}, decoded.communities.Communities)
+	})
 }
 
 func TestManagerBuildGlobalConfig(t *testing.T) {
@@ -371,7 +399,7 @@ func startTestBGPServer(t *testing.T) *Manager {
 		},
 	}
 
-	m := NewManager(cfg)
+	m := NewManager(cfg, nil)
 	require.NoError(t, m.Start(context.Background()))
 	t.Cleanup(func() { m.Stop(context.Background()) })
 	return m
@@ -405,4 +433,214 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 		err := m.AnnounceVIP("invalid-prefix")
 		require.Error(t, err)
 	})
+}
+
+func reserveTCPPort(t *testing.T) int {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func waitForPeerEstablished(t *testing.T, m *Manager, addr string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		for _, peer := range m.GetPeerStates(context.Background()) {
+			if peer.Address == addr && peer.SessionState == "established" {
+				return true
+			}
+		}
+		return false
+	}, 8*time.Second, 100*time.Millisecond)
+}
+
+func listAdjOutPaths(t *testing.T, m *Manager, peerAddr, prefix string) []*api.Path {
+	t.Helper()
+
+	var out []*api.Path
+	err := m.Server().ListPath(context.Background(), &api.ListPathRequest{
+		TableType: api.TableType_ADJ_OUT,
+		Name:      peerAddr,
+		Family:    &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+		Prefixes: []*api.TableLookupPrefix{{
+			Prefix: prefix,
+			Type:   api.TableLookupPrefix_EXACT,
+		}},
+	}, func(dst *api.Destination) {
+		out = append(out, dst.GetPaths()...)
+	})
+	require.NoError(t, err)
+	return out
+}
+
+func hasCommunity(path *api.Path, community uint32) bool {
+	for _, attr := range path.GetPattrs() {
+		if !attr.MessageIs(&api.CommunitiesAttribute{}) {
+			continue
+		}
+		commAttr := &api.CommunitiesAttribute{}
+		if err := attr.UnmarshalTo(commAttr); err != nil {
+			return false
+		}
+		for _, c := range commAttr.GetCommunities() {
+			if c == community {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func routeStateSamples(t *testing.T, m *metrics.Metrics, prefix, peerIP string) []float64 {
+	t.Helper()
+
+	mfs, err := m.Registry.Gather()
+	require.NoError(t, err)
+
+	var values []float64
+	for _, mf := range mfs {
+		if mf.GetName() != "pathosd_route_state" {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			var nlri, peer string
+			for _, label := range metric.GetLabel() {
+				switch label.GetName() {
+				case "nlri":
+					nlri = label.GetValue()
+				case "peer_ip":
+					peer = label.GetValue()
+				}
+			}
+			if nlri == prefix && peer == peerIP {
+				values = append(values, metric.GetGauge().GetValue())
+			}
+		}
+	}
+	return values
+}
+
+func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *testing.T) {
+	senderPort := reserveTCPPort(t)
+	receiverPort := reserveTCPPort(t)
+
+	receiverCfg := &config.Config{
+		Router: config.RouterConfig{
+			ASN:      65000,
+			RouterID: "127.0.0.2",
+		},
+		BGP: config.BGPConfig{
+			ListenPort: receiverPort,
+			Neighbors: []config.NeighborConfig{
+				{
+					Name:    "sender",
+					Address: "127.0.0.1",
+					PeerASN: 65000,
+					Port:    uint16(senderPort),
+					Passive: true,
+				},
+			},
+		},
+	}
+	senderCfg := &config.Config{
+		Router: config.RouterConfig{
+			ASN:      65000,
+			RouterID: "127.0.0.1",
+		},
+		BGP: config.BGPConfig{
+			ListenPort: senderPort,
+			Neighbors: []config.NeighborConfig{
+				{
+					Name:    "receiver",
+					Address: "127.0.0.1",
+					PeerASN: 65000,
+					Port:    uint16(receiverPort),
+				},
+			},
+		},
+	}
+
+	senderMetrics := metrics.New([]float64{0.1})
+
+	receiver := NewManager(receiverCfg, nil)
+	require.NoError(t, receiver.Start(context.Background()))
+	t.Cleanup(func() { receiver.Stop(context.Background()) })
+	require.NoError(t, receiver.AddPeers(context.Background()))
+
+	sender := NewManager(senderCfg, senderMetrics)
+	require.NoError(t, sender.Start(context.Background()))
+	t.Cleanup(func() { sender.Stop(context.Background()) })
+	require.NoError(t, sender.AddPeers(context.Background()))
+
+	waitForPeerEstablished(t, sender, "127.0.0.1")
+	waitForPeerEstablished(t, receiver, "127.0.0.1")
+
+	const prefix = "10.1.0.50/32"
+	require.NoError(t, sender.AnnounceVIP(prefix))
+
+	var announced []*api.Path
+	require.Eventually(t, func() bool {
+		announced = listAdjOutPaths(t, sender, "127.0.0.1", prefix)
+		return len(announced) > 0
+	}, 8*time.Second, 100*time.Millisecond)
+
+	announceAttrs := decodePathAttrs(t, announced[0].GetPattrs())
+	require.NotNil(t, announceAttrs.asPath)
+	assert.Empty(t, announceAttrs.asPath.GetSegments())
+
+	require.Eventually(t, func() bool {
+		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
+		for _, v := range samples {
+			if v == 1 {
+				return true
+			}
+		}
+		return false
+	}, 8*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, sender.PessimizeVIP(prefix, 3, []string{"65535:666"}))
+
+	require.Eventually(t, func() bool {
+		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
+		for _, p := range paths {
+			if hasCommunity(p, 0xFFFF029A) {
+				decoded := decodePathAttrs(t, p.GetPattrs())
+				return decoded.asPath != nil && len(decoded.asPath.GetSegments()) == 0
+			}
+		}
+		return false
+	}, 8*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, sender.AnnounceVIP(prefix))
+
+	require.Eventually(t, func() bool {
+		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
+		if len(paths) == 0 {
+			return false
+		}
+		for _, p := range paths {
+			if hasCommunity(p, 0xFFFF029A) {
+				return false
+			}
+		}
+		return true
+	}, 8*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, sender.WithdrawVIP(prefix))
+	require.Eventually(t, func() bool {
+		return len(listAdjOutPaths(t, sender, "127.0.0.1", prefix)) == 0
+	}, 8*time.Second, 100*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
+		for _, v := range samples {
+			if v == 0 {
+				return true
+			}
+		}
+		return false
+	}, 8*time.Second, 100*time.Millisecond)
 }

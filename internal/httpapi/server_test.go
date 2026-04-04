@@ -64,7 +64,7 @@ func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 
 	m := metrics.New([]float64{0.1, 0.5, 1.0})
 	pol := policy.NewManager(cfg.VIPs, m, nil)
-	bgpMgr := bgp.NewManager(cfg)
+	bgpMgr := bgp.NewManager(cfg, m)
 	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	require.NoError(t, bgpMgr.Start(startCtx))
 	startCancel()

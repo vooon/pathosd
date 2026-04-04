@@ -40,7 +40,6 @@ func Run(cfg *config.Config) error {
 		}),
 		fx.Invoke(
 			ensureLoggerInitialized,
-			registerBGPMetrics,
 			registerProcessLifecycle,
 			registerBGPLifecycle,
 			registerPeerWatcherLifecycle,
@@ -95,8 +94,12 @@ func provideMetrics(cfg *config.Config) *metrics.Metrics {
 	return metrics.New(buckets)
 }
 
-func provideBGPManager(cfg *config.Config) *bgp.Manager {
-	return bgp.NewManager(cfg)
+func provideBGPManager(cfg *config.Config, m *metrics.Metrics) (*bgp.Manager, error) {
+	bgpMgr := bgp.NewManager(cfg, m)
+	if err := bgpMgr.RegisterMetrics(m.Registry); err != nil {
+		return nil, fmt.Errorf("registering GoBGP metrics: %w", err)
+	}
+	return bgpMgr, nil
 }
 
 type SchedulersResult struct {
@@ -150,13 +153,6 @@ func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manag
 }
 
 func ensureLoggerInitialized(_ *slog.Logger) {}
-
-func registerBGPMetrics(m *metrics.Metrics, bgpMgr *bgp.Manager) error {
-	if err := bgpMgr.RegisterMetrics(m.Registry); err != nil {
-		return fmt.Errorf("registering GoBGP metrics: %w", err)
-	}
-	return nil
-}
 
 func registerProcessLifecycle(lc fx.Lifecycle) {
 	lc.Append(fx.Hook{

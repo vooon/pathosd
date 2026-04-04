@@ -440,8 +440,9 @@ func reserveTCPPort(t *testing.T) int {
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	port := ln.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln.Close())
+	return port
 }
 
 func waitForPeerEstablished(t *testing.T, m *Manager, addr string) {

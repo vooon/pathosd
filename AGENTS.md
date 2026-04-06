@@ -56,6 +56,7 @@ examples/             Sample YAML and TOML configs
 
 ## Review Checklist (Before MR)
 - Compare final branch state against `master` (not intermediate commits).
+- `golangci-lint run ./...` must pass (including `staticcheck` findings such as deprecated API usage).
 - `go build ./...` and `go vet ./...` must pass.
 - `go generate ./internal/config/... && git diff --exit-code schema/` — schema not stale.
 - Verify README and example configs match actual runtime behavior.

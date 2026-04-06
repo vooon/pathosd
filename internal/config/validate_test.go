@@ -262,6 +262,47 @@ func TestValidate_Neighbors(t *testing.T) {
 	})
 }
 
+func TestValidate_GoBGPAPI(t *testing.T) {
+	t.Run("enabled with tcp listen address is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.GoBGPAPI = GoBGPAPIConfig{
+			Enabled: true,
+			Listen:  "127.0.0.1:50051",
+		}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("enabled with unix socket listen is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.GoBGPAPI = GoBGPAPIConfig{
+			Enabled: true,
+			Listen:  "unix:///tmp/pathosd-gobgp.sock",
+		}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("enabled without listen is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.GoBGPAPI = GoBGPAPIConfig{Enabled: true}
+		assertErrorContains(t, Validate(cfg), "bgp.gobgp_api.listen")
+	})
+
+	t.Run("listen without enabled is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.GoBGPAPI = GoBGPAPIConfig{Listen: "127.0.0.1:50051"}
+		assertErrorContains(t, Validate(cfg), "bgp.gobgp_api.listen")
+	})
+
+	t.Run("enabled with invalid listen address is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.GoBGPAPI = GoBGPAPIConfig{
+			Enabled: true,
+			Listen:  "127.0.0.1",
+		}
+		assertErrorContains(t, Validate(cfg), "bgp.gobgp_api.listen")
+	})
+}
+
 func TestValidate_VIPs(t *testing.T) {
 	t.Run("empty VIP list", func(t *testing.T) {
 		cfg := validConfig()

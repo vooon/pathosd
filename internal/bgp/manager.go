@@ -37,10 +37,21 @@ type routeUUID []byte
 func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
 	gobgpLog := slog.Default().With("component", "gobgp")
 	fsmTimingsCollector := gobgpmetrics.NewFSMTimingsCollector()
-	s := server.NewBgpServer(
+	serverOptions := []server.ServerOption{
 		server.LoggerOption(newGoBGPLogger(gobgpLog, cfg.Logging.Level)),
 		server.TimingHookOption(fsmTimingsCollector),
-	)
+	}
+
+	if cfg.BGP.GoBGPAPI.Enabled {
+		listenAddress := cfg.BGP.GoBGPAPI.Listen
+		if listenAddress == "" {
+			listenAddress = config.DefaultGoBGPAPIListen
+		}
+		serverOptions = append(serverOptions, server.GrpcListenAddress(listenAddress))
+		slog.Info("GoBGP gRPC API enabled", "listen", listenAddress)
+	}
+
+	s := server.NewBgpServer(serverOptions...)
 	return &Manager{
 		server:              s,
 		cfg:                 cfg,

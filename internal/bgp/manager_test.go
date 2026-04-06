@@ -2,6 +2,8 @@ package bgp
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/metrics"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -433,6 +437,57 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 		err := m.AnnounceVIP("invalid-prefix")
 		require.Error(t, err)
 	})
+}
+
+func TestManagerIntegrationGoBGPAPIEnabled(t *testing.T) {
+	bgpPort := reserveTCPPort(t)
+	apiPort := reserveTCPPort(t)
+	apiListen := fmt.Sprintf("127.0.0.1:%d", apiPort)
+
+	cfg := &config.Config{
+		Router: config.RouterConfig{
+			ASN:      65000,
+			RouterID: "10.0.0.1",
+		},
+		BGP: config.BGPConfig{
+			ListenPort: bgpPort,
+			GoBGPAPI: config.GoBGPAPIConfig{
+				Enabled: true,
+				Listen:  apiListen,
+			},
+			Neighbors: []config.NeighborConfig{},
+		},
+	}
+
+	m := NewManager(cfg, nil)
+	require.NoError(t, m.Start(context.Background()))
+	t.Cleanup(func() { m.Stop(context.Background()) })
+
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", apiListen, 200*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 5*time.Second, 100*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, err := grpc.DialContext(ctx, apiListen,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := api.NewGobgpApiClient(conn)
+	stream, err := client.ListPeer(ctx, &api.ListPeerRequest{})
+	require.NoError(t, err)
+
+	_, err = stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
 }
 
 func reserveTCPPort(t *testing.T) int {

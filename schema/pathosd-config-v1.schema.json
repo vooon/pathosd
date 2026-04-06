@@ -41,6 +41,10 @@
           "minimum": 1,
           "description": "TCP port to listen on for inbound BGP TCP sessions. Default: 179."
         },
+        "gobgp_api": {
+          "$ref": "#/$defs/GoBGPAPIConfig",
+          "description": "Embedded GoBGP gRPC API configuration (used by gobgp CLI for debugging)."
+        },
         "neighbors": {
           "items": {
             "$ref": "#/$defs/NeighborConfig"
@@ -172,6 +176,25 @@
         "Duration"
       ],
       "description": "Duration wraps time.Duration for JSON and TOML unmarshaling from strings like \"1s\", \"500ms\"."
+    },
+    "GoBGPAPIConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable embedded GoBGP gRPC API server. Default: false.",
+          "default": false
+        },
+        "listen": {
+          "type": "string",
+          "description": "gRPC listen address used when enabled. Supports host:port or unix:///path. Default: 127.0.0.1:50051."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ],
+      "description": "GoBGPAPIConfig configures the embedded GoBGP gRPC API."
     },
     "HTTPCheckConfig": {
       "properties": {

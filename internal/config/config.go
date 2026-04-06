@@ -59,8 +59,18 @@ type BGPConfig struct {
 	ListenAddress string `yaml:"listen_address" json:"listen_address" toml:"listen_address" jsonschema:"format=ipv4"`
 	// TCP port to listen on for inbound BGP TCP sessions. Default: 179.
 	ListenPort int `yaml:"listen_port" json:"listen_port" toml:"listen_port" jsonschema:"minimum=1,maximum=65535"`
+	// Embedded GoBGP gRPC API configuration (used by gobgp CLI for debugging).
+	GoBGPAPI GoBGPAPIConfig `yaml:"gobgp_api,omitempty" json:"gobgp_api,omitempty" toml:"gobgp_api,omitempty"`
 	// List of BGP neighbors (peers) to establish sessions with.
 	Neighbors []NeighborConfig `yaml:"neighbors" json:"neighbors" toml:"neighbors" jsonschema:"required,minItems=1"`
+}
+
+// GoBGPAPIConfig configures the embedded GoBGP gRPC API.
+type GoBGPAPIConfig struct {
+	// Enable embedded GoBGP gRPC API server. Default: false.
+	Enabled bool `yaml:"enabled" json:"enabled" toml:"enabled" jsonschema:"default=false"`
+	// gRPC listen address used when enabled. Supports host:port or unix:///path. Default: 127.0.0.1:50051.
+	Listen string `yaml:"listen,omitempty" json:"listen,omitempty" toml:"listen,omitempty"`
 }
 
 // NeighborConfig defines a BGP peer.

@@ -87,6 +87,29 @@ func TestApplyDefaults_BGP(t *testing.T) {
 		assert.Equal(t, 1179, cfg.BGP.ListenPort)
 	})
 
+	t.Run("gobgp api listen defaults when enabled", func(t *testing.T) {
+		cfg := &Config{
+			BGP: BGPConfig{
+				GoBGPAPI: GoBGPAPIConfig{Enabled: true},
+			},
+		}
+		ApplyDefaults(cfg)
+		assert.Equal(t, DefaultGoBGPAPIListen, cfg.BGP.GoBGPAPI.Listen)
+	})
+
+	t.Run("gobgp api listen preserved when set", func(t *testing.T) {
+		cfg := &Config{
+			BGP: BGPConfig{
+				GoBGPAPI: GoBGPAPIConfig{
+					Enabled: true,
+					Listen:  "127.0.0.1:15051",
+				},
+			},
+		}
+		ApplyDefaults(cfg)
+		assert.Equal(t, "127.0.0.1:15051", cfg.BGP.GoBGPAPI.Listen)
+	})
+
 	t.Run("neighbor Port defaults to 179", func(t *testing.T) {
 		cfg := &Config{
 			BGP: BGPConfig{

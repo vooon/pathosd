@@ -63,6 +63,15 @@ func Validate(cfg *Config) []error {
 	if cfg.BGP.ListenPort != 0 && (cfg.BGP.ListenPort < 1 || cfg.BGP.ListenPort > 65535) {
 		add("bgp.listen_port", fmt.Sprintf("must be in range 1..65535, got %d", cfg.BGP.ListenPort))
 	}
+	if cfg.BGP.GoBGPAPI.Enabled {
+		if cfg.BGP.GoBGPAPI.Listen == "" {
+			add("bgp.gobgp_api.listen", "required when bgp.gobgp_api.enabled is true")
+		} else if err := validateGoBGPAPIListen(cfg.BGP.GoBGPAPI.Listen); err != nil {
+			add("bgp.gobgp_api.listen", err.Error())
+		}
+	} else if cfg.BGP.GoBGPAPI.Listen != "" {
+		add("bgp.gobgp_api.listen", "set bgp.gobgp_api.enabled=true to use this field")
+	}
 
 	if len(cfg.BGP.Neighbors) == 0 {
 		add("bgp.neighbors", "at least one neighbor is required")
@@ -291,4 +300,19 @@ func validatePolicy(prefix string, p *PolicyConfig) []error {
 	}
 
 	return errs
+}
+
+func validateGoBGPAPIListen(listen string) error {
+	if strings.HasPrefix(listen, "unix://") {
+		socketPath := strings.TrimPrefix(listen, "unix://")
+		if socketPath == "" {
+			return fmt.Errorf("must include socket path for unix:// listener")
+		}
+		return nil
+	}
+
+	if _, _, err := net.SplitHostPort(listen); err != nil {
+		return fmt.Errorf("must be host:port or unix:///path, got %q", listen)
+	}
+	return nil
 }

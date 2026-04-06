@@ -22,6 +22,7 @@ The health checker and BGP speaker live in the same process. There is no separat
 - **VIPs start withdrawn**: No route is announced until the service proves healthy
 - **Prometheus metrics**: VIP state, check results, durations, peer status — plus GoBGP's built-in peer/route metrics
 - **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
+- **Optional GoBGP gRPC API**: enable for `gobgp` CLI inspection/debugging
 - **YAML and TOML config** with JSON Schema validation
 - **Graceful restart** support for BGP sessions
 
@@ -50,6 +51,9 @@ router:
 bgp:
   listen_address: "%{PATHOSD_LISTEN_IP}"
   listen_port: 1179
+  gobgp_api:
+    enabled: true
+    listen: "%{PATHOSD_GOBGP_API_LISTEN}"
   neighbors:
     - name: frr
       address: "%{FRR_PEER_IP}"
@@ -97,6 +101,25 @@ FRR example when pathosd listens on `1179`:
 router bgp 65000
   neighbor 127.0.0.1 remote-as 65001
   neighbor 127.0.0.1 port 1179
+```
+
+### GoBGP CLI Debugging
+
+Enable the embedded GoBGP gRPC API when you want to inspect live state with the `gobgp` CLI:
+
+```yaml
+bgp:
+  gobgp_api:
+    enabled: true
+    # Optional, defaults to 127.0.0.1:50051 when enabled.
+    listen: 127.0.0.1:50051
+```
+
+Then query it with:
+
+```bash
+gobgp -u 127.0.0.1:50051 neighbor
+gobgp -u 127.0.0.1:50051 global rib
 ```
 
 ### JSON Schema

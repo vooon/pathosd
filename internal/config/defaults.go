@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// DefaultGoBGPAPIListen is the default gRPC listen address for the embedded GoBGP API.
+const DefaultGoBGPAPIListen = "127.0.0.1:50051"
+
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 func ApplyDefaults(cfg *Config) {
 	if cfg.API.Listen == "" {
@@ -24,6 +27,9 @@ func ApplyDefaults(cfg *Config) {
 	}
 	if cfg.BGP.ListenPort == 0 {
 		cfg.BGP.ListenPort = 179
+	}
+	if cfg.BGP.GoBGPAPI.Enabled && cfg.BGP.GoBGPAPI.Listen == "" {
+		cfg.BGP.GoBGPAPI.Listen = DefaultGoBGPAPIListen
 	}
 
 	for i := range cfg.BGP.Neighbors {

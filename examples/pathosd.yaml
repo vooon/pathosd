@@ -20,6 +20,10 @@ bgp:
   # pathosd listens on 1179, FRR stays on 179.
   listen_address: 127.0.0.1
   listen_port: 1179
+  # Optional embedded GoBGP gRPC API for `gobgp` CLI debugging.
+  gobgp_api:
+    enabled: false
+    # listen: 127.0.0.1:50051
   neighbors:
     # Active pathosd -> FRR localhost peering.
     - name: frr-local

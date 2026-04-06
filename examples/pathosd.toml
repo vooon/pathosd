@@ -19,6 +19,10 @@ keepalive_time = "30s"
 listen_address = "127.0.0.1"
 listen_port = 1179
 
+[bgp.gobgp_api]
+enabled = false
+# listen = "127.0.0.1:50051"
+
 [[bgp.neighbors]]
 name = "frr-local"
 address = "127.0.0.2"

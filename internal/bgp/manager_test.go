@@ -8,44 +8,37 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/osrg/gobgp/v3/api"
+	api "github.com/osrg/gobgp/v4/api"
+	"github.com/osrg/gobgp/v4/pkg/apiutil"
+	bgppacket "github.com/osrg/gobgp/v4/pkg/packet/bgp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type decodedPathAttrs struct {
-	origin      *api.OriginAttribute
-	nextHop     *api.NextHopAttribute
-	asPath      *api.AsPathAttribute
-	communities *api.CommunitiesAttribute
+	origin      *bgppacket.PathAttributeOrigin
+	nextHop     *bgppacket.PathAttributeNextHop
+	asPath      *bgppacket.PathAttributeAsPath
+	communities *bgppacket.PathAttributeCommunities
 }
 
-func decodePathAttrs(t *testing.T, attrs []*anypb.Any) decodedPathAttrs {
+func decodePathAttrs(t *testing.T, attrs []bgppacket.PathAttributeInterface) decodedPathAttrs {
 	t.Helper()
 
 	out := decodedPathAttrs{}
 	for _, attr := range attrs {
-		switch {
-		case attr.MessageIs(&api.OriginAttribute{}):
-			v := &api.OriginAttribute{}
-			require.NoError(t, attr.UnmarshalTo(v))
+		switch v := attr.(type) {
+		case *bgppacket.PathAttributeOrigin:
 			out.origin = v
-		case attr.MessageIs(&api.NextHopAttribute{}):
-			v := &api.NextHopAttribute{}
-			require.NoError(t, attr.UnmarshalTo(v))
+		case *bgppacket.PathAttributeNextHop:
 			out.nextHop = v
-		case attr.MessageIs(&api.AsPathAttribute{}):
-			v := &api.AsPathAttribute{}
-			require.NoError(t, attr.UnmarshalTo(v))
+		case *bgppacket.PathAttributeAsPath:
 			out.asPath = v
-		case attr.MessageIs(&api.CommunitiesAttribute{}):
-			v := &api.CommunitiesAttribute{}
-			require.NoError(t, attr.UnmarshalTo(v))
+		case *bgppacket.PathAttributeCommunities:
 			out.communities = v
 		}
 	}
@@ -218,32 +211,29 @@ func TestManagerBuildPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			nlri, attrs, err := tc.manager.buildPath(tc.prefix, tc.prepend, tc.communities)
+			path, err := tc.manager.buildPath(tc.prefix, tc.prepend, tc.communities)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, nlri)
-			require.NotEmpty(t, attrs)
+			require.NotNil(t, path)
+			require.NotNil(t, path.Nlri)
+			require.NotEmpty(t, path.Attrs)
 
-			prefix := &api.IPAddressPrefix{}
-			require.NoError(t, nlri.UnmarshalTo(prefix))
-			assert.Equal(t, uint32(32), prefix.PrefixLen)
-
-			decoded := decodePathAttrs(t, attrs)
+			decoded := decodePathAttrs(t, path.Attrs)
 			require.NotNil(t, decoded.origin)
-			assert.Equal(t, uint32(0), decoded.origin.Origin)
+			assert.Equal(t, bgppacket.BGP_ORIGIN_ATTR_TYPE_IGP, decoded.origin.Value)
 			require.NotNil(t, decoded.nextHop)
-			assert.Equal(t, tc.wantNextHop, decoded.nextHop.NextHop)
+			assert.Equal(t, tc.wantNextHop, decoded.nextHop.Value.String())
 			require.NotNil(t, decoded.asPath)
-			require.Len(t, decoded.asPath.Segments, 1)
-			assert.Equal(t, tc.wantASPath, decoded.asPath.Segments[0].Numbers)
+			require.Len(t, decoded.asPath.Value, 1)
+			assert.Equal(t, tc.wantASPath, decoded.asPath.Value[0].GetAS())
 
 			if len(tc.wantCommunities) > 0 {
 				require.NotNil(t, decoded.communities)
-				assert.Equal(t, tc.wantCommunities, decoded.communities.Communities)
+				assert.Equal(t, tc.wantCommunities, decoded.communities.Value)
 				return
 			}
 			assert.Nil(t, decoded.communities)
@@ -266,13 +256,13 @@ func TestManagerBuildPath(t *testing.T) {
 			},
 		}
 
-		_, attrs, err := manager.buildPath("10.1.0.99/32", 4, []string{"65535:666"})
+		path, err := manager.buildPath("10.1.0.99/32", 4, []string{"65535:666"})
 		require.NoError(t, err)
-		decoded := decodePathAttrs(t, attrs)
+		decoded := decodePathAttrs(t, path.Attrs)
 		require.NotNil(t, decoded.asPath)
-		assert.Empty(t, decoded.asPath.Segments)
+		assert.Empty(t, decoded.asPath.Value)
 		require.NotNil(t, decoded.communities)
-		assert.Equal(t, []uint32{0xFFFF029A}, decoded.communities.Communities)
+		assert.Equal(t, []uint32{0xFFFF029A}, decoded.communities.Value)
 	})
 }
 
@@ -482,7 +472,7 @@ func TestManagerIntegrationGoBGPAPIEnabled(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	client := api.NewGobgpApiClient(conn)
+	client := api.NewGoBgpServiceClient(conn)
 	stream, err := client.ListPeer(ctx, &api.ListPeerRequest{})
 	require.NoError(t, err)
 
@@ -513,35 +503,32 @@ func waitForPeerEstablished(t *testing.T, m *Manager, addr string) {
 	}, 8*time.Second, 100*time.Millisecond)
 }
 
-func listAdjOutPaths(t *testing.T, m *Manager, peerAddr, prefix string) []*api.Path {
+func listAdjOutPaths(t *testing.T, m *Manager, peerAddr, prefix string) []*apiutil.Path {
 	t.Helper()
 
-	var out []*api.Path
-	err := m.Server().ListPath(context.Background(), &api.ListPathRequest{
-		TableType: api.TableType_ADJ_OUT,
+	var out []*apiutil.Path
+	err := m.Server().ListPath(apiutil.ListPathRequest{
+		TableType: api.TableType_TABLE_TYPE_ADJ_OUT,
 		Name:      peerAddr,
-		Family:    &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-		Prefixes: []*api.TableLookupPrefix{{
-			Prefix: prefix,
-			Type:   api.TableLookupPrefix_EXACT,
+		Family:    bgppacket.RF_IPv4_UC,
+		Prefixes: []*apiutil.LookupPrefix{{
+			Prefix:       prefix,
+			LookupOption: apiutil.LOOKUP_EXACT,
 		}},
-	}, func(dst *api.Destination) {
-		out = append(out, dst.GetPaths()...)
+	}, func(_ bgppacket.NLRI, paths []*apiutil.Path) {
+		out = append(out, paths...)
 	})
 	require.NoError(t, err)
 	return out
 }
 
-func hasCommunity(path *api.Path, community uint32) bool {
-	for _, attr := range path.GetPattrs() {
-		if !attr.MessageIs(&api.CommunitiesAttribute{}) {
+func hasCommunity(path *apiutil.Path, community uint32) bool {
+	for _, attr := range path.Attrs {
+		commAttr, ok := attr.(*bgppacket.PathAttributeCommunities)
+		if !ok {
 			continue
 		}
-		commAttr := &api.CommunitiesAttribute{}
-		if err := attr.UnmarshalTo(commAttr); err != nil {
-			return false
-		}
-		for _, c := range commAttr.GetCommunities() {
+		for _, c := range commAttr.Value {
 			if c == community {
 				return true
 			}
@@ -637,15 +624,15 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 	const prefix = "10.1.0.50/32"
 	require.NoError(t, sender.AnnounceVIP(prefix))
 
-	var announced []*api.Path
+	var announced []*apiutil.Path
 	require.Eventually(t, func() bool {
 		announced = listAdjOutPaths(t, sender, "127.0.0.1", prefix)
 		return len(announced) > 0
 	}, 8*time.Second, 100*time.Millisecond)
 
-	announceAttrs := decodePathAttrs(t, announced[0].GetPattrs())
+	announceAttrs := decodePathAttrs(t, announced[0].Attrs)
 	require.NotNil(t, announceAttrs.asPath)
-	assert.Empty(t, announceAttrs.asPath.GetSegments())
+	assert.Empty(t, announceAttrs.asPath.Value)
 
 	require.Eventually(t, func() bool {
 		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
@@ -663,8 +650,8 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
 		for _, p := range paths {
 			if hasCommunity(p, 0xFFFF029A) {
-				decoded := decodePathAttrs(t, p.GetPattrs())
-				return decoded.asPath != nil && len(decoded.asPath.GetSegments()) == 0
+				decoded := decodePathAttrs(t, p.Attrs)
+				return decoded.asPath != nil && len(decoded.asPath.Value) == 0
 			}
 		}
 		return false

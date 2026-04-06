@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	api "github.com/osrg/gobgp/v3/api"
+	api "github.com/osrg/gobgp/v4/api"
+	"github.com/osrg/gobgp/v4/pkg/apiutil"
+	bgppacket "github.com/osrg/gobgp/v4/pkg/packet/bgp"
 )
 
 type routeStateLabels struct {
@@ -51,19 +53,19 @@ func (m *Manager) syncRouteStateMetric(ctx context.Context, prefix string) {
 	current := make(map[string]routeStateLabels)
 	for _, peer := range m.cfg.BGP.Neighbors {
 		peerASN := strconv.FormatUint(uint64(peer.PeerASN), 10)
-		req := &api.ListPathRequest{
-			TableType: api.TableType_ADJ_OUT,
+		req := apiutil.ListPathRequest{
+			TableType: api.TableType_TABLE_TYPE_ADJ_OUT,
 			Name:      peer.Address,
-			Family:    &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-			Prefixes: []*api.TableLookupPrefix{{
-				Prefix: prefix,
-				Type:   api.TableLookupPrefix_EXACT,
+			Family:    bgppacket.RF_IPv4_UC,
+			Prefixes: []*apiutil.LookupPrefix{{
+				Prefix:       prefix,
+				LookupOption: apiutil.LOOKUP_EXACT,
 			}},
 		}
 
-		err := m.server.ListPath(ctx, req, func(dst *api.Destination) {
-			for _, p := range dst.GetPaths() {
-				labels := routeStateLabelsFromPath(dst, p, peer.Address, peerASN)
+		err := m.server.ListPath(req, func(nlri bgppacket.NLRI, paths []*apiutil.Path) {
+			for _, p := range paths {
+				labels := routeStateLabelsFromPath(nlri, p, peer.Address, peerASN)
 				current[labels.key()] = labels
 			}
 		})
@@ -98,12 +100,12 @@ func (m *Manager) syncRouteStateMetric(ctx context.Context, prefix string) {
 	m.routeStateByPrefix[prefix] = current
 }
 
-func routeStateLabelsFromPath(dst *api.Destination, path *api.Path, peerIP, peerASN string) routeStateLabels {
+func routeStateLabelsFromPath(nlri bgppacket.NLRI, path *apiutil.Path, peerIP, peerASN string) routeStateLabels {
 	labels := routeStateLabels{
-		nlri:    dst.GetPrefix(),
+		nlri:    nlri.String(),
 		peerIP:  peerIP,
 		peerASN: peerASN,
-		family:  familyName(path.GetFamily()),
+		family:  familyName(path.Family),
 	}
 	if labels.family == "" {
 		labels.family = "ipv4-unicast"
@@ -112,58 +114,34 @@ func routeStateLabelsFromPath(dst *api.Destination, path *api.Path, peerIP, peer
 		labels.nlri = decodeNLRIPrefix(path)
 	}
 
-	for _, attr := range path.GetPattrs() {
-		switch {
-		case attr.MessageIs(&api.AsPathAttribute{}):
-			decoded := &api.AsPathAttribute{}
-			if err := attr.UnmarshalTo(decoded); err != nil {
-				continue
-			}
-			labels.asPath = stringifyASPath(decoded)
-		case attr.MessageIs(&api.CommunitiesAttribute{}):
-			decoded := &api.CommunitiesAttribute{}
-			if err := attr.UnmarshalTo(decoded); err != nil {
-				continue
-			}
-			labels.communities = stringifyCommunities(decoded.Communities)
-		case attr.MessageIs(&api.LocalPrefAttribute{}):
-			decoded := &api.LocalPrefAttribute{}
-			if err := attr.UnmarshalTo(decoded); err != nil {
-				continue
-			}
-			labels.localPreference = strconv.FormatUint(uint64(decoded.LocalPref), 10)
-		case attr.MessageIs(&api.MultiExitDiscAttribute{}):
-			decoded := &api.MultiExitDiscAttribute{}
-			if err := attr.UnmarshalTo(decoded); err != nil {
-				continue
-			}
-			labels.med = strconv.FormatUint(uint64(decoded.Med), 10)
+	for _, attr := range path.Attrs {
+		switch v := attr.(type) {
+		case *bgppacket.PathAttributeAsPath:
+			labels.asPath = stringifyASPath(v)
+		case *bgppacket.PathAttributeCommunities:
+			labels.communities = stringifyCommunities(v.Value)
+		case *bgppacket.PathAttributeLocalPref:
+			labels.localPreference = strconv.FormatUint(uint64(v.Value), 10)
+		case *bgppacket.PathAttributeMultiExitDisc:
+			labels.med = strconv.FormatUint(uint64(v.Value), 10)
 		}
 	}
 
 	return labels
 }
 
-func decodeNLRIPrefix(path *api.Path) string {
-	nlri := path.GetNlri()
-	if nlri == nil || !nlri.MessageIs(&api.IPAddressPrefix{}) {
+func decodeNLRIPrefix(path *apiutil.Path) string {
+	if path == nil || path.Nlri == nil {
 		return ""
 	}
-	v := &api.IPAddressPrefix{}
-	if err := nlri.UnmarshalTo(v); err != nil {
-		return ""
-	}
-	return fmt.Sprintf("%s/%d", v.Prefix, v.PrefixLen)
+	return path.Nlri.String()
 }
 
-func stringifyASPath(attr *api.AsPathAttribute) string {
-	var values []string
-	for _, seg := range attr.GetSegments() {
-		for _, asn := range seg.GetNumbers() {
-			values = append(values, strconv.FormatUint(uint64(asn), 10))
-		}
+func stringifyASPath(attr *bgppacket.PathAttributeAsPath) string {
+	if attr == nil {
+		return ""
 	}
-	return strings.Join(values, " ")
+	return bgppacket.AsPathString(attr)
 }
 
 func stringifyCommunities(communities []uint32) string {
@@ -180,14 +158,11 @@ func stringifyCommunities(communities []uint32) string {
 	return strings.Join(out, ",")
 }
 
-func familyName(f *api.Family) string {
-	if f == nil {
-		return ""
-	}
-	switch {
-	case f.Afi == api.Family_AFI_IP && f.Safi == api.Family_SAFI_UNICAST:
+func familyName(f bgppacket.Family) string {
+	switch f {
+	case bgppacket.RF_IPv4_UC:
 		return "ipv4-unicast"
-	case f.Afi == api.Family_AFI_IP6 && f.Safi == api.Family_SAFI_UNICAST:
+	case bgppacket.RF_IPv6_UC:
 		return "ipv6-unicast"
 	default:
 		return strings.ToLower(f.String())

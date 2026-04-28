@@ -55,7 +55,7 @@ func (c *UDPChecker) Check(ctx context.Context) Result {
 	if err != nil {
 		return Result{Duration: time.Since(start), Err: err, Detail: fmt.Sprintf("dial udp %s: %v", addr, err)}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Propagate context deadline to the socket.
 	if deadline, ok := ctx.Deadline(); ok {

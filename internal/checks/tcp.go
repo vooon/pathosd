@@ -43,7 +43,7 @@ func (c *TCPChecker) Check(ctx context.Context) Result {
 		timedOut := ctx.Err() != nil
 		return Result{Duration: dur, Err: err, Detail: fmt.Sprintf("dial tcp %s: %v", addr, err), TimedOut: timedOut}
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return Result{Success: true, Duration: dur, Detail: fmt.Sprintf("tcp %s: connection accepted", addr)}
 }

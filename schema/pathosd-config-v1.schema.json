@@ -408,22 +408,18 @@
     },
     "OTelConfig": {
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch for all OTEL export. Default: true.\nSet to false to disable OTEL entirely without removing the endpoint.",
+          "default": true
+        },
         "endpoint": {
           "type": "string",
-          "description": "OTLP collector endpoint URL. If empty, OTEL export is disabled.\ngRPC example: \"http://localhost:4317\"; HTTP example: \"http://localhost:4318\"."
-        },
-        "protocol": {
-          "type": "string",
-          "enum": [
-            "grpc",
-            "http"
-          ],
-          "description": "OTLP transport protocol: \"grpc\" or \"http\". Default: \"grpc\".",
-          "default": "grpc"
+          "description": "OTLP collector endpoint URL. If empty, OTEL export is disabled.\nThe URL scheme selects the transport protocol automatically:\n  grpc://host:4317  — gRPC (plaintext)\n  grpcs://host:4317 — gRPC (TLS)\n  http://host:4318  — OTLP/HTTP (plaintext)\n  https://host:4318 — OTLP/HTTP (TLS)"
         },
         "insecure": {
           "type": "boolean",
-          "description": "Skip TLS certificate verification. Not recommended in production.",
+          "description": "Skip TLS certificate verification for all signals. Not recommended in production.\nCan be overridden per signal.",
           "default": false
         },
         "headers": {
@@ -431,23 +427,69 @@
             "type": "string"
           },
           "type": "object",
-          "description": "Additional headers sent with every OTLP request (e.g. for API-key authentication)."
+          "description": "Additional headers sent with every OTLP request (e.g. for API-key authentication).\nCan be extended or overridden per signal."
         },
         "service_name": {
           "type": "string",
           "description": "OTEL resource service.name attribute. Default: \"pathosd\"."
+        },
+        "traces": {
+          "$ref": "#/$defs/OTelSignalConfig",
+          "description": "Per-signal configuration. Each signal inherits the global endpoint, insecure, and headers\nand is enabled by default. Use these to override per signal."
+        },
+        "metrics": {
+          "$ref": "#/$defs/OTelSignalConfig"
+        },
+        "logs": {
+          "$ref": "#/$defs/OTelSignalConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled",
+        "endpoint",
+        "insecure",
+        "headers",
+        "service_name",
+        "traces",
+        "metrics",
+        "logs"
+      ],
+      "description": "OTelConfig configures OpenTelemetry export (traces, metrics, logs)."
+    },
+    "OTelSignalConfig": {
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Per-signal endpoint URL. Overrides the top-level otel.endpoint for this signal.\nLeave empty to inherit the global endpoint.\nThe URL scheme determines the transport: grpc:// or grpcs:// selects gRPC;\nhttp:// or https:// selects OTLP/HTTP."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable this signal. Default: true (inherits the global otel.enabled value).",
+          "default": true
+        },
+        "insecure": {
+          "type": "boolean",
+          "description": "Skip TLS certificate verification for this signal. Overrides the global otel.insecure.\nLeave unset to inherit the global value."
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Additional headers for this signal, merged on top of the global otel.headers.\nSignal-level keys take precedence over global keys."
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "endpoint",
-        "protocol",
+        "enabled",
         "insecure",
-        "headers",
-        "service_name"
+        "headers"
       ],
-      "description": "OTelConfig configures OpenTelemetry export (traces, metrics, logs)."
+      "description": "OTelSignalConfig configures a single OTEL signal (traces, metrics, or logs)."
     },
     "PingCheckConfig": {
       "properties": {

@@ -14,14 +14,26 @@ logging:
   format: text
 
 # OpenTelemetry export — traces, metrics and logs via OTLP.
-# Remove or leave endpoint empty to disable entirely.
+# Transport is inferred from the URL scheme:
+#   grpc://host:4317   gRPC plaintext    grpcs://host:4317  gRPC TLS
+#   http://host:4318   OTLP/HTTP         https://host:4318  OTLP/HTTP TLS
+# Set enabled: false (or remove endpoint) to disable entirely.
 otel:
-  endpoint: http://otel-collector.example.com:4317
-  protocol: grpc        # grpc (default) | http
+  endpoint: grpc://otel-collector.example.com:4317
+  # enabled: false
   insecure: false
   service_name: pathosd
   # headers:
   #   x-honeycomb-team: MY_API_KEY
+  # Per-signal overrides (all optional — inherit global values when absent):
+  # traces:
+  #   enabled: false
+  # metrics:
+  #   endpoint: http://prometheus-remote.example.com:4318
+  #   headers:
+  #     x-scope-orgid: my-tenant
+  # logs:
+  #   insecure: true
 
 bgp:
   graceful_restart: true

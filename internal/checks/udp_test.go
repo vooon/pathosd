@@ -16,7 +16,7 @@ func listenUDP(t *testing.T) (*net.UDPConn, uint16) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
 	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return conn, port
 }
 
@@ -25,7 +25,7 @@ func reserveUDPPort(t *testing.T) uint16 {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
 	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
-	conn.Close() // close immediately so nothing is listening on this port
+	_ = conn.Close() // close immediately so nothing is listening on this port
 	return port
 }
 

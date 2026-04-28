@@ -24,7 +24,7 @@ func Setup(level, format string, extra ...slog.Handler) *slog.Logger {
 		primary = newCharmHandler(os.Stderr, lvl)
 	}
 
-	var handler slog.Handler = primary
+	handler := primary
 	if len(extra) > 0 {
 		all := make([]slog.Handler, 0, 1+len(extra))
 		all = append(all, primary)

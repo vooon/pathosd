@@ -16,7 +16,7 @@ func listenTCP(t *testing.T) (*net.TCPListener, uint16) {
 	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	return ln, port
 }
 
@@ -25,7 +25,7 @@ func reserveTCPPortForChecker(t *testing.T) uint16 {
 	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	require.NoError(t, err)
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	ln.Close()
+	_ = ln.Close()
 	return port
 }
 

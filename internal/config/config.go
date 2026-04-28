@@ -89,6 +89,10 @@ type NeighborConfig struct {
 	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address" jsonschema:"format=ipv4"`
 	// Wait for the peer to initiate the connection instead of connecting actively.
 	Passive bool `yaml:"passive" json:"passive" toml:"passive"`
+	// Enable eBGP multihop — required when the peer is not directly connected (e.g. loopback-based sessions).
+	EnableMultihop bool `yaml:"enable_multihop" json:"enable_multihop" toml:"enable_multihop"`
+	// IP TTL for eBGP multihop sessions. 0 means use GoBGP default (255). Must be >= 2 when set explicitly. Only used when enable_multihop is true.
+	MultihopTTL uint32 `yaml:"multihop_ttl" json:"multihop_ttl" toml:"multihop_ttl" jsonschema:"minimum=0,maximum=255"`
 }
 
 // VIPConfig defines a Virtual IP with its health check and policy.

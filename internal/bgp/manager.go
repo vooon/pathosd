@@ -184,6 +184,13 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 		}
 	}
 
+	if n.EnableMultihop {
+		peer.EbgpMultihop = &api.EbgpMultihop{
+			Enabled:     true,
+			MultihopTtl: n.MultihopTTL,
+		}
+	}
+
 	return peer, nil
 }
 

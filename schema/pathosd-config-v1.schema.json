@@ -369,6 +369,16 @@
         "passive": {
           "type": "boolean",
           "description": "Wait for the peer to initiate the connection instead of connecting actively."
+        },
+        "enable_multihop": {
+          "type": "boolean",
+          "description": "Enable eBGP multihop — required when the peer is not directly connected (e.g. loopback-based sessions)."
+        },
+        "multihop_ttl": {
+          "type": "integer",
+          "maximum": 255,
+          "minimum": 0,
+          "description": "IP TTL for eBGP multihop sessions. 0 means use GoBGP default (255). Must be \u003e= 2 when set explicitly. Only used when enable_multihop is true."
         }
       },
       "additionalProperties": false,
@@ -380,7 +390,9 @@
         "required",
         "port",
         "local_address",
-        "passive"
+        "passive",
+        "enable_multihop",
+        "multihop_ttl"
       ],
       "description": "NeighborConfig defines a BGP peer."
     },

@@ -103,6 +103,13 @@ func Validate(cfg *Config) []error {
 		if n.PeerASN == 0 {
 			add(prefix+".peer_asn", "required and must be > 0")
 		}
+
+		if !n.EnableMultihop && n.MultihopTTL != 0 {
+			add(prefix+".multihop_ttl", "has no effect when enable_multihop is false")
+		}
+		if n.EnableMultihop && n.MultihopTTL != 0 && n.MultihopTTL < 2 {
+			add(prefix+".multihop_ttl", fmt.Sprintf("must be 0 (default 255) or >= 2, got %d", n.MultihopTTL))
+		}
 	}
 
 	// VIPs

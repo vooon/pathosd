@@ -59,6 +59,19 @@ data:
             query_type: A
         policy:
           fail_action: withdraw
+      - name: tcp-vip
+        prefix: 10.100.3.1/32
+        check:
+          type: tcp
+          interval: 2s
+          timeout: 1s
+          rise: 3
+          fall: 3
+          tcp:
+            host: nginx.pathosd-e2e.svc.cluster.local
+            port: 80
+        policy:
+          fail_action: withdraw
 ---
 apiVersion: apps/v1
 kind: Deployment

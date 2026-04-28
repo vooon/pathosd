@@ -136,16 +136,16 @@ func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 	resultLabel := "fail"
 	if result.Success {
 		resultLabel = "success"
-		m.metrics.CheckLastResult.WithLabelValues(vipName).Set(1)
+		m.metrics.CheckLastResult.WithLabelValues(vipName, cfg.Prefix).Set(1)
 	} else {
-		m.metrics.CheckLastResult.WithLabelValues(vipName).Set(0)
+		m.metrics.CheckLastResult.WithLabelValues(vipName, cfg.Prefix).Set(0)
 	}
 
-	m.metrics.CheckTotal.WithLabelValues(vipName, checkType, resultLabel).Inc()
-	m.metrics.CheckDuration.WithLabelValues(vipName, checkType).Observe(result.Duration.Seconds())
+	m.metrics.CheckTotal.WithLabelValues(vipName, cfg.Prefix, checkType, resultLabel).Inc()
+	m.metrics.CheckDuration.WithLabelValues(vipName, cfg.Prefix, checkType).Observe(result.Duration.Seconds())
 
 	if result.TimedOut {
-		m.metrics.CheckTimeoutExceeded.WithLabelValues(vipName).Inc()
+		m.metrics.CheckTimeoutExceeded.WithLabelValues(vipName, cfg.Prefix).Inc()
 	}
 }
 
@@ -199,8 +199,8 @@ func (m *Manager) transitionStateLocked(vs *vipState, cfg *config.VIPConfig, new
 		"reason", reason)
 
 	m.metrics.VIPState.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(newState))
-	m.metrics.VIPTransitions.WithLabelValues(cfg.Name, newState.String()).Inc()
-	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name).Set(float64(vs.lastTransitionAt.Unix()))
+	m.metrics.VIPTransitions.WithLabelValues(cfg.Name, cfg.Prefix, newState.String()).Inc()
+	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(vs.lastTransitionAt.Unix()))
 
 	priority := 1.0
 	if newState == model.StatePessimized && cfg.Policy.LowerPriority != nil && cfg.Policy.LowerPriority.ASPathPrepend != nil {

@@ -20,15 +20,15 @@ func TestNew_RegistryGatherSucceeds(t *testing.T) {
 
 	// Seed one observation on each vec so Gather returns all families.
 	m.VIPState.WithLabelValues("v", "10.0.0.1/32").Set(0)
-	m.VIPTransitions.WithLabelValues("v", "withdrawn").Add(0)
-	m.VIPLastTransition.WithLabelValues("v").Set(0)
+	m.VIPTransitions.WithLabelValues("v", "10.0.0.1/32", "withdrawn").Add(0)
+	m.VIPLastTransition.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.VIPPriority.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.RouteState.WithLabelValues("10.0.0.1/32", "10.0.0.254", "65000", "", "", "100", "0", "ipv4-unicast").Set(0)
-	m.CheckTotal.WithLabelValues("v", "http", "success").Add(0)
-	m.CheckAbsorbed.WithLabelValues("v").Add(0)
-	m.CheckDuration.WithLabelValues("v", "http").Observe(0)
-	m.CheckLastResult.WithLabelValues("v").Set(0)
-	m.CheckTimeoutExceeded.WithLabelValues("v").Add(0)
+	m.CheckTotal.WithLabelValues("v", "10.0.0.1/32", "http", "success").Add(0)
+	m.CheckAbsorbed.WithLabelValues("v", "10.0.0.1/32").Add(0)
+	m.CheckDuration.WithLabelValues("v", "10.0.0.1/32", "http").Observe(0)
+	m.CheckLastResult.WithLabelValues("v", "10.0.0.1/32").Set(0)
+	m.CheckTimeoutExceeded.WithLabelValues("v", "10.0.0.1/32").Add(0)
 
 	mfs, err := m.Registry.Gather()
 	require.NoError(t, err)
@@ -65,9 +65,9 @@ func TestNew_VIPStateUpdatable(t *testing.T) {
 
 func TestNew_CheckTotalIncrementable(t *testing.T) {
 	m := New(nil)
-	m.CheckTotal.WithLabelValues("web-vip", "http", "success").Inc()
+	m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "success").Inc()
 
-	value := testutil.ToFloat64(m.CheckTotal.WithLabelValues("web-vip", "http", "success"))
+	value := testutil.ToFloat64(m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "success"))
 	assert.Equal(t, float64(1), value)
 }
 

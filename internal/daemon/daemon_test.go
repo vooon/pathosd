@@ -156,7 +156,7 @@ func TestProvideMetrics(t *testing.T) {
 			require.NotNil(t, m)
 
 			// Seed one sample so histogram instances exist in gathered output.
-			m.CheckDuration.WithLabelValues("test-vip", "http").Observe(0.1)
+			m.CheckDuration.WithLabelValues("test-vip", "10.0.0.1/32", "http").Observe(0.1)
 
 			gotMaxBound := maxFiniteDurationBucketBound(t, m)
 			wantBuckets := metrics.GenerateCheckBuckets(tc.expectedMaxTo)

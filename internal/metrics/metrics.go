@@ -113,22 +113,22 @@ func New(checkBuckets []float64) *Metrics {
 		VIPState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_vip_state",
 			Help: "Current VIP state: 0=withdrawn, 1=announced, 2=pessimized.",
-		}, []string{"vip", "prefix"}),
+		}, []string{"vip", "nlri"}),
 
 		VIPTransitions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_vip_transitions_total",
 			Help: "Total VIP state transitions.",
-		}, []string{"vip", "to"}),
+		}, []string{"vip", "nlri", "to"}),
 
 		VIPLastTransition: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_vip_last_transition_timestamp",
 			Help: "Unix timestamp of last VIP state transition.",
-		}, []string{"vip"}),
+		}, []string{"vip", "nlri"}),
 
 		VIPPriority: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_vip_priority_status",
 			Help: "Current AS-path multiplier for VIP (1=normal, N=prepend count when pessimized).",
-		}, []string{"vip", "prefix"}),
+		}, []string{"vip", "nlri"}),
 
 		RouteState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_route_state",
@@ -138,28 +138,28 @@ func New(checkBuckets []float64) *Metrics {
 		CheckTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_check_total",
 			Help: "Total health checks by result.",
-		}, []string{"vip", "type", "result"}),
+		}, []string{"vip", "nlri", "type", "result"}),
 
 		CheckAbsorbed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_check_rise_fall_absorbed_total",
 			Help: "Checks whose result was absorbed by rise/fall hysteresis (did not trigger state change).",
-		}, []string{"vip"}),
+		}, []string{"vip", "nlri"}),
 
 		CheckDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "pathosd_check_duration_seconds",
 			Help:    "Histogram of health check durations in seconds.",
 			Buckets: checkBuckets,
-		}, []string{"vip", "type"}),
+		}, []string{"vip", "nlri", "type"}),
 
 		CheckLastResult: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_check_last_result",
 			Help: "Last check result: 0=fail, 1=success.",
-		}, []string{"vip"}),
+		}, []string{"vip", "nlri"}),
 
 		CheckTimeoutExceeded: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_check_timeout_exceeded_total",
 			Help: "Total checks that exceeded their timeout.",
-		}, []string{"vip"}),
+		}, []string{"vip", "nlri"}),
 	}
 
 	reg.MustRegister(

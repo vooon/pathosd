@@ -207,7 +207,7 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		assert.Equal(t, model.StateAnnounced, status.State)
 		assert.Equal(t, model.HealthHealthy, status.Health)
 		assert.Equal(t, []string{withdrawPrefix}, notifier.announces)
-		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, model.StateAnnounced.String())))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, withdrawPrefix, model.StateAnnounced.String())))
 		assert.Equal(t, float64(model.StateAnnounced), testutil.ToFloat64(m.VIPState.WithLabelValues(withdrawVIPName, withdrawPrefix)))
 	})
 
@@ -231,7 +231,7 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		assert.Equal(t, model.StateWithdrawn, status.State)
 		assert.Equal(t, model.HealthUnhealthy, status.Health)
 		assert.Equal(t, []string{withdrawPrefix}, notifier.withdraws)
-		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, model.StateWithdrawn.String())))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, withdrawPrefix, model.StateWithdrawn.String())))
 	})
 
 	t.Run("unhealthy transition announced to pessimized for lower_priority policy", func(t *testing.T) {
@@ -296,7 +296,7 @@ func TestManager_OnHealthTransition(t *testing.T) {
 			Reason:  "rise threshold reached",
 		})
 
-		beforeTransitions := testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, model.StateAnnounced.String()))
+		beforeTransitions := testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, withdrawPrefix, model.StateAnnounced.String()))
 		beforeAnnounces := len(notifier.announces)
 
 		mgr.OnHealthTransition(checks.HealthTransition{
@@ -305,7 +305,7 @@ func TestManager_OnHealthTransition(t *testing.T) {
 			Reason:  "still healthy",
 		})
 
-		afterTransitions := testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, model.StateAnnounced.String()))
+		afterTransitions := testutil.ToFloat64(m.VIPTransitions.WithLabelValues(withdrawVIPName, withdrawPrefix, model.StateAnnounced.String()))
 		assert.Equal(t, beforeTransitions, afterTransitions)
 		assert.Len(t, notifier.announces, beforeAnnounces)
 	})
@@ -430,9 +430,9 @@ func TestManager_OnCheckResult(t *testing.T) {
 
 			mgr.OnCheckResult(withdrawVIPName, tc.result)
 
-			assert.Equal(t, tc.expectedLastResult, testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName)))
-			assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, config.CheckTypeHTTP, tc.expectedResultLabel)))
-			assert.Equal(t, tc.expectedTimeout, testutil.ToFloat64(m.CheckTimeoutExceeded.WithLabelValues(withdrawVIPName)))
+			assert.Equal(t, tc.expectedLastResult, testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName, withdrawPrefix)))
+			assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP, tc.expectedResultLabel)))
+			assert.Equal(t, tc.expectedTimeout, testutil.ToFloat64(m.CheckTimeoutExceeded.WithLabelValues(withdrawVIPName, withdrawPrefix)))
 
 			status := getVIPStatus(t, mgr, withdrawVIPName)
 			assert.Equal(t, tc.result.Success, status.LastCheckSuccess)
@@ -472,7 +472,7 @@ func TestManager_OnCheckResult(t *testing.T) {
 		require.Len(t, notifier.pessimizes, 1)
 		assert.Equal(t, 3, notifier.pessimizes[0].prepend)
 		assert.Equal(t, []string{"65535:666"}, notifier.pessimizes[0].communities)
-		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(pessimizeVIPName, model.StatePessimized.String())))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPTransitions.WithLabelValues(pessimizeVIPName, pessimizePrefix, model.StatePessimized.String())))
 
 		// Remove lock file and report another check result -> back to announced.
 		require.NoError(t, os.Remove(lockFile))

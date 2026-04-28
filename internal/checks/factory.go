@@ -28,6 +28,11 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 			return nil, fmt.Errorf("udp check config is nil")
 		}
 		return NewUDPChecker(cfg.UDP), nil
+	case config.CheckTypeTCP:
+		if cfg.TCP == nil {
+			return nil, fmt.Errorf("tcp check config is nil")
+		}
+		return NewTCPChecker(cfg.TCP), nil
 	default:
 		return nil, fmt.Errorf("unsupported check type %q", cfg.Type)
 	}

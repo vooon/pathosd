@@ -60,6 +60,16 @@ func TestNewChecker(t *testing.T) {
 			cfg:             &config.CheckConfig{Type: "udp"},
 			wantErrContains: "udp check config is nil",
 		},
+		{
+			name:     "tcp",
+			cfg:      &config.CheckConfig{Type: "tcp", TCP: &config.TCPCheckConfig{Host: "127.0.0.1", Port: 80}},
+			wantType: "tcp",
+		},
+		{
+			name:            "tcp nil sub-config",
+			cfg:             &config.CheckConfig{Type: "tcp"},
+			wantErrContains: "tcp check config is nil",
+		},
 	}
 
 	for _, tt := range tests {

@@ -611,6 +611,49 @@ func TestApplyDefaults_UDPCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_TCPCheck(t *testing.T) {
+	makeTCP := func(tc TCPCheckConfig, prefix string) *Config {
+		return &Config{
+			VIPs: []VIPConfig{{
+				Name:   "v",
+				Prefix: prefix,
+				Check:  CheckConfig{Type: CheckTypeTCP, TCP: &tc},
+			}},
+		}
+	}
+
+	t.Run("Host defaults to VIP IP for /32", func(t *testing.T) {
+		cfg := makeTCP(TCPCheckConfig{Port: 8080}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "203.0.113.1", cfg.VIPs[0].Check.TCP.Host)
+	})
+
+	t.Run("Host empty for /24", func(t *testing.T) {
+		cfg := makeTCP(TCPCheckConfig{Port: 8080}, "203.0.113.0/24")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "", cfg.VIPs[0].Check.TCP.Host)
+	})
+
+	t.Run("Host preserved", func(t *testing.T) {
+		cfg := makeTCP(TCPCheckConfig{Host: "10.0.0.1", Port: 8080}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "10.0.0.1", cfg.VIPs[0].Check.TCP.Host)
+	})
+
+	t.Run("nil TCP gets initialized", func(t *testing.T) {
+		cfg := &Config{
+			VIPs: []VIPConfig{{
+				Name:   "v",
+				Prefix: "203.0.113.1/32",
+				Check:  CheckConfig{Type: CheckTypeTCP},
+			}},
+		}
+		ApplyDefaults(cfg)
+		assert.NotNil(t, cfg.VIPs[0].Check.TCP)
+		assert.Equal(t, "203.0.113.1", cfg.VIPs[0].Check.TCP.Host)
+	})
+}
+
 func TestApplyDefaults_Policy(t *testing.T) {
 	makePolicy := func(p PolicyConfig) *Config {
 		return &Config{

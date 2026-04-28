@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVipHostIP(t *testing.T) {
@@ -658,19 +659,24 @@ func TestApplyDefaults_OTel(t *testing.T) {
 	t.Run("defaults applied when empty", func(t *testing.T) {
 		cfg := &Config{}
 		ApplyDefaults(cfg)
-		assert.Equal(t, "grpc", cfg.OTel.Protocol)
 		assert.Equal(t, "pathosd", cfg.OTel.ServiceName)
+		require.NotNil(t, cfg.OTel.Enabled)
+		assert.True(t, *cfg.OTel.Enabled)
+		require.NotNil(t, cfg.OTel.Traces.Enabled)
+		assert.True(t, *cfg.OTel.Traces.Enabled)
+		require.NotNil(t, cfg.OTel.Metrics.Enabled)
+		assert.True(t, *cfg.OTel.Metrics.Enabled)
+		require.NotNil(t, cfg.OTel.Logs.Enabled)
+		assert.True(t, *cfg.OTel.Logs.Enabled)
 	})
 
 	t.Run("existing values preserved", func(t *testing.T) {
 		cfg := &Config{
 			OTel: OTelConfig{
-				Protocol:    "http",
 				ServiceName: "my-pathosd",
 			},
 		}
 		ApplyDefaults(cfg)
-		assert.Equal(t, "http", cfg.OTel.Protocol)
 		assert.Equal(t, "my-pathosd", cfg.OTel.ServiceName)
 	})
 }

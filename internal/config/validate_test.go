@@ -272,6 +272,32 @@ func TestValidate_Neighbors(t *testing.T) {
 		cfg.BGP.Neighbors[0].Name = ""
 		assertErrorContains(t, Validate(cfg), ".name")
 	})
+
+	t.Run("multihop enabled without TTL is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].EnableMultihop = true
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("multihop enabled with TTL >= 2 is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].EnableMultihop = true
+		cfg.BGP.Neighbors[0].MultihopTTL = 5
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("multihop enabled with TTL=1 is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].EnableMultihop = true
+		cfg.BGP.Neighbors[0].MultihopTTL = 1
+		assertErrorContains(t, Validate(cfg), ".multihop_ttl")
+	})
+
+	t.Run("multihop_ttl set without enable_multihop is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].MultihopTTL = 5
+		assertErrorContains(t, Validate(cfg), ".multihop_ttl")
+	})
 }
 
 func TestValidate_GoBGPAPI(t *testing.T) {

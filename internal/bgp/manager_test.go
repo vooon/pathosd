@@ -377,6 +377,49 @@ func TestManagerBuildPeer(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "must differ from neighbor address")
 	})
+
+	t.Run("multihop enabled without explicit TTL sets Enabled=true MultihopTtl=0", func(t *testing.T) {
+		m := newManager("10.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name:           "spine",
+			Address:        "10.0.0.2",
+			PeerASN:        65100,
+			Port:           179,
+			EnableMultihop: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, peer.EbgpMultihop)
+		assert.True(t, peer.EbgpMultihop.Enabled)
+		assert.Equal(t, uint32(0), peer.EbgpMultihop.MultihopTtl)
+	})
+
+	t.Run("multihop enabled with explicit TTL propagates TTL", func(t *testing.T) {
+		m := newManager("10.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name:           "spine",
+			Address:        "10.0.0.2",
+			PeerASN:        65100,
+			Port:           179,
+			EnableMultihop: true,
+			MultihopTTL:    5,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, peer.EbgpMultihop)
+		assert.True(t, peer.EbgpMultihop.Enabled)
+		assert.Equal(t, uint32(5), peer.EbgpMultihop.MultihopTtl)
+	})
+
+	t.Run("multihop disabled leaves EbgpMultihop nil", func(t *testing.T) {
+		m := newManager("10.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name:    "leaf",
+			Address: "10.0.0.2",
+			PeerASN: 65100,
+			Port:    179,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, peer.EbgpMultihop)
+	})
 }
 
 func startTestBGPServer(t *testing.T) *Manager {

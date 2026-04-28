@@ -6,6 +6,7 @@ const (
 	CheckTypeDNS  = "dns"
 	CheckTypePing = "ping"
 	CheckTypeUDP  = "udp"
+	CheckTypeTCP  = "tcp"
 )
 
 // Config is the top-level configuration for pathosd.
@@ -111,7 +112,7 @@ type VIPConfig struct {
 // CheckConfig defines health check type, scheduling, and type-specific parameters.
 type CheckConfig struct {
 	// Health check backend type.
-	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp"`
+	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp"`
 	// Interval between consecutive health checks. Default: 5s.
 	Interval *Duration `yaml:"interval" json:"interval" toml:"interval"`
 	// Maximum time to wait for a check to complete; must be less than interval. Default: 2s.
@@ -128,6 +129,8 @@ type CheckConfig struct {
 	Ping *PingCheckConfig `yaml:"ping,omitempty" json:"ping,omitempty" toml:"ping,omitempty"`
 	// UDP check configuration (required when type is "udp").
 	UDP *UDPCheckConfig `yaml:"udp,omitempty" json:"udp,omitempty" toml:"udp,omitempty"`
+	// TCP check configuration (required when type is "tcp").
+	TCP *TCPCheckConfig `yaml:"tcp,omitempty" json:"tcp,omitempty" toml:"tcp,omitempty"`
 }
 
 // HTTPCheckConfig defines an HTTP health check.
@@ -156,6 +159,15 @@ type HTTPCheckConfig struct {
 	TLSCACert string `yaml:"tls_ca_cert" json:"tls_ca_cert" toml:"tls_ca_cert"`
 	// Additional HTTP headers to send with the check request.
 	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
+}
+
+// TCPCheckConfig defines a TCP port reachability check.
+// The checker dials host:port and considers a successful connection as passing.
+type TCPCheckConfig struct {
+	// Host to connect to. Defaults to VIP prefix IP for /32 or /128.
+	Host string `yaml:"host" json:"host" toml:"host"`
+	// TCP port to connect to. Required.
+	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"required,minimum=1,maximum=65535"`
 }
 
 // UDPCheckConfig defines a UDP port reachability check.

@@ -629,6 +629,46 @@ func TestValidate_UDPCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_TCPCheck(t *testing.T) {
+	makeTCPConfig := func() *Config {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeTCP
+		cfg.VIPs[0].Check.HTTP = nil
+		cfg.VIPs[0].Check.TCP = &TCPCheckConfig{Host: "203.0.113.1", Port: 8080}
+		return cfg
+	}
+
+	t.Run("valid tcp config", func(t *testing.T) {
+		assert.Empty(t, Validate(makeTCPConfig()))
+	})
+
+	t.Run("nil tcp config when type is tcp", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeTCP
+		cfg.VIPs[0].Check.HTTP = nil
+		assertErrorContains(t, Validate(cfg), ".tcp")
+	})
+
+	t.Run("port zero is required", func(t *testing.T) {
+		cfg := makeTCPConfig()
+		cfg.VIPs[0].Check.TCP.Port = 0
+		assertErrorContains(t, Validate(cfg), ".tcp.port")
+	})
+
+	t.Run("host required for non-/32 prefix", func(t *testing.T) {
+		cfg := makeTCPConfig()
+		cfg.VIPs[0].Prefix = "203.0.113.0/24"
+		cfg.VIPs[0].Check.TCP.Host = ""
+		assertErrorContains(t, Validate(cfg), ".tcp.host")
+	})
+
+	t.Run("host not required for /32 prefix", func(t *testing.T) {
+		cfg := makeTCPConfig()
+		cfg.VIPs[0].Check.TCP.Host = "203.0.113.1"
+		assert.Empty(t, Validate(cfg))
+	})
+}
+
 func TestValidate_Policy(t *testing.T) {
 	t.Run("empty fail_action", func(t *testing.T) {
 		cfg := validConfig()

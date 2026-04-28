@@ -240,6 +240,19 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 		}
 
+	case CheckTypeTCP:
+		if c.TCP == nil {
+			add(prefix+".tcp", "required when type is \"tcp\"")
+		} else {
+			t := c.TCP
+			if t.Port == 0 {
+				add(prefix+".tcp.port", "required")
+			}
+			if t.Host == "" && !isSingleHost(vipPrefix) {
+				add(prefix+".tcp.host", "required when vip prefix is not a /32 or /128")
+			}
+		}
+
 	case "":
 		add(prefix+".type", "required")
 	default:

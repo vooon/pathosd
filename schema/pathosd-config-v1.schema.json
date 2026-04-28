@@ -74,7 +74,8 @@
             "http",
             "dns",
             "ping",
-            "udp"
+            "udp",
+            "tcp"
           ],
           "description": "Health check backend type."
         },
@@ -111,6 +112,10 @@
         "udp": {
           "$ref": "#/$defs/UDPCheckConfig",
           "description": "UDP check configuration (required when type is \"udp\")."
+        },
+        "tcp": {
+          "$ref": "#/$defs/TCPCheckConfig",
+          "description": "TCP check configuration (required when type is \"tcp\")."
         }
       },
       "additionalProperties": false,
@@ -505,6 +510,27 @@
         "local_address"
       ],
       "description": "RouterConfig identifies this BGP speaker."
+    },
+    "TCPCheckConfig": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host to connect to. Defaults to VIP prefix IP for /32 or /128."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "TCP port to connect to. Required."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "port"
+      ],
+      "description": "TCPCheckConfig defines a TCP port reachability check."
     },
     "UDPCheckConfig": {
       "properties": {

@@ -104,6 +104,14 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 			c.UDP = &UDPCheckConfig{}
 		}
 		applyUDPDefaults(c.UDP, vipPrefix)
+
+	case CheckTypeTCP:
+		if c.TCP == nil {
+			c.TCP = &TCPCheckConfig{}
+		}
+		if c.TCP.Host == "" {
+			c.TCP.Host = vipHostIP(vipPrefix)
+		}
 	}
 }
 

@@ -13,6 +13,16 @@ logging:
   level: info
   format: text
 
+# OpenTelemetry export — traces, metrics and logs via OTLP.
+# Remove or leave endpoint empty to disable entirely.
+otel:
+  endpoint: http://otel-collector.example.com:4317
+  protocol: grpc        # grpc (default) | http
+  insecure: false
+  service_name: pathosd
+  # headers:
+  #   x-honeycomb-team: MY_API_KEY
+
 bgp:
   graceful_restart: true
   hold_time: 90s
@@ -107,5 +117,39 @@ vips:
         timeout: 500ms
         interval: 100ms
         max_loss_ratio: 0.5
+    policy:
+      fail_action: withdraw
+
+  # TCP port reachability check
+  # (host defaults to VIP IP for /32 prefix)
+  - name: tcp-service
+    prefix: 10.10.4.1/32
+    check:
+      type: tcp
+      interval: 3s
+      timeout: 1s
+      rise: 2
+      fall: 3
+      tcp:
+        port: 8080
+        # host: 10.10.4.1   # explicit host override
+    policy:
+      fail_action: withdraw
+
+  # UDP port reachability check — sends a probe datagram and waits for ICMP
+  # port-unreachable (ECONNREFUSED) to detect a closed port.
+  # (host defaults to VIP IP for /32 prefix)
+  - name: udp-service
+    prefix: 10.10.5.1/32
+    check:
+      type: udp
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 3
+      udp:
+        port: 514
+        # payload: "\x00"  # probe payload; default is a single null byte
+        # host: 10.10.5.1  # explicit host override
     policy:
       fail_action: withdraw

@@ -118,6 +118,12 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 
 	result := s.checker.Check(ctx)
 
+	if result.Success {
+		slog.Debug("check passed", "vip", s.vipName, "duration", result.Duration, "detail", result.Detail)
+	} else {
+		slog.Debug("check failed", "vip", s.vipName, "duration", result.Duration, "detail", result.Detail)
+	}
+
 	s.mu.Lock()
 
 	onCheckResult := s.onCheckResult

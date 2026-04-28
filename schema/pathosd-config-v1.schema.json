@@ -38,8 +38,8 @@
         "listen_port": {
           "type": "integer",
           "maximum": 65535,
-          "minimum": 1,
-          "description": "TCP port to listen on for inbound BGP TCP sessions. Default: 179."
+          "minimum": -1,
+          "description": "TCP port to listen on for inbound BGP TCP sessions. Default: 179. Set to -1 to disable BGP listening entirely."
         },
         "gobgp_api": {
           "$ref": "#/$defs/GoBGPAPIConfig",

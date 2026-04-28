@@ -60,8 +60,8 @@ func Validate(cfg *Config) []error {
 			add("bgp.listen_address", fmt.Sprintf("must be a valid IP address, got %q", cfg.BGP.ListenAddress))
 		}
 	}
-	if cfg.BGP.ListenPort != 0 && (cfg.BGP.ListenPort < 1 || cfg.BGP.ListenPort > 65535) {
-		add("bgp.listen_port", fmt.Sprintf("must be in range 1..65535, got %d", cfg.BGP.ListenPort))
+	if cfg.BGP.ListenPort != 0 && cfg.BGP.ListenPort != -1 && (cfg.BGP.ListenPort < 1 || cfg.BGP.ListenPort > 65535) {
+		add("bgp.listen_port", fmt.Sprintf("must be -1 (disabled) or in range 1..65535, got %d", cfg.BGP.ListenPort))
 	}
 	if cfg.BGP.GoBGPAPI.Enabled {
 		if cfg.BGP.GoBGPAPI.Listen == "" {

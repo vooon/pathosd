@@ -406,6 +406,49 @@
       ],
       "description": "NeighborConfig defines a BGP peer."
     },
+    "OTelConfig": {
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "OTLP collector endpoint URL. If empty, OTEL export is disabled.\ngRPC example: \"http://localhost:4317\"; HTTP example: \"http://localhost:4318\"."
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "grpc",
+            "http"
+          ],
+          "description": "OTLP transport protocol: \"grpc\" or \"http\". Default: \"grpc\".",
+          "default": "grpc"
+        },
+        "insecure": {
+          "type": "boolean",
+          "description": "Skip TLS certificate verification. Not recommended in production.",
+          "default": false
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Additional headers sent with every OTLP request (e.g. for API-key authentication)."
+        },
+        "service_name": {
+          "type": "string",
+          "description": "OTEL resource service.name attribute. Default: \"pathosd\"."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "endpoint",
+        "protocol",
+        "insecure",
+        "headers",
+        "service_name"
+      ],
+      "description": "OTelConfig configures OpenTelemetry export (traces, metrics, logs)."
+    },
     "PingCheckConfig": {
       "properties": {
         "dst_ip": {
@@ -609,6 +652,10 @@
       "$ref": "#/$defs/LoggingConfig",
       "description": "Structured logging configuration."
     },
+    "otel": {
+      "$ref": "#/$defs/OTelConfig",
+      "description": "OpenTelemetry export configuration (traces, metrics, logs). Disabled when endpoint is empty."
+    },
     "bgp": {
       "$ref": "#/$defs/BGPConfig",
       "description": "BGP session parameters and neighbor definitions."
@@ -629,6 +676,7 @@
     "router",
     "api",
     "logging",
+    "otel",
     "bgp",
     "vips"
   ],

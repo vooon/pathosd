@@ -19,12 +19,14 @@ import (
 	"github.com/vooon/pathosd/internal/logging"
 	"github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/policy"
+	"github.com/vooon/pathosd/internal/telemetry"
 )
 
 func Run(cfg *config.Config) error {
 	app := fx.New(
 		fx.Supply(cfg),
 		fx.Provide(
+			provideTelemetry,
 			provideLogger,
 			provideMetrics,
 			provideBGPManager,
@@ -78,7 +80,23 @@ func Run(cfg *config.Config) error {
 	return nil
 }
 
-func provideLogger(cfg *config.Config) *slog.Logger {
+func provideTelemetry(cfg *config.Config, m *metrics.Metrics, lc fx.Lifecycle) (*telemetry.Provider, error) {
+	prov, err := telemetry.Setup(context.Background(), cfg.OTel, m.Registry, version.Version)
+	if err != nil {
+		return nil, fmt.Errorf("setting up OTEL telemetry: %w", err)
+	}
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return prov.Shutdown(ctx)
+		},
+	})
+	return prov, nil
+}
+
+func provideLogger(cfg *config.Config, tel *telemetry.Provider) *slog.Logger {
+	if h := tel.LogHandler(); h != nil {
+		return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, h)
+	}
 	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
 }
 

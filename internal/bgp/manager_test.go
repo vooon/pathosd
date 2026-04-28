@@ -450,15 +450,15 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 	})
 
 	t.Run("announce VIP succeeds", func(t *testing.T) {
-		require.NoError(t, m.AnnounceVIP("10.1.0.1/32"))
+		require.NoError(t, m.AnnounceVIP(context.Background(), "10.1.0.1/32"))
 	})
 
 	t.Run("withdraw VIP succeeds", func(t *testing.T) {
-		require.NoError(t, m.WithdrawVIP("10.1.0.1/32"))
+		require.NoError(t, m.WithdrawVIP(context.Background(), "10.1.0.1/32"))
 	})
 
 	t.Run("pessimize VIP succeeds", func(t *testing.T) {
-		require.NoError(t, m.PessimizeVIP("10.1.0.1/32", 3, []string{"65535:666"}))
+		require.NoError(t, m.PessimizeVIP(context.Background(), "10.1.0.1/32", 3, []string{"65535:666"}))
 	})
 
 	t.Run("peer states empty without configured peers", func(t *testing.T) {
@@ -467,7 +467,7 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 	})
 
 	t.Run("announce invalid prefix returns error", func(t *testing.T) {
-		err := m.AnnounceVIP("invalid-prefix")
+		err := m.AnnounceVIP(context.Background(), "invalid-prefix")
 		require.Error(t, err)
 	})
 }
@@ -662,7 +662,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 	waitForPeerEstablished(t, receiver, "127.0.0.1")
 
 	const prefix = "10.1.0.50/32"
-	require.NoError(t, sender.AnnounceVIP(prefix))
+	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix))
 
 	var announced []*apiutil.Path
 	require.Eventually(t, func() bool {
@@ -684,7 +684,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		return false
 	}, 8*time.Second, 100*time.Millisecond)
 
-	require.NoError(t, sender.PessimizeVIP(prefix, 3, []string{"65535:666"}))
+	require.NoError(t, sender.PessimizeVIP(context.Background(), prefix, 3, []string{"65535:666"}))
 
 	require.Eventually(t, func() bool {
 		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
@@ -697,7 +697,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		return false
 	}, 8*time.Second, 100*time.Millisecond)
 
-	require.NoError(t, sender.AnnounceVIP(prefix))
+	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix))
 
 	require.Eventually(t, func() bool {
 		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
@@ -712,7 +712,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		return true
 	}, 8*time.Second, 100*time.Millisecond)
 
-	require.NoError(t, sender.WithdrawVIP(prefix))
+	require.NoError(t, sender.WithdrawVIP(context.Background(), prefix))
 	require.Eventually(t, func() bool {
 		return len(listAdjOutPaths(t, sender, "127.0.0.1", prefix)) == 0
 	}, 8*time.Second, 100*time.Millisecond)

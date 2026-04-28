@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,21 +35,21 @@ type fakeBGPNotifier struct {
 	}
 }
 
-func (f *fakeBGPNotifier) AnnounceVIP(prefix string) error {
+func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.announces = append(f.announces, prefix)
 	return nil
 }
 
-func (f *fakeBGPNotifier) WithdrawVIP(prefix string) error {
+func (f *fakeBGPNotifier) WithdrawVIP(_ context.Context, prefix string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.withdraws = append(f.withdraws, prefix)
 	return nil
 }
 
-func (f *fakeBGPNotifier) PessimizeVIP(prefix string, prepend int, communities []string) error {
+func (f *fakeBGPNotifier) PessimizeVIP(_ context.Context, prefix string, prepend int, communities []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

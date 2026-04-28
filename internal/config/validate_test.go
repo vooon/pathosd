@@ -669,6 +669,38 @@ func TestValidate_TCPCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_OTel(t *testing.T) {
+	t.Run("disabled when endpoint empty", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.OTel = OTelConfig{}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("valid grpc config", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "grpc", ServiceName: "pathosd"}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("valid http config", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4318", Protocol: "http", ServiceName: "pathosd"}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("invalid protocol", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "tcp", ServiceName: "pathosd"}
+		assertErrorContains(t, Validate(cfg), ".otel.protocol")
+	})
+
+	t.Run("empty service_name", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "grpc", ServiceName: ""}
+		assertErrorContains(t, Validate(cfg), ".otel.service_name")
+	})
+}
+
 func TestValidate_Policy(t *testing.T) {
 	t.Run("empty fail_action", func(t *testing.T) {
 		cfg := validConfig()

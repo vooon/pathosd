@@ -72,6 +72,19 @@ data:
             port: 80
         policy:
           fail_action: withdraw
+      - name: udp-vip
+        prefix: 10.100.4.1/32
+        check:
+          type: udp
+          interval: 2s
+          timeout: 1s
+          rise: 3
+          fall: 3
+          udp:
+            host: syslog.pathosd-e2e.svc.cluster.local
+            port: 514
+        policy:
+          fail_action: withdraw
 ---
 apiVersion: apps/v1
 kind: Deployment

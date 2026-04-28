@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"sync"
@@ -21,9 +22,9 @@ type StateChange struct {
 }
 
 type BGPNotifier interface {
-	AnnounceVIP(prefix string) error
-	WithdrawVIP(prefix string) error
-	PessimizeVIP(prefix string, prepend int, communities []string) error
+	AnnounceVIP(ctx context.Context, prefix string) error
+	WithdrawVIP(ctx context.Context, prefix string) error
+	PessimizeVIP(ctx context.Context, prefix string, prepend int, communities []string) error
 }
 
 type Manager struct {
@@ -77,6 +78,11 @@ func (m *Manager) OnHealthTransition(t checks.HealthTransition) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	ctx := t.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	entry, ok := m.vips[t.VIPName]
 	if !ok {
 		slog.Error("transition for unknown VIP", "vip", t.VIPName)
@@ -95,7 +101,7 @@ func (m *Manager) OnHealthTransition(t checks.HealthTransition) {
 	vs.lowerPriorityFileOn = filePresent
 
 	newState := Evaluate(t.Healthy, filePresent, &cfg.Policy)
-	m.transitionStateLocked(vs, cfg, newState, t.Reason)
+	m.transitionStateLocked(ctx, vs, cfg, newState, t.Reason)
 }
 
 func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
@@ -126,7 +132,7 @@ func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 					reason = "lower_priority_file removed"
 				}
 			}
-			m.transitionStateLocked(vs, cfg, newState, reason)
+			m.transitionStateLocked(context.Background(), vs, cfg, newState, reason)
 		}
 	}
 	m.mu.Unlock()
@@ -183,7 +189,7 @@ func lowerPriorityFilePresent(path string) bool {
 	return err == nil
 }
 
-func (m *Manager) transitionStateLocked(vs *vipState, cfg *config.VIPConfig, newState model.VIPState, reason string) {
+func (m *Manager) transitionStateLocked(ctx context.Context, vs *vipState, cfg *config.VIPConfig, newState model.VIPState, reason string) {
 	oldState := vs.state
 	if newState == oldState {
 		return
@@ -209,17 +215,17 @@ func (m *Manager) transitionStateLocked(vs *vipState, cfg *config.VIPConfig, new
 	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
 
 	if m.notifier != nil {
-		m.applyBGP(cfg, newState)
+		m.applyBGP(ctx, cfg, newState)
 	}
 }
 
-func (m *Manager) applyBGP(cfg *config.VIPConfig, state model.VIPState) {
+func (m *Manager) applyBGP(ctx context.Context, cfg *config.VIPConfig, state model.VIPState) {
 	var err error
 	switch state {
 	case model.StateAnnounced:
-		err = m.notifier.AnnounceVIP(cfg.Prefix)
+		err = m.notifier.AnnounceVIP(ctx, cfg.Prefix)
 	case model.StateWithdrawn:
-		err = m.notifier.WithdrawVIP(cfg.Prefix)
+		err = m.notifier.WithdrawVIP(ctx, cfg.Prefix)
 	case model.StatePessimized:
 		prepend := 6
 		var communities []string
@@ -229,7 +235,7 @@ func (m *Manager) applyBGP(cfg *config.VIPConfig, state model.VIPState) {
 			}
 			communities = cfg.Policy.LowerPriority.Communities
 		}
-		err = m.notifier.PessimizeVIP(cfg.Prefix, prepend, communities)
+		err = m.notifier.PessimizeVIP(ctx, cfg.Prefix, prepend, communities)
 	}
 	if err != nil {
 		slog.Error("BGP state change failed", "vip", cfg.Name, "prefix", cfg.Prefix, "state", state.String(), "error", err)

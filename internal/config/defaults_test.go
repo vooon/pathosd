@@ -654,6 +654,27 @@ func TestApplyDefaults_TCPCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_OTel(t *testing.T) {
+	t.Run("defaults applied when empty", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyDefaults(cfg)
+		assert.Equal(t, "grpc", cfg.OTel.Protocol)
+		assert.Equal(t, "pathosd", cfg.OTel.ServiceName)
+	})
+
+	t.Run("existing values preserved", func(t *testing.T) {
+		cfg := &Config{
+			OTel: OTelConfig{
+				Protocol:    "http",
+				ServiceName: "my-pathosd",
+			},
+		}
+		ApplyDefaults(cfg)
+		assert.Equal(t, "http", cfg.OTel.Protocol)
+		assert.Equal(t, "my-pathosd", cfg.OTel.ServiceName)
+	})
+}
+
 func TestApplyDefaults_Policy(t *testing.T) {
 	makePolicy := func(p PolicyConfig) *Config {
 		return &Config{

@@ -366,7 +366,7 @@ func TestRegisterBGPLifecycle(t *testing.T) {
 	require.Len(t, lc.hooks, 1)
 	hook := lc.hooks[0]
 	require.NoError(t, hook.OnStart(context.Background()))
-	require.NoError(t, mgr.AnnounceVIP("10.1.0.1/32"))
+	require.NoError(t, mgr.AnnounceVIP(context.Background(), "10.1.0.1/32"))
 	require.NoError(t, hook.OnStop(context.Background()))
 }
 

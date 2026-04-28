@@ -20,6 +20,10 @@ import (
 	"github.com/vooon/pathosd/internal/config"
 	pathosmetrics "github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/model"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Manager struct {
@@ -31,6 +35,7 @@ type Manager struct {
 	installedRouteUUID  map[string]uuid.UUID
 	metrics             *pathosmetrics.Metrics
 	routeStateByPrefix  map[string]map[string]routeStateLabels
+	tracer              trace.Tracer
 }
 
 func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
@@ -59,6 +64,7 @@ func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
 		metrics:             metrics,
 		installedRouteUUID:  make(map[string]uuid.UUID),
 		routeStateByPrefix:  make(map[string]map[string]routeStateLabels),
+		tracer:              otel.Tracer("pathosd/bgp"),
 	}
 }
 
@@ -194,13 +200,37 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 	return peer, nil
 }
 
-func (m *Manager) AnnounceVIP(prefix string) error {
-	return m.upsertVIP(prefix, 0, nil, "announce")
+func (m *Manager) AnnounceVIP(ctx context.Context, prefix string) error {
+	_, span := m.tracer.Start(ctx, "bgp.announce",
+		trace.WithAttributes(
+			attribute.String("bgp.prefix", prefix),
+			attribute.String("bgp.operation", "announce"),
+		),
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+	err := m.upsertVIP(prefix, 0, nil, "announce")
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return err
 }
 
-func (m *Manager) WithdrawVIP(prefix string) error {
+func (m *Manager) WithdrawVIP(ctx context.Context, prefix string) error {
+	_, span := m.tracer.Start(ctx, "bgp.withdraw",
+		trace.WithAttributes(
+			attribute.String("bgp.prefix", prefix),
+			attribute.String("bgp.operation", "withdraw"),
+		),
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	path, err := m.buildPath(prefix, 0, nil)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -216,18 +246,34 @@ func (m *Manager) WithdrawVIP(prefix string) error {
 		})
 	}
 	if err != nil {
-		return m.pathOpError("withdraw", prefix, err)
+		operr := m.pathOpError("withdraw", prefix, err)
+		span.RecordError(operr)
+		span.SetStatus(codes.Error, operr.Error())
+		return operr
 	}
 
 	m.clearInstalledUUID(prefix)
-
 	m.syncRouteStateMetric(context.Background(), prefix)
 	slog.Info("BGP withdraw", "prefix", prefix)
 	return nil
 }
 
-func (m *Manager) PessimizeVIP(prefix string, prepend int, communities []string) error {
-	return m.upsertVIP(prefix, prepend, communities, "pessimize")
+func (m *Manager) PessimizeVIP(ctx context.Context, prefix string, prepend int, communities []string) error {
+	_, span := m.tracer.Start(ctx, "bgp.pessimize",
+		trace.WithAttributes(
+			attribute.String("bgp.prefix", prefix),
+			attribute.String("bgp.operation", "pessimize"),
+			attribute.Int("bgp.prepend", prepend),
+		),
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+	err := m.upsertVIP(prefix, prepend, communities, "pessimize")
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return err
 }
 
 func (m *Manager) upsertVIP(prefix string, prepend int, communities []string, operation string) error {

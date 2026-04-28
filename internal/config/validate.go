@@ -124,6 +124,25 @@ func Validate(cfg *Config) []error {
 		errs = append(errs, validateVIP(prefix, &v, vipNames, vipPrefixes)...)
 	}
 
+	errs = append(errs, validateOTel(&cfg.OTel)...)
+
+	return errs
+}
+
+func validateOTel(o *OTelConfig) []error {
+	if o.Endpoint == "" {
+		return nil
+	}
+	var errs []error
+	add := func(path, msg string) {
+		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+	}
+	if o.Protocol != "grpc" && o.Protocol != "http" {
+		add(".otel.protocol", fmt.Sprintf("must be \"grpc\" or \"http\", got %q", o.Protocol))
+	}
+	if o.ServiceName == "" {
+		add(".otel.service_name", "must not be empty")
+	}
 	return errs
 }
 

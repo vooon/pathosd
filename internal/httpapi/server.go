@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/vooon/pathosd/internal/bgp"
@@ -62,7 +63,10 @@ func NewServer(deps ServerDeps) *http.Server {
 	mux.HandleFunc("GET /status", handleStatus(deps))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Schedulers))
-	return &http.Server{Addr: deps.Config.API.Listen, Handler: mux}
+	return &http.Server{
+		Addr:    deps.Config.API.Listen,
+		Handler: otelhttp.NewHandler(mux, "pathosd.http"),
+	}
 }
 
 func handleHealthz() http.HandlerFunc {

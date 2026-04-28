@@ -48,6 +48,17 @@ func ApplyDefaults(cfg *Config) {
 		applyCheckDefaults(&v.Check, v.Prefix)
 		applyPolicyDefaults(&v.Policy)
 	}
+
+	applyOTelDefaults(&cfg.OTel)
+}
+
+func applyOTelDefaults(o *OTelConfig) {
+	if o.Protocol == "" {
+		o.Protocol = "grpc"
+	}
+	if o.ServiceName == "" {
+		o.ServiceName = "pathosd"
+	}
 }
 
 // vipHostIP extracts the host IP from a /32 or /128 prefix, or "" otherwise.

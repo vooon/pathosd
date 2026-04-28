@@ -19,10 +19,27 @@ type Config struct {
 	API APIConfig `yaml:"api" json:"api" toml:"api" jsonschema:"required"`
 	// Structured logging configuration.
 	Logging LoggingConfig `yaml:"logging" json:"logging" toml:"logging"`
+	// OpenTelemetry export configuration (traces, metrics, logs). Disabled when endpoint is empty.
+	OTel OTelConfig `yaml:"otel" json:"otel" toml:"otel"`
 	// BGP session parameters and neighbor definitions.
 	BGP BGPConfig `yaml:"bgp" json:"bgp" toml:"bgp" jsonschema:"required"`
 	// List of Virtual IPs to announce via BGP, each with a health check.
 	VIPs []VIPConfig `yaml:"vips" json:"vips" toml:"vips" jsonschema:"required,minItems=1"`
+}
+
+// OTelConfig configures OpenTelemetry export (traces, metrics, logs).
+type OTelConfig struct {
+	// OTLP collector endpoint URL. If empty, OTEL export is disabled.
+	// gRPC example: "http://localhost:4317"; HTTP example: "http://localhost:4318".
+	Endpoint string `yaml:"endpoint" json:"endpoint" toml:"endpoint"`
+	// OTLP transport protocol: "grpc" or "http". Default: "grpc".
+	Protocol string `yaml:"protocol" json:"protocol" toml:"protocol" jsonschema:"enum=grpc,enum=http,default=grpc"`
+	// Skip TLS certificate verification. Not recommended in production.
+	Insecure bool `yaml:"insecure" json:"insecure" toml:"insecure" jsonschema:"default=false"`
+	// Additional headers sent with every OTLP request (e.g. for API-key authentication).
+	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
+	// OTEL resource service.name attribute. Default: "pathosd".
+	ServiceName string `yaml:"service_name" json:"service_name" toml:"service_name"`
 }
 
 // RouterConfig identifies this BGP speaker.

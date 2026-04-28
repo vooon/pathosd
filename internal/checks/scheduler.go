@@ -5,9 +5,18 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
+// HealthTransition is fired when a VIP crosses the rise or fall threshold.
+// Ctx carries the trace context of the check that caused the transition so
+// that downstream operations (e.g. BGP announce/withdraw) appear as child spans.
 type HealthTransition struct {
+	Ctx         context.Context // trace context; may be nil when called synthetically
 	VIPName     string
 	Healthy     bool
 	Reason      string
@@ -23,6 +32,7 @@ type Scheduler struct {
 	fall          int
 	onTransition  func(HealthTransition)
 	onCheckResult func(vipName string, result Result)
+	tracer        trace.Tracer
 
 	mu              sync.Mutex
 	healthy         bool
@@ -53,6 +63,7 @@ func NewScheduler(cfg SchedulerConfig) *Scheduler {
 		onTransition:  cfg.OnTransition,
 		onCheckResult: cfg.OnCheckResult,
 		healthy:       false,
+		tracer:        otel.Tracer("pathosd/checks"),
 	}
 }
 
@@ -113,10 +124,29 @@ func (s *Scheduler) ConsecutiveFail() int {
 }
 
 func (s *Scheduler) runCheck(parentCtx context.Context) Result {
-	ctx, cancel := context.WithTimeout(parentCtx, s.timeout)
+	spanCtx, span := s.tracer.Start(parentCtx, "health_check",
+		trace.WithAttributes(
+			attribute.String("vip.name", s.vipName),
+			attribute.String("check.type", s.checker.Type()),
+		),
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
+	ctx, cancel := context.WithTimeout(spanCtx, s.timeout)
 	defer cancel()
 
 	result := s.checker.Check(ctx)
+
+	span.SetAttributes(
+		attribute.Bool("check.success", result.Success),
+		attribute.Int64("check.duration_ms", result.Duration.Milliseconds()),
+		attribute.String("check.detail", result.Detail),
+		attribute.Bool("check.timed_out", result.TimedOut),
+	)
+	if !result.Success {
+		span.SetStatus(codes.Error, result.Detail)
+	}
 
 	if result.Success {
 		slog.Debug("check passed", "vip", s.vipName, "duration", result.Duration, "detail", result.Detail)
@@ -139,6 +169,7 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 			s.healthy = true
 			slog.Info("VIP healthy", "vip", s.vipName, "consecutive_ok", s.consecutiveOK, "rise", s.rise)
 			transition = &HealthTransition{
+				Ctx:         spanCtx,
 				VIPName:     s.vipName,
 				Healthy:     true,
 				Reason:      "rise threshold reached",
@@ -154,6 +185,7 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 			s.healthy = false
 			slog.Warn("VIP unhealthy", "vip", s.vipName, "consecutive_fail", s.consecutiveFail, "fall", s.fall, "detail", result.Detail)
 			transition = &HealthTransition{
+				Ctx:         spanCtx,
 				VIPName:     s.vipName,
 				Healthy:     false,
 				Reason:      "fall threshold reached",

@@ -227,6 +227,19 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 		}
 
+	case CheckTypeUDP:
+		if c.UDP == nil {
+			add(prefix+".udp", "required when type is \"udp\"")
+		} else {
+			u := c.UDP
+			if u.Port == 0 {
+				add(prefix+".udp.port", "required")
+			}
+			if u.Host == "" && !isSingleHost(vipPrefix) {
+				add(prefix+".udp.host", "required when vip prefix is not a /32 or /128")
+			}
+		}
+
 	case "":
 		add(prefix+".type", "required")
 	default:

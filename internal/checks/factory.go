@@ -23,6 +23,11 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 			return nil, fmt.Errorf("ping check config is nil")
 		}
 		return NewPingChecker(cfg.Ping), nil
+	case config.CheckTypeUDP:
+		if cfg.UDP == nil {
+			return nil, fmt.Errorf("udp check config is nil")
+		}
+		return NewUDPChecker(cfg.UDP), nil
 	default:
 		return nil, fmt.Errorf("unsupported check type %q", cfg.Type)
 	}

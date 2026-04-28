@@ -53,11 +53,18 @@ func ApplyDefaults(cfg *Config) {
 }
 
 func applyOTelDefaults(o *OTelConfig) {
-	if o.Protocol == "" {
-		o.Protocol = "grpc"
+	if o.Enabled == nil {
+		enabled := true
+		o.Enabled = &enabled
 	}
 	if o.ServiceName == "" {
 		o.ServiceName = "pathosd"
+	}
+	for _, s := range []*OTelSignalConfig{&o.Traces, &o.Metrics, &o.Logs} {
+		if s.Enabled == nil {
+			enabled := true
+			s.Enabled = &enabled
+		}
 	}
 }
 

@@ -87,6 +87,12 @@ func TestApplyDefaults_BGP(t *testing.T) {
 		assert.Equal(t, 1179, cfg.BGP.ListenPort)
 	})
 
+	t.Run("listen_port -1 preserved (disabled)", func(t *testing.T) {
+		cfg := &Config{BGP: BGPConfig{ListenPort: -1}}
+		ApplyDefaults(cfg)
+		assert.Equal(t, -1, cfg.BGP.ListenPort)
+	})
+
 	t.Run("gobgp api listen defaults when enabled", func(t *testing.T) {
 		cfg := &Config{
 			BGP: BGPConfig{

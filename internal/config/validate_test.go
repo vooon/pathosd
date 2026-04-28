@@ -212,6 +212,18 @@ func TestValidate_Neighbors(t *testing.T) {
 		assertErrorContains(t, Validate(cfg), "bgp.listen_port")
 	})
 
+	t.Run("bgp.listen_port -1 disables listening", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.ListenPort = -1
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("bgp.listen_port -2 is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.ListenPort = -2
+		assertErrorContains(t, Validate(cfg), "bgp.listen_port")
+	})
+
 	t.Run("empty neighbor list", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.BGP.Neighbors = nil

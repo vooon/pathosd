@@ -57,8 +57,8 @@ type BGPConfig struct {
 	KeepaliveTime *Duration `yaml:"keepalive_time" json:"keepalive_time" toml:"keepalive_time"`
 	// Local address to listen for inbound BGP TCP sessions. If empty, falls back to router.local_address, then 0.0.0.0.
 	ListenAddress string `yaml:"listen_address" json:"listen_address" toml:"listen_address" jsonschema:"format=ipv4"`
-	// TCP port to listen on for inbound BGP TCP sessions. Default: 179.
-	ListenPort int `yaml:"listen_port" json:"listen_port" toml:"listen_port" jsonschema:"minimum=1,maximum=65535"`
+	// TCP port to listen on for inbound BGP TCP sessions. Default: 179. Set to -1 to disable BGP listening entirely.
+	ListenPort int `yaml:"listen_port" json:"listen_port" toml:"listen_port" jsonschema:"minimum=-1,maximum=65535"`
 	// Embedded GoBGP gRPC API configuration (used by gobgp CLI for debugging).
 	GoBGPAPI GoBGPAPIConfig `yaml:"gobgp_api,omitempty" json:"gobgp_api,omitempty" toml:"gobgp_api,omitempty"`
 	// List of BGP neighbors (peers) to establish sessions with.

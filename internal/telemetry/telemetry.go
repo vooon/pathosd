@@ -63,7 +63,7 @@ func Setup(
 	promReg *prometheus.Registry,
 	svcVersion string,
 ) (*Provider, error) {
-	if cfg.Endpoint == "" {
+	if cfg.Endpoint == "" || !cfg.IsEnabled() {
 		return &Provider{}, nil
 	}
 
@@ -80,144 +80,164 @@ func Setup(
 	p := &Provider{}
 
 	// ── Traces ──────────────────────────────────────────────────────────────
-	traceExp, err := buildTraceExporter(ctx, cfg)
-	if err != nil {
-		return nil, err
+	if cfg.Traces.IsEnabled() {
+		traceExp, err := buildTraceExporter(ctx, cfg, cfg.Traces)
+		if err != nil {
+			return nil, err
+		}
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(traceExp),
+			sdktrace.WithResource(res),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+		p.shutdown = append(p.shutdown, tp.Shutdown)
+		otel.SetTracerProvider(tp)
 	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(traceExp),
-		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
-	p.shutdown = append(p.shutdown, tp.Shutdown)
-	otel.SetTracerProvider(tp)
 
 	// ── Metrics (bridge existing Prometheus registry → OTLP) ────────────────
-	metricsExp, err := buildMetricsExporter(ctx, cfg)
-	if err != nil {
-		_ = tp.Shutdown(ctx)
-		return nil, err
+	if cfg.Metrics.IsEnabled() {
+		metricsExp, err := buildMetricsExporter(ctx, cfg, cfg.Metrics)
+		if err != nil {
+			_ = p.Shutdown(ctx)
+			return nil, err
+		}
+		producer := prometheusbridge.NewMetricProducer(
+			prometheusbridge.WithGatherer(promReg),
+		)
+		mp := sdkmetric.NewMeterProvider(
+			sdkmetric.WithResource(res),
+			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(
+				metricsExp,
+				sdkmetric.WithProducer(producer),
+			)),
+		)
+		p.shutdown = append(p.shutdown, mp.Shutdown)
+		otel.SetMeterProvider(mp)
 	}
-	producer := prometheusbridge.NewMetricProducer(
-		prometheusbridge.WithGatherer(promReg),
-	)
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(
-			metricsExp,
-			sdkmetric.WithProducer(producer),
-		)),
-	)
-	p.shutdown = append(p.shutdown, mp.Shutdown)
-	otel.SetMeterProvider(mp)
 
 	// ── Logs ────────────────────────────────────────────────────────────────
-	logExp, err := buildLogExporter(ctx, cfg)
-	if err != nil {
-		_ = mp.Shutdown(ctx)
-		_ = tp.Shutdown(ctx)
-		return nil, err
+	if cfg.Logs.IsEnabled() {
+		logExp, err := buildLogExporter(ctx, cfg, cfg.Logs)
+		if err != nil {
+			_ = p.Shutdown(ctx)
+			return nil, err
+		}
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithResource(res),
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+		)
+		p.lp = lp
+		p.shutdown = append(p.shutdown, lp.Shutdown)
+		global.SetLoggerProvider(lp)
 	}
-	lp := sdklog.NewLoggerProvider(
-		sdklog.WithResource(res),
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
-	)
-	p.lp = lp
-	p.shutdown = append(p.shutdown, lp.Shutdown)
-	global.SetLoggerProvider(lp)
 
 	return p, nil
 }
 
-func buildTraceExporter(ctx context.Context, cfg config.OTelConfig) (sdktrace.SpanExporter, error) {
-	switch cfg.Protocol {
-	case "grpc":
-		opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
+func buildTraceExporter(ctx context.Context, cfg config.OTelConfig, sig config.OTelSignalConfig) (sdktrace.SpanExporter, error) {
+	proto, normURL, err := config.ParseOTelEndpoint(sig.EffectiveEndpoint(cfg.Endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("otel: trace endpoint: %w", err)
+	}
+	insecure := sig.EffectiveInsecure(cfg.Insecure)
+	headers := sig.EffectiveHeaders(cfg.Headers)
+	if proto == config.OTelProtocolGRPC {
+		opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpointURL(normURL)}
+		if insecure {
 			opts = append(opts, otlptracegrpc.WithInsecure())
 		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlptracegrpc.WithHeaders(cfg.Headers))
+		if len(headers) > 0 {
+			opts = append(opts, otlptracegrpc.WithHeaders(headers))
 		}
 		exp, err := otlptracegrpc.New(ctx, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("otel: creating gRPC trace exporter: %w", err)
 		}
 		return exp, nil
-	default: // "http"
-		opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
-			opts = append(opts, otlptracehttp.WithInsecure())
-		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlptracehttp.WithHeaders(cfg.Headers))
-		}
-		exp, err := otlptracehttp.New(ctx, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("otel: creating HTTP trace exporter: %w", err)
-		}
-		return exp, nil
 	}
+	// OTLP/HTTP
+	opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(normURL)}
+	if insecure {
+		opts = append(opts, otlptracehttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlptracehttp.WithHeaders(headers))
+	}
+	exp, err := otlptracehttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("otel: creating HTTP trace exporter: %w", err)
+	}
+	return exp, nil
 }
 
-func buildMetricsExporter(ctx context.Context, cfg config.OTelConfig) (sdkmetric.Exporter, error) {
-	switch cfg.Protocol {
-	case "grpc":
-		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
+func buildMetricsExporter(ctx context.Context, cfg config.OTelConfig, sig config.OTelSignalConfig) (sdkmetric.Exporter, error) {
+	proto, normURL, err := config.ParseOTelEndpoint(sig.EffectiveEndpoint(cfg.Endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("otel: metrics endpoint: %w", err)
+	}
+	insecure := sig.EffectiveInsecure(cfg.Insecure)
+	headers := sig.EffectiveHeaders(cfg.Headers)
+	if proto == config.OTelProtocolGRPC {
+		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpointURL(normURL)}
+		if insecure {
 			opts = append(opts, otlpmetricgrpc.WithInsecure())
 		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlpmetricgrpc.WithHeaders(cfg.Headers))
+		if len(headers) > 0 {
+			opts = append(opts, otlpmetricgrpc.WithHeaders(headers))
 		}
 		exp, err := otlpmetricgrpc.New(ctx, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("otel: creating gRPC metrics exporter: %w", err)
 		}
 		return exp, nil
-	default: // "http"
-		opts := []otlpmetrichttp.Option{otlpmetrichttp.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
-			opts = append(opts, otlpmetrichttp.WithInsecure())
-		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlpmetrichttp.WithHeaders(cfg.Headers))
-		}
-		exp, err := otlpmetrichttp.New(ctx, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("otel: creating HTTP metrics exporter: %w", err)
-		}
-		return exp, nil
 	}
+	// OTLP/HTTP
+	opts := []otlpmetrichttp.Option{otlpmetrichttp.WithEndpointURL(normURL)}
+	if insecure {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlpmetrichttp.WithHeaders(headers))
+	}
+	exp, err := otlpmetrichttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("otel: creating HTTP metrics exporter: %w", err)
+	}
+	return exp, nil
 }
 
-func buildLogExporter(ctx context.Context, cfg config.OTelConfig) (sdklog.Exporter, error) {
-	switch cfg.Protocol {
-	case "grpc":
-		opts := []otlploggrpc.Option{otlploggrpc.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
+func buildLogExporter(ctx context.Context, cfg config.OTelConfig, sig config.OTelSignalConfig) (sdklog.Exporter, error) {
+	proto, normURL, err := config.ParseOTelEndpoint(sig.EffectiveEndpoint(cfg.Endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("otel: log endpoint: %w", err)
+	}
+	insecure := sig.EffectiveInsecure(cfg.Insecure)
+	headers := sig.EffectiveHeaders(cfg.Headers)
+	if proto == config.OTelProtocolGRPC {
+		opts := []otlploggrpc.Option{otlploggrpc.WithEndpointURL(normURL)}
+		if insecure {
 			opts = append(opts, otlploggrpc.WithInsecure())
 		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlploggrpc.WithHeaders(cfg.Headers))
+		if len(headers) > 0 {
+			opts = append(opts, otlploggrpc.WithHeaders(headers))
 		}
 		exp, err := otlploggrpc.New(ctx, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("otel: creating gRPC log exporter: %w", err)
 		}
 		return exp, nil
-	default: // "http"
-		opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(cfg.Endpoint)}
-		if cfg.Insecure {
-			opts = append(opts, otlploghttp.WithInsecure())
-		}
-		if len(cfg.Headers) > 0 {
-			opts = append(opts, otlploghttp.WithHeaders(cfg.Headers))
-		}
-		exp, err := otlploghttp.New(ctx, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("otel: creating HTTP log exporter: %w", err)
-		}
-		return exp, nil
 	}
+	// OTLP/HTTP
+	opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(normURL)}
+	if insecure {
+		opts = append(opts, otlploghttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlploghttp.WithHeaders(headers))
+	}
+	exp, err := otlploghttp.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("otel: creating HTTP log exporter: %w", err)
+	}
+	return exp, nil
 }

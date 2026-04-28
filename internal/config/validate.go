@@ -137,8 +137,22 @@ func validateOTel(o *OTelConfig) []error {
 	add := func(path, msg string) {
 		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
 	}
-	if o.Protocol != "grpc" && o.Protocol != "http" {
-		add(".otel.protocol", fmt.Sprintf("must be \"grpc\" or \"http\", got %q", o.Protocol))
+	if _, _, err := ParseOTelEndpoint(o.Endpoint); err != nil {
+		add(".otel.endpoint", err.Error())
+	}
+	for _, sig := range []struct {
+		path string
+		ep   string
+	}{
+		{".otel.traces.endpoint", o.Traces.Endpoint},
+		{".otel.metrics.endpoint", o.Metrics.Endpoint},
+		{".otel.logs.endpoint", o.Logs.Endpoint},
+	} {
+		if sig.ep != "" {
+			if _, _, err := ParseOTelEndpoint(sig.ep); err != nil {
+				add(sig.path, err.Error())
+			}
+		}
 	}
 	if o.ServiceName == "" {
 		add(".otel.service_name", "must not be empty")

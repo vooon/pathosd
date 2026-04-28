@@ -1,5 +1,11 @@
 package config
 
+import (
+	"fmt"
+	"maps"
+	"strings"
+)
+
 // Check type constants.
 const (
 	CheckTypeHTTP = "http"
@@ -27,19 +33,118 @@ type Config struct {
 	VIPs []VIPConfig `yaml:"vips" json:"vips" toml:"vips" jsonschema:"required,minItems=1"`
 }
 
+// OTelSignalConfig configures a single OTEL signal (traces, metrics, or logs).
+type OTelSignalConfig struct {
+	// Per-signal endpoint URL. Overrides the top-level otel.endpoint for this signal.
+	// Leave empty to inherit the global endpoint.
+	// The URL scheme determines the transport: grpc:// or grpcs:// selects gRPC;
+	// http:// or https:// selects OTLP/HTTP.
+	Endpoint string `yaml:"endpoint" json:"endpoint" toml:"endpoint"`
+	// Enable this signal. Default: true (inherits the global otel.enabled value).
+	Enabled *bool `yaml:"enabled" json:"enabled" toml:"enabled" jsonschema:"default=true"`
+	// Skip TLS certificate verification for this signal. Overrides the global otel.insecure.
+	// Leave unset to inherit the global value.
+	Insecure *bool `yaml:"insecure" json:"insecure" toml:"insecure"`
+	// Additional headers for this signal, merged on top of the global otel.headers.
+	// Signal-level keys take precedence over global keys.
+	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
+}
+
+// EffectiveEndpoint returns the signal-specific endpoint when set, otherwise the global endpoint.
+func (s OTelSignalConfig) EffectiveEndpoint(global string) string {
+	if s.Endpoint != "" {
+		return s.Endpoint
+	}
+	return global
+}
+
+// IsEnabled reports whether the signal is enabled.
+// Returns true when Enabled is nil (unset = enabled by default).
+func (s OTelSignalConfig) IsEnabled() bool {
+	return s.Enabled == nil || *s.Enabled
+}
+
+// EffectiveInsecure returns the signal-level insecure flag when explicitly set,
+// otherwise falls back to the global value.
+func (s OTelSignalConfig) EffectiveInsecure(global bool) bool {
+	if s.Insecure != nil {
+		return *s.Insecure
+	}
+	return global
+}
+
+// EffectiveHeaders returns the global headers merged with the signal-level headers.
+// Signal-level keys take precedence over global keys.
+func (s OTelSignalConfig) EffectiveHeaders(global map[string]string) map[string]string {
+	if len(s.Headers) == 0 {
+		return global
+	}
+	merged := maps.Clone(global)
+	maps.Copy(merged, s.Headers)
+	return merged
+}
+
 // OTelConfig configures OpenTelemetry export (traces, metrics, logs).
 type OTelConfig struct {
+	// Master switch for all OTEL export. Default: true.
+	// Set to false to disable OTEL entirely without removing the endpoint.
+	Enabled *bool `yaml:"enabled" json:"enabled" toml:"enabled" jsonschema:"default=true"`
 	// OTLP collector endpoint URL. If empty, OTEL export is disabled.
-	// gRPC example: "http://localhost:4317"; HTTP example: "http://localhost:4318".
+	// The URL scheme selects the transport protocol automatically:
+	//   grpc://host:4317  — gRPC (plaintext)
+	//   grpcs://host:4317 — gRPC (TLS)
+	//   http://host:4318  — OTLP/HTTP (plaintext)
+	//   https://host:4318 — OTLP/HTTP (TLS)
 	Endpoint string `yaml:"endpoint" json:"endpoint" toml:"endpoint"`
-	// OTLP transport protocol: "grpc" or "http". Default: "grpc".
-	Protocol string `yaml:"protocol" json:"protocol" toml:"protocol" jsonschema:"enum=grpc,enum=http,default=grpc"`
-	// Skip TLS certificate verification. Not recommended in production.
+	// Skip TLS certificate verification for all signals. Not recommended in production.
+	// Can be overridden per signal.
 	Insecure bool `yaml:"insecure" json:"insecure" toml:"insecure" jsonschema:"default=false"`
 	// Additional headers sent with every OTLP request (e.g. for API-key authentication).
+	// Can be extended or overridden per signal.
 	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
 	// OTEL resource service.name attribute. Default: "pathosd".
 	ServiceName string `yaml:"service_name" json:"service_name" toml:"service_name"`
+	// Per-signal configuration. Each signal inherits the global endpoint, insecure, and headers
+	// and is enabled by default. Use these to override per signal.
+	Traces  OTelSignalConfig `yaml:"traces" json:"traces" toml:"traces"`
+	Metrics OTelSignalConfig `yaml:"metrics" json:"metrics" toml:"metrics"`
+	Logs    OTelSignalConfig `yaml:"logs" json:"logs" toml:"logs"`
+}
+
+// IsEnabled reports whether OTEL export is enabled globally.
+// Returns true when Enabled is nil (unset = enabled by default).
+func (o OTelConfig) IsEnabled() bool {
+	return o.Enabled == nil || *o.Enabled
+}
+
+// OTelProtocol represents the resolved OTLP transport.
+type OTelProtocol int
+
+const (
+	OTelProtocolGRPC OTelProtocol = iota
+	OTelProtocolHTTP
+)
+
+// ParseOTelEndpoint resolves the OTLP transport from the URL scheme and
+// returns the normalised URL that the OTEL SDK exporters expect.
+//
+// Scheme mapping:
+//
+//	grpc://  → gRPC, normalised to http://
+//	grpcs:// → gRPC, normalised to https://
+//	http://  → OTLP/HTTP, unchanged
+//	https:// → OTLP/HTTP, unchanged
+func ParseOTelEndpoint(rawURL string) (proto OTelProtocol, normURL string, err error) {
+	switch {
+	case strings.HasPrefix(rawURL, "grpcs://"):
+		return OTelProtocolGRPC, "https://" + rawURL[len("grpcs://"):], nil
+	case strings.HasPrefix(rawURL, "grpc://"):
+		return OTelProtocolGRPC, "http://" + rawURL[len("grpc://"):], nil
+	case strings.HasPrefix(rawURL, "https://"), strings.HasPrefix(rawURL, "http://"):
+		return OTelProtocolHTTP, rawURL, nil
+	default:
+		return OTelProtocolGRPC, rawURL, fmt.Errorf("unrecognised OTLP endpoint scheme in %q; use grpc://, grpcs://, http://, or https://", rawURL)
+	}
 }
 
 // RouterConfig identifies this BGP speaker.

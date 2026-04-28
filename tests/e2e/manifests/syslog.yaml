@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syslog
+  namespace: pathosd-e2e
+  labels:
+    app: syslog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: syslog
+  template:
+    metadata:
+      labels:
+        app: syslog
+    spec:
+      containers:
+        - name: syslog
+          image: alpine:3.21
+          imagePullPolicy: IfNotPresent
+          # Install socat and run a persistent UDP/514 listener.
+          # socat with fork keeps the port bound continuously — no restart gap.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - "apk add -q --no-cache socat && exec socat UDP4-RECVFROM:514,fork,reuseaddr PIPE"
+          ports:
+            - containerPort: 514
+              protocol: UDP
+              name: syslog
+---
+# Headless service: DNS returns the pod IP directly.
+# When the deployment is scaled to 0, DNS returns no records and
+# net.Dial("udp", "syslog...:514") fails immediately — no ICMP needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syslog
+  namespace: pathosd-e2e
+  labels:
+    app: syslog
+spec:
+  clusterIP: None
+  selector:
+    app: syslog
+  ports:
+    - name: syslog
+      port: 514
+      targetPort: 514
+      protocol: UDP

@@ -110,11 +110,18 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.Headers = make(map[string]string)
 	}
 
-	// Parse full URL to derive proto and Host header.
+	// Parse full URL to derive proto, port, and Host header.
+	// h.Host is intentionally NOT set from the URL hostname so that it falls
+	// through to the VIP IP default below — the check must connect to the VIP.
 	if u, err := url.Parse(h.URL); err == nil && u.Scheme != "" {
-		// Full URL like https://example.com/readyz
+		// Full URL like https://example.com/readyz or http://localhost:9428/health
 		if h.Proto == "" {
 			h.Proto = u.Scheme
+		}
+		if h.Port == 0 && u.Port() != "" {
+			if p, err := net.LookupPort("tcp", u.Port()); err == nil {
+				h.Port = uint16(p)
+			}
 		}
 		// Set Host header from URL hostname if not already set.
 		if _, ok := h.Headers["Host"]; !ok && u.Hostname() != "" {

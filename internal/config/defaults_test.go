@@ -363,6 +363,34 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		ApplyDefaults(cfg)
 		assert.Equal(t, "override.local", cfg.VIPs[0].Check.HTTP.Headers["Host"])
 	})
+
+	t.Run("full URL with non-default port sets Port and Host header, connects to VIP IP", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{URL: "http://localhost:9428/health"}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		assert.Equal(t, "http", h.Proto)
+		assert.Equal(t, "/health", h.URL)
+		assert.Equal(t, "203.0.113.1", h.Host) // connects to VIP, not localhost
+		assert.Equal(t, uint16(9428), h.Port)
+		assert.Equal(t, "localhost:9428", h.Headers["Host"])
+	})
+
+	t.Run("full URL without explicit port uses proto default port, connects to VIP IP", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{URL: "http://localhost/health"}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		assert.Equal(t, "203.0.113.1", h.Host) // connects to VIP, not localhost
+		assert.Equal(t, uint16(80), h.Port)
+	})
+
+	t.Run("full URL host does not override VIP IP for /32", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{URL: "http://localhost:8080/check"}, "10.10.1.5/32")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		// Connection goes to VIP IP, not URL hostname
+		assert.Equal(t, "10.10.1.5", h.Host)
+		assert.Equal(t, uint16(8080), h.Port)
+	})
 }
 
 func TestApplyDefaults_HTTPCheck_VIPHost(t *testing.T) {

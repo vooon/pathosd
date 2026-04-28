@@ -556,6 +556,61 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_UDPCheck(t *testing.T) {
+	makeUDP := func(u UDPCheckConfig, prefix string) *Config {
+		return &Config{
+			VIPs: []VIPConfig{{
+				Name:   "v",
+				Prefix: prefix,
+				Check:  CheckConfig{Type: CheckTypeUDP, UDP: &u},
+			}},
+		}
+	}
+
+	t.Run("Host defaults to VIP IP for /32", func(t *testing.T) {
+		cfg := makeUDP(UDPCheckConfig{Port: 514}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "203.0.113.1", cfg.VIPs[0].Check.UDP.Host)
+	})
+
+	t.Run("Host empty for /24", func(t *testing.T) {
+		cfg := makeUDP(UDPCheckConfig{Port: 514}, "203.0.113.0/24")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "", cfg.VIPs[0].Check.UDP.Host)
+	})
+
+	t.Run("Host preserved", func(t *testing.T) {
+		cfg := makeUDP(UDPCheckConfig{Host: "10.0.0.1", Port: 514}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "10.0.0.1", cfg.VIPs[0].Check.UDP.Host)
+	})
+
+	t.Run("Payload defaults to single null byte", func(t *testing.T) {
+		cfg := makeUDP(UDPCheckConfig{Port: 514}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, []byte{0x00}, cfg.VIPs[0].Check.UDP.Payload)
+	})
+
+	t.Run("Payload preserved", func(t *testing.T) {
+		cfg := makeUDP(UDPCheckConfig{Port: 514, Payload: []byte{0x01, 0x02}}, "203.0.113.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, []byte{0x01, 0x02}, cfg.VIPs[0].Check.UDP.Payload)
+	})
+
+	t.Run("nil UDP gets initialized", func(t *testing.T) {
+		cfg := &Config{
+			VIPs: []VIPConfig{{
+				Name:   "v",
+				Prefix: "203.0.113.1/32",
+				Check:  CheckConfig{Type: CheckTypeUDP},
+			}},
+		}
+		ApplyDefaults(cfg)
+		assert.NotNil(t, cfg.VIPs[0].Check.UDP)
+		assert.Equal(t, "203.0.113.1", cfg.VIPs[0].Check.UDP.Host)
+	})
+}
+
 func TestApplyDefaults_Policy(t *testing.T) {
 	makePolicy := func(p PolicyConfig) *Config {
 		return &Config{

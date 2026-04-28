@@ -73,7 +73,8 @@
           "enum": [
             "http",
             "dns",
-            "ping"
+            "ping",
+            "udp"
           ],
           "description": "Health check backend type."
         },
@@ -106,6 +107,10 @@
         "ping": {
           "$ref": "#/$defs/PingCheckConfig",
           "description": "Ping (ICMP) check configuration (required when type is \"ping\")."
+        },
+        "udp": {
+          "$ref": "#/$defs/UDPCheckConfig",
+          "description": "UDP check configuration (required when type is \"udp\")."
         }
       },
       "additionalProperties": false,
@@ -500,6 +505,33 @@
         "local_address"
       ],
       "description": "RouterConfig identifies this BGP speaker."
+    },
+    "UDPCheckConfig": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host to send the probe to. Defaults to VIP prefix IP for /32 or /128."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "UDP port to probe. Required."
+        },
+        "payload": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "Payload to send with the probe datagram. Default: single null byte."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "port",
+        "payload"
+      ],
+      "description": "UDPCheckConfig defines a UDP port reachability check."
     },
     "VIPConfig": {
       "properties": {

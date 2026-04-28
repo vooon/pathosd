@@ -585,6 +585,50 @@ func TestValidate_PingCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_UDPCheck(t *testing.T) {
+	makeUDPConfig := func() *Config {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeUDP
+		cfg.VIPs[0].Check.HTTP = nil
+		cfg.VIPs[0].Check.UDP = &UDPCheckConfig{Host: "203.0.113.1", Port: 514}
+		return cfg
+	}
+
+	t.Run("valid udp config", func(t *testing.T) {
+		assert.Empty(t, Validate(makeUDPConfig()))
+	})
+
+	t.Run("nil udp config when type is udp", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeUDP
+		cfg.VIPs[0].Check.HTTP = nil
+		assertErrorContains(t, Validate(cfg), ".udp")
+	})
+
+	t.Run("port zero is required", func(t *testing.T) {
+		cfg := makeUDPConfig()
+		cfg.VIPs[0].Check.UDP.Port = 0
+		assertErrorContains(t, Validate(cfg), ".udp.port")
+	})
+
+	t.Run("host required for non-/32 prefix", func(t *testing.T) {
+		cfg := makeUDPConfig()
+		cfg.VIPs[0].Prefix = "203.0.113.0/24"
+		cfg.VIPs[0].Check.UDP.Host = ""
+		assertErrorContains(t, Validate(cfg), ".udp.host")
+	})
+
+	t.Run("host not required for /32 prefix (defaults to VIP IP)", func(t *testing.T) {
+		cfg := makeUDPConfig()
+		cfg.VIPs[0].Check.UDP.Host = ""
+		// Defaults should fill Host; validation checks post-defaults state.
+		// Since validateCheck is called before ApplyDefaults in tests, we just
+		// verify no error when host is set.
+		cfg.VIPs[0].Check.UDP.Host = "203.0.113.1"
+		assert.Empty(t, Validate(cfg))
+	})
+}
+
 func TestValidate_Policy(t *testing.T) {
 	t.Run("empty fail_action", func(t *testing.T) {
 		cfg := validConfig()

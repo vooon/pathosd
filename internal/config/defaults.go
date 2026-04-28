@@ -98,6 +98,12 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 		if p.Count == 0 {
 			p.Count = 1
 		}
+
+	case CheckTypeUDP:
+		if c.UDP == nil {
+			c.UDP = &UDPCheckConfig{}
+		}
+		applyUDPDefaults(c.UDP, vipPrefix)
 	}
 }
 
@@ -183,6 +189,18 @@ func applyDNSDefaults(d *DNSCheckConfig, vipPrefix string) {
 	// Resolver defaults to VIP IP (we're checking our own DNS server).
 	if d.Resolver == "" {
 		d.Resolver = vipHostIP(vipPrefix)
+	}
+}
+
+func applyUDPDefaults(u *UDPCheckConfig, vipPrefix string) {
+	// Host defaults to VIP IP for /32 or /128.
+	if u.Host == "" {
+		u.Host = vipHostIP(vipPrefix)
+	}
+	// Default payload: a single null byte — enough to trigger ICMP port-unreachable
+	// when nothing is listening, without being a valid application message.
+	if len(u.Payload) == 0 {
+		u.Payload = []byte{0x00}
 	}
 }
 

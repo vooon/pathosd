@@ -10,9 +10,9 @@ import (
 
 func TestNewChecker(t *testing.T) {
 	tests := []struct {
-		name        string
-		cfg         *config.CheckConfig
-		wantType    string
+		name            string
+		cfg             *config.CheckConfig
+		wantType        string
 		wantErrContains string
 	}{
 		{
@@ -29,6 +29,11 @@ func TestNewChecker(t *testing.T) {
 			name:     "ping",
 			cfg:      &config.CheckConfig{Type: "ping", Ping: &config.PingCheckConfig{}},
 			wantType: "ping",
+		},
+		{
+			name:     "udp",
+			cfg:      &config.CheckConfig{Type: "udp", UDP: &config.UDPCheckConfig{Host: "127.0.0.1", Port: 514}},
+			wantType: "udp",
 		},
 		{
 			name:            "unknown type",
@@ -49,6 +54,11 @@ func TestNewChecker(t *testing.T) {
 			name:            "ping nil sub-config",
 			cfg:             &config.CheckConfig{Type: "ping"},
 			wantErrContains: "ping check config is nil",
+		},
+		{
+			name:            "udp nil sub-config",
+			cfg:             &config.CheckConfig{Type: "udp"},
+			wantErrContains: "udp check config is nil",
 		},
 	}
 

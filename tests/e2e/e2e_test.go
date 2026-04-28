@@ -30,6 +30,7 @@ const (
 
 	webVIPPrefix   = "10.100.1.1/32"
 	dnsVIPPrefix   = "10.100.2.1/32"
+	tcpVIPPrefix   = "10.100.3.1/32"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -98,33 +99,37 @@ func TestE2E(t *testing.T) {
 	})
 
 	t.Run("vips_announced", func(t *testing.T) {
-		waitForCondition(t, "both VIPs announced", 45*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "all VIPs announced", 45*time.Second, 1*time.Second, func() bool {
 			status, err := getPathosdStatusNoFail()
 			if err != nil {
 				return false
 			}
 			return vipStateFromStatus(status, "web-vip") == "announced" &&
-				vipStateFromStatus(status, "dns-vip") == "announced"
+				vipStateFromStatus(status, "dns-vip") == "announced" &&
+				vipStateFromStatus(status, "tcp-vip") == "announced"
 		})
 	})
 
 	t.Run("frr_receives_routes", func(t *testing.T) {
-		waitForCondition(t, "FRR receives both routes", 45*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "FRR receives all routes", 45*time.Second, 1*time.Second, func() bool {
 			routes, err := frrRoutesNoFail()
 			if err != nil {
 				return false
 			}
 			_, webOK := routes[webVIPPrefix]
 			_, dnsOK := routes[dnsVIPPrefix]
-			return webOK && dnsOK
+			_, tcpOK := routes[tcpVIPPrefix]
+			return webOK && dnsOK && tcpOK
 		})
 
 		routes := frrRoutes(t)
 		webPath := firstRoutePath(t, routes, webVIPPrefix)
 		dnsPath := firstRoutePath(t, routes, dnsVIPPrefix)
+		tcpPath := firstRoutePath(t, routes, tcpVIPPrefix)
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
+		assert.Contains(t, extractASPath(tcpPath), "65100")
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
@@ -164,12 +169,13 @@ func TestE2E(t *testing.T) {
 	t.Run("nginx_down_web_vip_pessimized", func(t *testing.T) {
 		scaleDeploy(t, e2eNamespace, "nginx", 0)
 
-		waitForCondition(t, "web-vip pessimized and dns-vip remains announced", 30*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "web-vip pessimized, tcp-vip withdrawn, dns-vip remains announced", 30*time.Second, 1*time.Second, func() bool {
 			status, err := getPathosdStatusNoFail()
 			if err != nil {
 				return false
 			}
 			return vipStateFromStatus(status, "web-vip") == "pessimized" &&
+				vipStateFromStatus(status, "tcp-vip") == "withdrawn" &&
 				vipStateFromStatus(status, "dns-vip") == "announced"
 		})
 	})
@@ -201,31 +207,37 @@ func TestE2E(t *testing.T) {
 			t.Logf("raw FRR web-vip JSON:\n%s", frrShowBGPPrefix(t, webVIPPrefix))
 			t.Logf("raw FRR full BGP JSON:\n%s", frrShowBGP(t))
 		}
+
+		// tcp-vip route should be withdrawn from FRR while nginx is down.
+		_, tcpExists := routes[tcpVIPPrefix]
+		assert.False(t, tcpExists, "tcp-vip route should be withdrawn from FRR when nginx is down")
 	})
 
 	t.Run("nginx_up_web_vip_recovers", func(t *testing.T) {
 		scaleDeploy(t, e2eNamespace, "nginx", 1)
 		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
 
-		waitForCondition(t, "web-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "web-vip and tcp-vip recover to announced", 45*time.Second, 1*time.Second, func() bool {
 			status, err := getPathosdStatusNoFail()
 			if err != nil {
 				return false
 			}
-			return vipStateFromStatus(status, "web-vip") == "announced"
+			return vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "tcp-vip") == "announced"
 		})
 	})
 
 	t.Run("coredns_down_dns_vip_withdrawn", func(t *testing.T) {
 		scaleDeploy(t, e2eNamespace, "coredns", 0)
 
-		waitForCondition(t, "dns-vip withdrawn and web-vip remains announced", 30*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "dns-vip withdrawn, web-vip and tcp-vip remain announced", 30*time.Second, 1*time.Second, func() bool {
 			status, err := getPathosdStatusNoFail()
 			if err != nil {
 				return false
 			}
 			return vipStateFromStatus(status, "dns-vip") == "withdrawn" &&
-				vipStateFromStatus(status, "web-vip") == "announced"
+				vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "tcp-vip") == "announced"
 		})
 	})
 
@@ -236,27 +248,32 @@ func TestE2E(t *testing.T) {
 				return false
 			}
 			_, webOK := routes[webVIPPrefix]
+			_, tcpOK := routes[tcpVIPPrefix]
 			_, dnsExists := routes[dnsVIPPrefix]
-			return webOK && !dnsExists
+			return webOK && tcpOK && !dnsExists
 		})
 
 		routes := frrRoutes(t)
 		_, webOK := routes[webVIPPrefix]
 		_, dnsExists := routes[dnsVIPPrefix]
+		_, tcpOK := routes[tcpVIPPrefix]
 		assert.True(t, webOK, "web-vip route should remain present")
 		assert.False(t, dnsExists, "dns-vip route should be withdrawn")
+		assert.True(t, tcpOK, "tcp-vip route should remain present")
 	})
 
 	t.Run("coredns_up_dns_vip_recovers", func(t *testing.T) {
 		scaleDeploy(t, e2eNamespace, "coredns", 1)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
 
-		waitForCondition(t, "dns-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+		waitForCondition(t, "all VIPs recover to announced", 45*time.Second, 1*time.Second, func() bool {
 			status, err := getPathosdStatusNoFail()
 			if err != nil {
 				return false
 			}
-			return vipStateFromStatus(status, "dns-vip") == "announced"
+			return vipStateFromStatus(status, "dns-vip") == "announced" &&
+				vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "tcp-vip") == "announced"
 		})
 	})
 

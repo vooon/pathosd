@@ -678,25 +678,25 @@ func TestValidate_OTel(t *testing.T) {
 
 	t.Run("valid grpc config", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "grpc", ServiceName: "pathosd"}
+		cfg.OTel = OTelConfig{Endpoint: "grpc://localhost:4317", ServiceName: "pathosd"}
 		assert.Empty(t, Validate(cfg))
 	})
 
 	t.Run("valid http config", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4318", Protocol: "http", ServiceName: "pathosd"}
+		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4318", ServiceName: "pathosd"}
 		assert.Empty(t, Validate(cfg))
 	})
 
-	t.Run("invalid protocol", func(t *testing.T) {
+	t.Run("invalid endpoint scheme", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "tcp", ServiceName: "pathosd"}
-		assertErrorContains(t, Validate(cfg), ".otel.protocol")
+		cfg.OTel = OTelConfig{Endpoint: "tcp://localhost:4317", ServiceName: "pathosd"}
+		assertErrorContains(t, Validate(cfg), ".otel.endpoint")
 	})
 
 	t.Run("empty service_name", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.OTel = OTelConfig{Endpoint: "http://localhost:4317", Protocol: "grpc", ServiceName: ""}
+		cfg.OTel = OTelConfig{Endpoint: "grpc://localhost:4317", ServiceName: ""}
 		assertErrorContains(t, Validate(cfg), ".otel.service_name")
 	})
 }

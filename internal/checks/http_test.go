@@ -150,6 +150,53 @@ func (s *HTTPCheckerSuite) TestTLSInsecure() {
 	s.True(result.Success)
 }
 
+// TestTLSResolve verifies curl --resolve semantics: when tls_server_name is set
+// and cfg.Host is a bare IP (the VIP), the checker connects to the IP via a
+// custom DialContext while presenting tls_server_name as TLS SNI.
+// TLSInsecure is used so the self-signed test cert (valid for 127.0.0.1, not the
+// fake hostname) does not block the connection.
+func (s *HTTPCheckerSuite) TestTLSResolve() {
+	ts := s.tlsServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "tls resolve ok")
+	})
+	host, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	s.Require().NoError(err)
+	port, err := strconv.Atoi(portStr)
+	s.Require().NoError(err)
+
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proto:         "https",
+		Host:          host, // bare IP (127.0.0.1)
+		Port:          uint16(port),
+		URL:           "/",
+		Method:        "GET",
+		ResponseCodes: []int{200},
+		TLSInsecure:   true,
+		TLSServerName: "example.test",
+	})
+	s.Require().NoError(err)
+	s.Equal("example.test", c.sniHost)
+
+	result := c.Check(context.TODO())
+	s.True(result.Success)
+	s.Contains(result.Detail, "200")
+}
+
+// TestTLSResolve_NoSNIForIPHost verifies that sniHost is NOT set when
+// tls_server_name is not configured.
+func (s *HTTPCheckerSuite) TestTLSResolve_NoSNIForIPHost() {
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proto:  "https",
+		Host:   "example.test",
+		Port:   443,
+		URL:    "/",
+		Method: "GET",
+		// TLSServerName intentionally not set
+	})
+	s.Require().NoError(err)
+	s.Empty(c.sniHost)
+}
+
 func (s *HTTPCheckerSuite) TestTLSCACert() {
 	ts := s.tlsServer(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "tls ca ok")

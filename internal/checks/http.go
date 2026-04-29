@@ -24,6 +24,7 @@ type HTTPChecker struct {
 	client  *http.Client
 	reBody  *regexp.Regexp // compiled ResponseRegex, nil if not set
 	jqQuery *gojq.Query    // compiled ResponseJQ, nil if not set
+	sniHost string         // non-empty when curl --resolve semantics are active (connect to VIP IP, verify TLS against this hostname)
 }
 
 func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
@@ -58,8 +59,27 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 		transport.TLSClientConfig.RootCAs = pool
 	}
 
+	// curl --resolve semantics: when tls_server_name is set, connect to cfg.Host
+	// while presenting tls_server_name as TLS SNI and for certificate verification.
+	// This avoids "cannot validate certificate for <IP> because it doesn't contain
+	// any IP SANs" when the cert is issued for a hostname.
+	var sniHost string
+	if cfg.TLSServerName != "" {
+		sniHost = cfg.TLSServerName
+		connectIP := cfg.Host
+		transport.TLSClientConfig.ServerName = sniHost
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			_, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				port = fmt.Sprintf("%d", cfg.Port)
+			}
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(connectIP, port))
+		}
+	}
+
 	c := &HTTPChecker{
-		cfg: *cfg,
+		cfg:     *cfg,
+		sniHost: sniHost,
 		client: &http.Client{
 			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -91,7 +111,13 @@ func (c *HTTPChecker) Type() string { return "http" }
 
 func (c *HTTPChecker) Check(ctx context.Context) Result {
 	start := time.Now()
-	url := fmt.Sprintf("%s://%s:%d%s", c.cfg.Proto, c.cfg.Host, c.cfg.Port, c.cfg.URL)
+	// Use the hostname for the URL when curl --resolve semantics are active so that
+	// Go's TLS stack uses it for SNI and certificate verification.
+	urlHost := c.cfg.Host
+	if c.sniHost != "" {
+		urlHost = c.sniHost
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", c.cfg.Proto, urlHost, c.cfg.Port, c.cfg.URL)
 
 	req, err := http.NewRequestWithContext(ctx, c.cfg.Method, url, nil)
 	if err != nil {

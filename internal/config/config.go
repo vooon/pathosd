@@ -279,6 +279,10 @@ type HTTPCheckConfig struct {
 	TLSInsecure bool `yaml:"tls_insecure" json:"tls_insecure" toml:"tls_insecure"`
 	// Path to a PEM-encoded CA certificate file for TLS verification. Mutually exclusive with tls_insecure.
 	TLSCACert string `yaml:"tls_ca_cert" json:"tls_ca_cert" toml:"tls_ca_cert"`
+	// TLS SNI server name sent during the handshake and used for certificate verification.
+	// Defaults to the hostname from the URL when the URL host is a non-IP name and cfg.Host is an IP (VIP).
+	// Set explicitly to override or to enable curl --resolve semantics with a custom host.
+	TLSServerName string `yaml:"tls_server_name" json:"tls_server_name" toml:"tls_server_name"`
 	// Additional HTTP headers to send with the check request.
 	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
 }

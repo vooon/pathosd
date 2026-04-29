@@ -1,0 +1,35 @@
+[Unit]
+Description=pathosd BGP VIP announcer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pathosd
+Group=pathosd
+
+# To use YAML config instead of TOML:
+#   change pathosd.toml → pathosd.yaml in the two ExecStart* lines below
+ExecStartPre=/usr/bin/pathosd validate --config /etc/pathosd/pathosd.toml
+ExecStart=/usr/bin/pathosd run --config /etc/pathosd/pathosd.toml
+
+Restart=on-failure
+RestartSec=5s
+
+# CAP_NET_RAW:         ICMP ping health checks
+# CAP_NET_BIND_SERVICE: bind BGP port 179 (<1024) as non-root
+AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+
+# /run/pathosd is created by systemd at startup (mode 0750, owned by pathosd)
+RuntimeDirectory=pathosd
+RuntimeDirectoryMode=0750
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

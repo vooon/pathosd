@@ -142,9 +142,10 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.Headers = make(map[string]string)
 	}
 
-	// Parse full URL to derive proto, port, and Host header.
+	// Parse full URL to derive proto, port, Host header, and TLS server name.
 	// h.Host is intentionally NOT set from the URL hostname so that it falls
 	// through to the VIP IP default below — the check must connect to the VIP.
+	var urlHostname string // non-empty non-IP hostname parsed from a full URL
 	if u, err := url.Parse(h.URL); err == nil && u.Scheme != "" {
 		// Full URL like https://example.com/readyz or http://localhost:9428/health
 		if h.Proto == "" {
@@ -158,6 +159,9 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		// Set Host header from URL hostname if not already set.
 		if _, ok := h.Headers["Host"]; !ok && u.Hostname() != "" {
 			h.Headers["Host"] = u.Host // includes port if non-default
+		}
+		if hn := u.Hostname(); hn != "" && net.ParseIP(hn) == nil {
+			urlHostname = hn
 		}
 		// Rewrite URL to just the path (+ query).
 		path := u.RequestURI()
@@ -174,6 +178,12 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 	// Host defaults to VIP IP for /32 or /128.
 	if h.Host == "" {
 		h.Host = vipHostIP(vipPrefix)
+	}
+
+	// Default tls_server_name to the URL hostname when the check connects to a
+	// VIP IP but the URL referenced a non-IP hostname (curl --resolve semantics).
+	if h.TLSServerName == "" && urlHostname != "" && net.ParseIP(h.Host) != nil {
+		h.TLSServerName = urlHostname
 	}
 
 	// Port defaults from proto.

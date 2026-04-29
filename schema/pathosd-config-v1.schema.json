@@ -264,6 +264,10 @@
           "type": "string",
           "description": "Path to a PEM-encoded CA certificate file for TLS verification. Mutually exclusive with tls_insecure."
         },
+        "tls_server_name": {
+          "type": "string",
+          "description": "TLS SNI server name sent during the handshake and used for certificate verification.\nDefaults to the hostname from the URL when the URL host is a non-IP name and cfg.Host is an IP (VIP).\nSet explicitly to override or to enable curl --resolve semantics with a custom host."
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"
@@ -286,6 +290,7 @@
         "response_jq",
         "tls_insecure",
         "tls_ca_cert",
+        "tls_server_name",
         "headers"
       ],
       "description": "HTTPCheckConfig defines an HTTP health check."

@@ -31,6 +31,46 @@ archives:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+nfpms:
+  - id: pathosd-deb
+    package_name: pathosd
+    vendor: vooon
+    homepage: https://github.com/vooon/pathosd
+    maintainer: "pathosd contributors <pathosd@users.noreply.github.com>"
+    description: |-
+      Health-aware BGP VIP announcer.
+      Announces VIPs via BGP (embedded GoBGP) based on configurable
+      health check results (HTTP, DNS, TCP, ICMP ping).
+    license: Apache 2.0
+    formats:
+      - deb
+    bindir: /usr/bin
+    section: net
+    priority: optional
+    contents:
+      # systemd unit
+      - src: packaging/systemd/pathosd.service
+        dst: /lib/systemd/system/pathosd.service
+      # declarative user/group creation (systemd-sysusers)
+      - src: packaging/sysusers.d/pathosd.conf
+        dst: /usr/lib/sysusers.d/pathosd.conf
+      # declarative directory creation (systemd-tmpfiles)
+      - src: packaging/tmpfiles.d/pathosd.conf
+        dst: /usr/lib/tmpfiles.d/pathosd.conf
+      # default config — not overwritten on upgrade
+      - src: packaging/config/pathosd.toml
+        dst: /etc/pathosd/pathosd.toml
+        type: config|noreplace
+    scripts:
+      preinstall: packaging/scripts/preinstall.sh
+      postinstall: packaging/scripts/postinstall.sh
+      preremove: packaging/scripts/preremove.sh
+      postremove: packaging/scripts/postremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - systemd
+
 checksum:
   name_template: "checksums.txt"
 

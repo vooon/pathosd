@@ -1,0 +1,55 @@
+# pathosd configuration — edit before starting the service.
+# Full reference: https://github.com/vooon/pathosd
+# Validate with: pathosd validate --config /etc/pathosd/pathosd.toml
+
+schema = "v1"
+
+[router]
+# Your local ASN
+asn = 65001
+# Router-ID — must be a valid IPv4 address (need not be routable)
+router_id = "192.0.2.1"
+# Address pathosd binds for the BGP sessions (0.0.0.0 = all interfaces)
+local_address = "0.0.0.0"
+
+[api]
+# HTTP status/metrics API
+listen = "127.0.0.1:59179"
+
+[logging]
+level = "info"
+format = "text"
+
+[bgp]
+listen_address = "0.0.0.0"
+listen_port = 179
+
+[bgp.gobgp_api]
+enabled = true
+listen = "unix:///run/pathosd/gobgp.sock"
+
+[[bgp.neighbors]]
+name = "upstream-router"
+address = "192.0.2.254"       # <-- replace with your router's address
+peer_asn = 65000              # <-- replace with your router's ASN
+required = true
+
+# --- VIPs ---
+# Example: HTTP health-checked VIP
+# [[vips]]
+# name = "web-vip"
+# prefix = "203.0.113.1/32"
+#
+#   [vips.check]
+#   type = "http"
+#   interval = "2s"
+#   timeout = "500ms"
+#   rise = 3
+#   fall = 3
+#
+#     [vips.check.http]
+#     url = "http://127.0.0.1/healthz"
+#     response_codes = [200]
+#
+#   [vips.policy]
+#   fail_action = "withdraw"

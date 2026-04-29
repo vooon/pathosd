@@ -1,0 +1,178 @@
+# nginx-tls: HTTPS backend for the https-vip e2e scenario.
+#
+# The server certificate is issued for CN=web.example.test with
+# SAN=DNS:web.example.test.  pathosd connects to the Service ClusterIP (the
+# VIP) while presenting "web.example.test" as the TLS SNI — exercising the
+# tls_server_name / curl --resolve semantics.
+#
+# Certs were generated with:
+#   openssl genrsa -out ca.key 2048
+#   openssl req -new -x509 -days 3650 -key ca.key -out ca.crt -subj "/CN=pathosd-e2e-ca"
+#   openssl genrsa -out server.key 2048
+#   openssl req -new -key server.key -out server.csr -subj "/CN=web.example.test"
+#   openssl x509 -req -days 3650 -in server.csr -CA ca.crt -CAkey ca.key \
+#     -CAcreateserial -out server.crt \
+#     -extfile <(printf 'subjectAltName=DNS:web.example.test')
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-tls-config
+  namespace: pathosd-e2e
+data:
+  default.conf: |
+    server {
+        listen 443 ssl;
+        ssl_certificate     /etc/nginx/tls/server.crt;
+        ssl_certificate_key /etc/nginx/tls/server.key;
+        location /healthz {
+            return 200 '{"status":"ok"}';
+            add_header Content-Type application/json;
+        }
+    }
+  server.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDITCCAgmgAwIBAgIUMvqD5H1jakji59YeUN08tXfIv1EwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOcGF0aG9zZC1lMmUtY2EwHhcNMjYwNDI5MTYzMzM1WhcN
+    MzYwNDI2MTYzMzM1WjAbMRkwFwYDVQQDDBB3ZWIuZXhhbXBsZS50ZXN0MIIBIjAN
+    BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0XuvnpX1Qsd/1wttSkCsJsN0OLK5
+    WAeTTIAWjuZBRnNwEbM+h3THhObt0MHRDzED+htMKiUmE2sFUsoqwBtQpCcOb/Py
+    Te949cAlsKUIfydWSWPQEEHr3TLlmOvZ/EHU0eOSId+diqI9hVgCPcV/kgjcSy0s
+    MQNW0qavSfqGUVz+jxZL5xuAif2se9bHpGzJRVHhpWGKRlNTj8GzwoRq5E5a0+4Z
+    1KvsU0QFl4Ds93Emm4UTmdSHwdUwZ6sGH0kIdAW2jBa/pxqqjfO8cDmsvrrofavU
+    U80f0WuqRKJsOV5cpELFji5xdopOm7P5+gc2o6bBq94Bh25lWtBTSNNGPwIDAQAB
+    o18wXTAbBgNVHREEFDASghB3ZWIuZXhhbXBsZS50ZXN0MB0GA1UdDgQWBBT9ahq/
+    OAAfBqxUyfgYZBLGS7R9ezAfBgNVHSMEGDAWgBQ/pKYnP+AwOT9Y+jDpGgx/fo3v
+    wjANBgkqhkiG9w0BAQsFAAOCAQEAZ8DYfWRuHYsOzQkVtyMT8vwls+RaeXF+uNEf
+    PWl28CkbXLuhk2ti+Mu8jOi/rp3EgyWywLqdUqgBY77e7fQRRAcxQN2SFwPw2I1c
+    SGtjPJgj4bcDUbDMPBX3A6sOQjfETRVkCTw0CzKB8BGOdrnQEMui/PdISRmZEP2z
+    FeSmWfKUG3nQL3HkazFtdMkaCqzERW4i8PbxyBNP0Vzz1GQZohkJwbLBekKq3Q+7
+    9sirlLw/sXb9wH/0gvXYVNK+1ggKlnpHccRH1WcHYzaeADCSdGKmTY14SbJptUsy
+    CoDHi39EW2hRVQz11zM4+76WfY5mWpCLYIn2yazUK6JBVelzOA==
+    -----END CERTIFICATE-----
+  server.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDRe6+elfVCx3/X
+    C21KQKwmw3Q4srlYB5NMgBaO5kFGc3ARsz6HdMeE5u3QwdEPMQP6G0wqJSYTawVS
+    yirAG1CkJw5v8/JN73j1wCWwpQh/J1ZJY9AQQevdMuWY69n8QdTR45Ih352Koj2F
+    WAI9xX+SCNxLLSwxA1bSpq9J+oZRXP6PFkvnG4CJ/ax71sekbMlFUeGlYYpGU1OP
+    wbPChGrkTlrT7hnUq+xTRAWXgOz3cSabhROZ1IfB1TBnqwYfSQh0BbaMFr+nGqqN
+    87xwOay+uuh9q9RTzR/Ra6pEomw5XlykQsWOLnF2ik6bs/n6BzajpsGr3gGHbmVa
+    0FNI00Y/AgMBAAECggEAW4ZANTgMh8g1JSYDcokuDeOgkDMaAomQxEBEWtvkEh1W
+    jg0z2SffEkR5DBfaONpwA+LQVKuVZq+ADGty4SsuAQJlbul06LMjtK9maDa6rx9n
+    NjprSecbX7IgmT8Wpv22N5vHmZAjO1JmMa/Bju6OraW8ZgYPBD0SvoeAF4DjFYGS
+    lAxzzYZJd2G/ABEj+IT1mEq2OU9N49xBSPGP248AqPBk7Rw92ukA5a00WjZ57eJB
+    Bt5SI2KUXfzqLb+ubHevVgiiMIhCha4ucdAxDZlrIKuEBBCZr7rHtt3y9Kb7fvD6
+    33vqpN+U841z4ywg5OIh55sYbbz2J8t5cvwbnJfE9QKBgQD3ZpnUxIWWbNfFJ4kU
+    vBAhPkUq9wqarA1uvfxrMgTDuzJYnJuLu3PFDDulh7zHVpa9vxCFHFQKOPixIQYY
+    HQFGeRqbaNoReTyiGkXgiN2d7DqmtlTErlc6cXzvK7R9ZwW0dN6Sz+Gc93YoDhtM
+    iF2tTH6H313Rg3mxUczMr6VJmwKBgQDYw7CaijzEoin/3SojKyhZNs/cAx9xyO6+
+    h5VGOtljOL75ZpFE4NiG2J2dlRpfg+3DJX8n1SvX3FP5G5Qo/jdBU+iffOzE3vJw
+    UtNlrzMaguNrcOfw39fBbYZ1X5Zc885/+abHDTCTLy15rnUUe+mSH1h4BI3+Jaf9
+    rdnFvUhiLQKBgQCG2Yv752qRRZ6Ovi//90ordI+rDaDgEev4cuIFY+wo6/5TQnme
+    Pnyp6TMR1NzXIqFjp6NPitNcBxW3JrL1rcmmKhiQoSRL5fNgwEVaT//MNpj5ieTG
+    l+i/2GAq1X255M+9Pv6as2jccB4dUyMaIjI9ZbaKRPwUWT+ZoWaqIwtLBQKBgQCe
+    KkwWt3+XyuvycqJofvk1/7SzyOOM1xy9kZjuYcp1h9ZxjNG6/IWB/1UiwsU3pMA8
+    gIPDwNv46h+ryN/W+Ye/90Xp+fGZxUQJiaYOsEQNuCvRHdVgATUhQpW110WUFaI7
+    5yI2Y/1pqCb6fr2XcMMBiDW5fTlOlJN7mvsoOfEzEQKBgFG3zilGjJCGmhFbcpI+
+    32uWfuecTmcDDefXfit/gXwJITRB3nGYfAUjlXDxAqc6ctpztwzoqzeQSQXQ6tJu
+    1vyaqh5CVOkgacVWTsh0Q8su4fYE6IhVR4TGWIdOdnfeVwWzeK8vyH9OleG+Jcde
+    RabRzuhZxnetUey6BpiJEcGf
+    -----END PRIVATE KEY-----
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDEzCCAfugAwIBAgIUDuT+YbZ+nP2OGLYFQRfsM5kgHjMwDQYJKoZIhvcNAQEL
+    BQAwGTEXMBUGA1UEAwwOcGF0aG9zZC1lMmUtY2EwHhcNMjYwNDI5MTYzMzM1WhcN
+    MzYwNDI2MTYzMzM1WjAZMRcwFQYDVQQDDA5wYXRob3NkLWUyZS1jYTCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBALY5UOgDMQFvekT37SkrAQrraC6TIRa4
+    rHT6Y4ujWBnhVjOD2xZ7G/El4xmH3nnf+GxqT6sUbDbfO4SY/oggomUck7WcehyP
+    F4u5KEwNPDv4xBxfStffu96kDtBRVWBb2/zUdr5/P+A/KYV31lMMRdDzjLE9+ain
+    XA60JehVyhrrNX7YIOewK2o+EpdIXxhSMjaLgf/44JdtGP0W96MR9AMLfE93QdCN
+    fIDS+KHnidEJ0mRwLigtPCQRUfcHMTKMEY/se3EDa8EIa/zV00ZA6ifwisd7k6DB
+    IDdnR/OKeRwsLGsJiPnlMBbr077seGSr2tr/tHoHytoltuB6rTaN1m0CAwEAAaNT
+    MFEwHQYDVR0OBBYEFD+kpic/4DA5P1j6MOkaDH9+je/CMB8GA1UdIwQYMBaAFD+k
+    pic/4DA5P1j6MOkaDH9+je/CMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+    BQADggEBABr614TYJAYe5nK0ckYKK8Q2Oyu+QNIvA1LDASkGgOjv8V1mB8l0W/fv
+    85N+SMi4+Zv3yMxlKLEzK0IdY7LHuZvhRgJqB0pkKQ6N75F3Q6dPTiV+S7RnfaNG
+    jWvgpsD0v24Hn4OaoTTkKdgcw3QHMowocObnrZxCZPqnjpUCPfiKLFsasJaXtl3O
+    5xfc3fbDCqYPRmg0W3iA1EgWpuy+L0/Oy6ffW86MzggnWI1z+BVi3hoj+aI732md
+    541TCjBAD24t2zx9IIn4+Zwu/H1wcqzJ2B0wdyPfCMe00wNzxFbkxdP9l4wc9iP4
+    NVZ5MEyZqJ1MKLKoMv3evFnPXBmvSf8=
+    -----END CERTIFICATE-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-tls
+  namespace: pathosd-e2e
+  labels:
+    app: nginx-tls
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-tls
+  template:
+    metadata:
+      labels:
+        app: nginx-tls
+    spec:
+      initContainers:
+        # nginx refuses to start if the private key file is world-readable.
+        # Copy the files out of the ConfigMap (0644) to a writable emptyDir
+        # and restrict permissions before the main container starts.
+        - name: fix-perms
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              cp /mnt/cm/server.crt /mnt/tls/server.crt
+              cp /mnt/cm/server.key /mnt/tls/server.key
+              chmod 0600 /mnt/tls/server.key
+          volumeMounts:
+            - name: nginx-tls-cm
+              mountPath: /mnt/cm
+            - name: tls-files
+              mountPath: /mnt/tls
+      containers:
+        - name: nginx-tls
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 443
+              name: https
+          volumeMounts:
+            - name: nginx-tls-config
+              mountPath: /etc/nginx/conf.d
+            - name: tls-files
+              mountPath: /etc/nginx/tls
+              readOnly: true
+      volumes:
+        - name: nginx-tls-config
+          configMap:
+            name: nginx-tls-config
+            items:
+              - key: default.conf
+                path: default.conf
+        - name: nginx-tls-cm
+          configMap:
+            name: nginx-tls-config
+        - name: tls-files
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-tls
+  namespace: pathosd-e2e
+  labels:
+    app: nginx-tls
+spec:
+  selector:
+    app: nginx-tls
+  ports:
+    - name: https
+      port: 443
+      targetPort: 443
+      protocol: TCP

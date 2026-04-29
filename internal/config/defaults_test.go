@@ -344,9 +344,11 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		assert.Equal(t, "/healthz", h.URL)
 		assert.Equal(t, "example.com", h.Headers["Host"])
 		assert.Equal(t, uint16(443), h.Port)
+		// TLSServerName auto-defaults: host is VIP IP, URL hostname differs
+		assert.Equal(t, "example.com", h.TLSServerName)
 	})
 
-	t.Run("http full URL sets Host header", func(t *testing.T) {
+	t.Run("http full URL sets Host header, no TLSServerName", func(t *testing.T) {
 		cfg := makeVIPWithHTTP(HTTPCheckConfig{URL: "http://myhost.local/check"}, "10.0.0.1/32")
 		ApplyDefaults(cfg)
 		h := cfg.VIPs[0].Check.HTTP
@@ -354,6 +356,8 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		assert.Equal(t, "/check", h.URL)
 		assert.Equal(t, "myhost.local", h.Headers["Host"])
 		assert.Equal(t, uint16(80), h.Port)
+		// HTTP — TLSServerName must NOT be set
+		assert.Empty(t, h.TLSServerName)
 	})
 
 	t.Run("full URL preserves explicit Proto", func(t *testing.T) {
@@ -380,6 +384,7 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		assert.Equal(t, "203.0.113.1", h.Host) // connects to VIP, not localhost
 		assert.Equal(t, uint16(9428), h.Port)
 		assert.Equal(t, "localhost:9428", h.Headers["Host"])
+		assert.Empty(t, h.TLSServerName) // HTTP — no SNI
 	})
 
 	t.Run("full URL without explicit port uses proto default port, connects to VIP IP", func(t *testing.T) {
@@ -388,6 +393,7 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		h := cfg.VIPs[0].Check.HTTP
 		assert.Equal(t, "203.0.113.1", h.Host) // connects to VIP, not localhost
 		assert.Equal(t, uint16(80), h.Port)
+		assert.Empty(t, h.TLSServerName) // HTTP — no SNI
 	})
 
 	t.Run("full URL host does not override VIP IP for /32", func(t *testing.T) {
@@ -397,6 +403,40 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		// Connection goes to VIP IP, not URL hostname
 		assert.Equal(t, "10.10.1.5", h.Host)
 		assert.Equal(t, uint16(8080), h.Port)
+	})
+
+	t.Run("https full URL with explicit hostname host auto-sets TLSServerName", func(t *testing.T) {
+		// Simulates k8s: url=https://web.example.test/healthz, host=nginx-tls.svc.cluster.local
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:  "https://web.example.test/healthz",
+			Host: "nginx-tls.svc.cluster.local",
+		}, "10.100.5.0/24")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		assert.Equal(t, "nginx-tls.svc.cluster.local", h.Host)
+		assert.Equal(t, "web.example.test", h.TLSServerName)
+	})
+
+	t.Run("https full URL where host matches URL hostname does not set TLSServerName", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:  "https://example.com/healthz",
+			Host: "example.com",
+		}, "10.100.5.0/24")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		assert.Equal(t, "example.com", h.Host)
+		assert.Empty(t, h.TLSServerName) // same host — TLS works normally
+	})
+
+	t.Run("explicit TLSServerName is preserved and not overridden", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:           "https://web.example.test/healthz",
+			Host:          "nginx-tls.svc.cluster.local",
+			TLSServerName: "custom.override.test",
+		}, "10.100.5.0/24")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		assert.Equal(t, "custom.override.test", h.TLSServerName)
 	})
 }
 

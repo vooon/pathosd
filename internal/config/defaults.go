@@ -180,9 +180,11 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.Host = vipHostIP(vipPrefix)
 	}
 
-	// Default tls_server_name to the URL hostname when the check connects to a
-	// VIP IP but the URL referenced a non-IP hostname (curl --resolve semantics).
-	if h.TLSServerName == "" && urlHostname != "" && net.ParseIP(h.Host) != nil {
+	// Default tls_server_name to the URL hostname for HTTPS checks where the
+	// connect host (cfg.Host) differs from the URL hostname — covers both the
+	// VIP-IP case (host is a bare IP) and the k8s-service case (host is a
+	// different DNS name, e.g. nginx-tls.svc.cluster.local vs web.example.test).
+	if h.TLSServerName == "" && urlHostname != "" && h.Proto == "https" && h.Host != urlHostname {
 		h.TLSServerName = urlHostname
 	}
 

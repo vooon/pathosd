@@ -85,6 +85,22 @@ data:
             port: 514
         policy:
           fail_action: withdraw
+      - name: https-vip
+        prefix: 10.100.5.1/32
+        check:
+          type: http
+          interval: 2s
+          timeout: 1s
+          rise: 3
+          fall: 3
+          http:
+            url: https://web.example.test/healthz
+            host: nginx-tls.pathosd-e2e.svc.cluster.local
+            # port: 443
+            response_codes: [200]
+            tls_ca_cert: /etc/pathosd/tls/ca.crt
+        policy:
+          fail_action: withdraw
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -173,12 +189,21 @@ spec:
               mountPath: /etc/pathosd
             - name: runtime-data
               mountPath: /work
+            - name: tls-ca
+              mountPath: /etc/pathosd/tls
+              readOnly: true
       volumes:
         - name: pathosd-config
           configMap:
             name: pathosd-config
         - name: runtime-data
           emptyDir: {}
+        - name: tls-ca
+          configMap:
+            name: nginx-tls-config
+            items:
+              - key: ca.crt
+                path: ca.crt
 ---
 apiVersion: v1
 kind: Service

@@ -32,6 +32,7 @@ const (
 	dnsVIPPrefix   = "10.100.2.1/32"
 	tcpVIPPrefix   = "10.100.3.1/32"
 	udpVIPPrefix   = "10.100.4.1/32"
+	httpsVIPPrefix = "10.100.5.1/32"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -74,6 +75,7 @@ func TestE2E(t *testing.T) {
 	// Keep stack reusable for subsequent runs.
 	t.Cleanup(func() {
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/nginx", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/nginx-tls", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/coredns", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/syslog", "--replicas=1")
 	})
@@ -81,6 +83,7 @@ func TestE2E(t *testing.T) {
 	t.Run("pods_ready", func(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=frr", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
@@ -111,7 +114,8 @@ func TestE2E(t *testing.T) {
 			return vipStateFromStatus(status, "web-vip") == "announced" &&
 				vipStateFromStatus(status, "dns-vip") == "announced" &&
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
-				vipStateFromStatus(status, "udp-vip") == "announced"
+				vipStateFromStatus(status, "udp-vip") == "announced" &&
+				vipStateFromStatus(status, "https-vip") == "announced"
 		})
 	})
 
@@ -125,7 +129,8 @@ func TestE2E(t *testing.T) {
 			_, dnsOK := routes[dnsVIPPrefix]
 			_, tcpOK := routes[tcpVIPPrefix]
 			_, udpOK := routes[udpVIPPrefix]
-			return webOK && dnsOK && tcpOK && udpOK
+			_, httpsOK := routes[httpsVIPPrefix]
+			return webOK && dnsOK && tcpOK && udpOK && httpsOK
 		})
 
 		routes := frrRoutes(t)
@@ -133,11 +138,13 @@ func TestE2E(t *testing.T) {
 		dnsPath := firstRoutePath(t, routes, dnsVIPPrefix)
 		tcpPath := firstRoutePath(t, routes, tcpVIPPrefix)
 		udpPath := firstRoutePath(t, routes, udpVIPPrefix)
+		httpsPath := firstRoutePath(t, routes, httpsVIPPrefix)
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
 		assert.Contains(t, extractASPath(tcpPath), "65100")
 		assert.Contains(t, extractASPath(udpPath), "65100")
+		assert.Contains(t, extractASPath(httpsPath), "65100")
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
@@ -345,6 +352,50 @@ func TestE2E(t *testing.T) {
 			}
 			_, udpOK := routes[udpVIPPrefix]
 			return udpOK
+		})
+	})
+
+	t.Run("nginx_tls_down_https_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "nginx-tls", 0)
+
+		waitForCondition(t, "https-vip withdrawn when nginx-tls is down", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "https-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR withdraws https-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, httpsExists := routes[httpsVIPPrefix]
+			return !httpsExists
+		})
+	})
+
+	t.Run("nginx_tls_up_https_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "nginx-tls", 1)
+		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
+
+		waitForCondition(t, "https-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "https-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR receives https-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, httpsOK := routes[httpsVIPPrefix]
+			return httpsOK
 		})
 	})
 

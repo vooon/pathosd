@@ -266,7 +266,7 @@
         },
         "tls_server_name": {
           "type": "string",
-          "description": "TLS SNI server name sent during the handshake and used for certificate verification.\nDefaults to the hostname from the URL when the URL host is a non-IP name and cfg.Host is an IP (VIP).\nSet explicitly to override or to enable curl --resolve semantics with a custom host."
+          "description": "TLS SNI server name sent during the handshake and used for certificate verification.\nAuto-defaults to the URL hostname for HTTPS checks when the connect host (host field)\ndiffers from the URL hostname — covers bare-IP VIPs and k8s Service names alike.\nSet explicitly to override."
         },
         "headers": {
           "additionalProperties": {

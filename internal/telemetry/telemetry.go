@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	otelslogbridge "go.opentelemetry.io/contrib/bridges/otelslog"
@@ -228,7 +230,16 @@ func buildLogExporter(ctx context.Context, cfg config.OTelConfig, sig config.OTe
 		return exp, nil
 	}
 	// OTLP/HTTP
-	opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(normURL)}
+	// otlploghttp.WithEndpointURL stores the URL path via newSetting(u.Path),
+	// which marks the setting as explicitly set even when the path is empty.
+	// This prevents the fallback defaultPath ("/v1/logs") from being applied,
+	// unlike otlptracehttp/otlpmetrichttp which use cleanPath() internally.
+	// Normalise: append "/v1/logs" when the URL has no meaningful path.
+	logNormURL := normURL
+	if parsed, parseErr := url.Parse(normURL); parseErr == nil && (parsed.Path == "" || parsed.Path == "/") {
+		logNormURL = strings.TrimSuffix(normURL, "/") + "/v1/logs"
+	}
+	opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(logNormURL)}
 	if insecure {
 		opts = append(opts, otlploghttp.WithInsecure())
 	}

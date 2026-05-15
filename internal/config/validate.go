@@ -53,6 +53,11 @@ func Validate(cfg *Config) []error {
 	default:
 		add("logging.format", fmt.Sprintf("must be one of text, json; got %q", cfg.Logging.Format))
 	}
+	switch cfg.Logging.OTelLevel {
+	case "", "debug", "info", "warn", "error":
+	default:
+		add("logging.otel_level", fmt.Sprintf("must be one of debug, info, warn, error; got %q", cfg.Logging.OTelLevel))
+	}
 
 	// BGP neighbors
 	if cfg.BGP.ListenAddress != "" {

@@ -352,6 +352,16 @@
           ],
           "description": "Log output format.",
           "default": "text"
+        },
+        "otel_level": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "Minimum log level for OTEL log export. Defaults to the console level when unset.\nSet to a lower level than logging.level to send more detail to the OTEL receiver\nwhile keeping the console output quieter (e.g. level: warn, otel_level: debug)."
         }
       },
       "additionalProperties": false,

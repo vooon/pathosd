@@ -86,3 +86,31 @@ func (m *multiHandler) WithGroup(name string) slog.Handler {
 	}
 	return &multiHandler{handlers: handlers}
 }
+
+// NewLevelFilter wraps inner, silently dropping records below minLevel.
+// Use this to give a specific handler (e.g. the OTEL log bridge) a different
+// minimum level than the console handler.
+func NewLevelFilter(minLevel slog.Level, inner slog.Handler) slog.Handler {
+	return &levelFilterHandler{minLevel: minLevel, inner: inner}
+}
+
+type levelFilterHandler struct {
+	minLevel slog.Level
+	inner    slog.Handler
+}
+
+func (f *levelFilterHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return level >= f.minLevel && f.inner.Enabled(ctx, level)
+}
+
+func (f *levelFilterHandler) Handle(ctx context.Context, r slog.Record) error {
+	return f.inner.Handle(ctx, r)
+}
+
+func (f *levelFilterHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &levelFilterHandler{minLevel: f.minLevel, inner: f.inner.WithAttrs(attrs)}
+}
+
+func (f *levelFilterHandler) WithGroup(name string) slog.Handler {
+	return &levelFilterHandler{minLevel: f.minLevel, inner: f.inner.WithGroup(name)}
+}

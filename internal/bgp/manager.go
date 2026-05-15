@@ -197,6 +197,16 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 		}
 	}
 
+	if n.BFD != nil && n.BFD.Enabled {
+		peer.Bfd = &api.BfdPeerConfig{
+			Enabled:                  true,
+			Port:                     n.BFD.Port,
+			DesiredMinimumTxInterval: n.BFD.DesiredMinimumTxInterval,
+			RequiredMinimumReceive:   n.BFD.RequiredMinimumReceive,
+			DetectionMultiplier:      n.BFD.DetectionMultiplier,
+		}
+	}
+
 	return peer, nil
 }
 

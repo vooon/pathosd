@@ -57,6 +57,13 @@ port = 179
 local_address = "127.0.0.1"
 passive = false
 
+# BFD for rapid failure detection (requires a BFD daemon, e.g. FRR bfdd).
+# [bgp.neighbors.bfd]
+# enabled = true
+# desired_minimum_tx_interval = 300000  # 300 ms in µs
+# required_minimum_receive = 300000     # 300 ms in µs
+# detection_multiplier = 3
+
 # HTTP health check — full URL form
 [[vips]]
 name = "web-frontend"

@@ -16,6 +16,42 @@
       ],
       "description": "APIConfig configures the HTTP API server."
     },
+    "BFDConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable BFD for this peer. Default: false.",
+          "default": false
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "UDP port for the BFD session. Default: 0 (BFD daemon default, typically 3784)."
+        },
+        "desired_minimum_tx_interval": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Desired minimum BFD transmit interval in microseconds. Default: 0 (BFD daemon default)."
+        },
+        "required_minimum_receive": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Required minimum BFD receive interval in microseconds. Default: 0 (BFD daemon default)."
+        },
+        "detection_multiplier": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "BFD detection time multiplier. Default: 0 (BFD daemon default, typically 3)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ],
+      "description": "BFDConfig configures Bidirectional Forwarding Detection for a BGP peer."
+    },
     "BGPConfig": {
       "properties": {
         "graceful_restart": {
@@ -394,6 +430,10 @@
           "maximum": 255,
           "minimum": 0,
           "description": "IP TTL for eBGP multihop sessions. 0 means use GoBGP default (255). Must be \u003e= 2 when set explicitly. Only used when enable_multihop is true."
+        },
+        "bfd": {
+          "$ref": "#/$defs/BFDConfig",
+          "description": "BFD configuration for this peer. Requires a BFD daemon (e.g. FRR) running on the host."
         }
       },
       "additionalProperties": false,

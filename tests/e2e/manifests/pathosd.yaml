@@ -24,6 +24,16 @@ data:
           peer_asn: 65200
           required: true
           port: 179
+          # BFD enabled for fast-failure detection.
+          # NOTE: GoBGP 4.5 stores BFD config in the API but does not yet
+          # implement the BFD state machine, so no BFD packets are sent.
+          # The session establishes via normal BGP timers; this validates
+          # the config round-trip and ensures BFD config doesn't break BGP.
+          bfd:
+            enabled: true
+            desired_minimum_tx_interval: 300000  # 300 ms in µs
+            required_minimum_receive: 300000      # 300 ms in µs
+            detection_multiplier: 3
     vips:
       - name: web-vip
         prefix: 10.100.1.1/32

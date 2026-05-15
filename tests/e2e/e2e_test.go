@@ -147,6 +147,34 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, extractASPath(httpsPath), "65100")
 	})
 
+	// bfd_config_accepted verifies that enabling BFD on a BGP neighbor does
+	// not prevent the session from establishing or VIPs from being announced.
+	// GoBGP 4.5 stores BFD config in the API but has no BFD state machine,
+	// so no BFD packets are sent; the session is maintained by BGP hold timers.
+	t.Run("bfd_config_accepted", func(t *testing.T) {
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+
+		// BGP peer must be established despite BFD being configured.
+		var frrPeer *PeerStatus
+		for i := range status.Peers {
+			if status.Peers[i].Name == "frr" {
+				frrPeer = &status.Peers[i]
+				break
+			}
+		}
+		require.NotNil(t, frrPeer, "frr peer not found in /status")
+		assert.Equal(t, "established", frrPeer.SessionState,
+			"frr peer should be established even with BFD config present")
+
+		// All VIPs must remain announced.
+		assert.Equal(t, "announced", vipStateFromStatus(status, "web-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "dns-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "tcp-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "udp-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "https-vip"))
+	})
+
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
 		t.Cleanup(func() {
 			_, _ = pathosdExecNoFail("rm -f " + webVIPLockFile)

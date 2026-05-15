@@ -12,6 +12,7 @@ api:
 logging:
   level: info
   format: text
+  # otel_level: debug  # send debug records to OTEL while keeping console at 'info'
 
 # OpenTelemetry export — traces, metrics and logs via OTLP.
 # Transport is inferred from the URL scheme:

@@ -169,6 +169,10 @@ type LoggingConfig struct {
 	Level string `yaml:"level" json:"level" toml:"level" jsonschema:"enum=debug,enum=info,enum=warn,enum=error,default=info"`
 	// Log output format.
 	Format string `yaml:"format" json:"format" toml:"format" jsonschema:"enum=text,enum=json,default=text"`
+	// Minimum log level for OTEL log export. Defaults to the console level when unset.
+	// Set to a lower level than logging.level to send more detail to the OTEL receiver
+	// while keeping the console output quieter (e.g. level: warn, otel_level: debug).
+	OTelLevel string `yaml:"otel_level,omitempty" json:"otel_level,omitempty" toml:"otel_level,omitempty" jsonschema:"enum=debug,enum=info,enum=warn,enum=error"`
 }
 
 // BGPConfig defines global BGP parameters and neighbors.

@@ -95,7 +95,13 @@ func provideTelemetry(cfg *config.Config, m *metrics.Metrics, lc fx.Lifecycle) (
 
 func provideLogger(cfg *config.Config, tel *telemetry.Provider) *slog.Logger {
 	if h := tel.LogHandler(); h != nil {
-		return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, h)
+		otelH := h
+		if cfg.Logging.OTelLevel != "" {
+			var otelLvl slog.Level
+			_ = otelLvl.UnmarshalText([]byte(cfg.Logging.OTelLevel))
+			otelH = logging.NewLevelFilter(otelLvl, h)
+		}
+		return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, otelH)
 	}
 	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
 }

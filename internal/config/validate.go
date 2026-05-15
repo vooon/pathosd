@@ -110,6 +110,18 @@ func Validate(cfg *Config) []error {
 		if n.EnableMultihop && n.MultihopTTL != 0 && n.MultihopTTL < 2 {
 			add(prefix+".multihop_ttl", fmt.Sprintf("must be 0 (default 255) or >= 2, got %d", n.MultihopTTL))
 		}
+
+		if n.BFD != nil && n.BFD.Enabled {
+			if n.EnableMultihop {
+				add(prefix+".bfd", "BFD is not supported with eBGP multihop (RFC 5883 multihop BFD is not implemented)")
+			}
+			if n.BFD.Port != 0 && (n.BFD.Port < 1 || n.BFD.Port > 65535) {
+				add(prefix+".bfd.port", fmt.Sprintf("must be in range 1..65535, got %d", n.BFD.Port))
+			}
+			if n.BFD.DetectionMultiplier == 1 {
+				add(prefix+".bfd.detection_multiplier", "must be >= 2 when set (RFC 5880 §6.8.4)")
+			}
+		}
 	}
 
 	// VIPs

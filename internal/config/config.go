@@ -197,6 +197,22 @@ type GoBGPAPIConfig struct {
 	Listen string `yaml:"listen,omitempty" json:"listen,omitempty" toml:"listen,omitempty"`
 }
 
+// BFDConfig configures Bidirectional Forwarding Detection for a BGP peer.
+// BFD provides rapid link-failure detection independent of BGP hold timers.
+// All interval fields are in microseconds (µs); 0 means use the GoBGP/BFD daemon default.
+type BFDConfig struct {
+	// Enable BFD for this peer. Default: false.
+	Enabled bool `yaml:"enabled" json:"enabled" toml:"enabled" jsonschema:"default=false"`
+	// UDP port for the BFD session. Default: 0 (BFD daemon default, typically 3784).
+	Port uint32 `yaml:"port,omitempty" json:"port,omitempty" toml:"port,omitempty" jsonschema:"minimum=1,maximum=65535"`
+	// Desired minimum BFD transmit interval in microseconds. Default: 0 (BFD daemon default).
+	DesiredMinimumTxInterval uint32 `yaml:"desired_minimum_tx_interval,omitempty" json:"desired_minimum_tx_interval,omitempty" toml:"desired_minimum_tx_interval,omitempty" jsonschema:"minimum=0"`
+	// Required minimum BFD receive interval in microseconds. Default: 0 (BFD daemon default).
+	RequiredMinimumReceive uint32 `yaml:"required_minimum_receive,omitempty" json:"required_minimum_receive,omitempty" toml:"required_minimum_receive,omitempty" jsonschema:"minimum=0"`
+	// BFD detection time multiplier. Default: 0 (BFD daemon default, typically 3).
+	DetectionMultiplier uint32 `yaml:"detection_multiplier,omitempty" json:"detection_multiplier,omitempty" toml:"detection_multiplier,omitempty" jsonschema:"minimum=1"`
+}
+
 // NeighborConfig defines a BGP peer.
 type NeighborConfig struct {
 	// Human-readable name for this peer (used in logs and metrics).
@@ -217,6 +233,8 @@ type NeighborConfig struct {
 	EnableMultihop bool `yaml:"enable_multihop" json:"enable_multihop" toml:"enable_multihop"`
 	// IP TTL for eBGP multihop sessions. 0 means use GoBGP default (255). Must be >= 2 when set explicitly. Only used when enable_multihop is true.
 	MultihopTTL uint32 `yaml:"multihop_ttl" json:"multihop_ttl" toml:"multihop_ttl" jsonschema:"minimum=0,maximum=255"`
+	// BFD configuration for this peer. Requires a BFD daemon (e.g. FRR) running on the host.
+	BFD *BFDConfig `yaml:"bfd,omitempty" json:"bfd,omitempty" toml:"bfd,omitempty"`
 }
 
 // VIPConfig defines a Virtual IP with its health check and policy.

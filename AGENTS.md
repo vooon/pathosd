@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Scope
-Instructions for contributors/agents working in this repository (`pathosd`) — a single-process, pure-Go health-aware BGP VIP announcer with embedded GoBGP v3.
+Instructions for contributors/agents working in this repository (`pathosd`) — a single-process, pure-Go health-aware BGP VIP announcer with embedded GoBGP.
 
 ## Architecture Overview
 - Single static binary: health checker + BGP speaker in one process.

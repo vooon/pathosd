@@ -1,8 +1,9 @@
 package metrics
 
 import (
+	"maps"
 	"math"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -57,40 +58,36 @@ func generateCheckBuckets(checkTimeout float64, bucketCount int) []float64 {
 	nominal := roundTo(checkTimeout, 6)
 	effective := roundTo(checkTimeout+maxCheckOverrun.Seconds(), 6)
 
-	increment := nominal / float64(bucketCount)
+	bucketIncrement := nominal / float64(bucketCount)
 
-	seen := make(map[float64]struct{})
+	// Linear buckets from increment to nominal timeout.
 	var buckets []float64
-	add := func(v float64) {
-		v = roundTo(v, 6)
-		if _, ok := seen[v]; !ok && v > 0 {
-			seen[v] = struct{}{}
-			buckets = append(buckets, v)
-		}
-	}
-
-	// Linear buckets from increment to timeout.
 	for i := 1; i <= bucketCount; i++ {
-		add(increment * float64(i))
+		buckets = append(buckets, roundTo(bucketIncrement*float64(i), 6))
 	}
 
-	// Exponential subdivisions for fine resolution.
-	if increment <= 1 {
+	// Exponential subdivisions for fine resolution near zero (or near timeout).
+	if bucketIncrement <= 1 {
 		for i := 1; i <= bucketCount; i++ {
-			add(math.Pow(increment, float64(i)))
+			buckets = append(buckets, roundTo(math.Pow(bucketIncrement, float64(i)), 6))
 		}
 	} else {
-		fraction := 1.0 / float64(bucketCount)
+		bucketFraction := 1.0 / float64(bucketCount)
 		for i := 1; i <= bucketCount; i++ {
-			add(checkTimeout * math.Pow(fraction, float64(i)))
+			buckets = append(buckets, roundTo(checkTimeout*math.Pow(bucketFraction, float64(i)), 6))
 		}
 	}
 
-	add(nominal)
-	add(effective)
+	buckets = append(buckets, nominal, effective)
 
-	sort.Float64s(buckets)
-	return buckets
+	// Deduplicate and sort.
+	seen := make(map[float64]struct{}, len(buckets))
+	for _, v := range buckets {
+		seen[v] = struct{}{}
+	}
+	result := slices.Collect(maps.Keys(seen))
+	slices.Sort(result)
+	return result
 }
 
 func roundTo(v float64, decimals int) float64 {

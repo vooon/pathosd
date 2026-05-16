@@ -111,7 +111,8 @@
             "dns",
             "ping",
             "udp",
-            "tcp"
+            "tcp",
+            "grpc"
           ],
           "description": "Health check backend type."
         },
@@ -152,6 +153,10 @@
         "tcp": {
           "$ref": "#/$defs/TCPCheckConfig",
           "description": "TCP check configuration (required when type is \"tcp\")."
+        },
+        "grpc": {
+          "$ref": "#/$defs/GRPCCheckConfig",
+          "description": "gRPC check configuration (required when type is \"grpc\")."
         }
       },
       "additionalProperties": false,
@@ -222,6 +227,75 @@
         "Duration"
       ],
       "description": "Duration wraps time.Duration for JSON and TOML unmarshaling from strings like \"1s\", \"500ms\"."
+    },
+    "GRPCCheckConfig": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Host to connect to. Defaults to VIP prefix IP for /32 or /128."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "Port to connect to. Required."
+        },
+        "tls": {
+          "type": "boolean",
+          "description": "Enable TLS transport. Default: false (plaintext).",
+          "default": false
+        },
+        "tls_insecure": {
+          "type": "boolean",
+          "description": "Skip TLS certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.",
+          "default": false
+        },
+        "tls_ca_cert": {
+          "type": "string",
+          "description": "Path to a PEM-encoded CA certificate file for TLS verification. Requires tls=true.\nMutually exclusive with tls_insecure."
+        },
+        "tls_server_name": {
+          "type": "string",
+          "description": "TLS SNI server name used during the handshake and for certificate verification.\nRequires tls=true. Defaults to the connect host."
+        },
+        "method": {
+          "type": "string",
+          "description": "Full gRPC method path to call, e.g. \"myapp.v1.Greeter/Hello\".\nLeading slash is optional. When empty (default), the standard gRPC Health\nChecking Protocol is used (grpc.health.v1.Health/Check)."
+        },
+        "service": {
+          "type": "string",
+          "description": "Service name passed in the HealthCheckRequest when using the standard health\nprotocol (method is empty). Empty string means server-wide health check."
+        },
+        "ok_codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "gRPC status codes considered a passing result. Only used when method is set;\nthe standard health protocol always requires SERVING.\nValues are gRPC status code names (case-insensitive): OK, Canceled, Unknown,\nInvalidArgument, DeadlineExceeded, NotFound, AlreadyExists, PermissionDenied,\nResourceExhausted, FailedPrecondition, Aborted, OutOfRange, Unimplemented,\nInternal, Unavailable, DataLoss, Unauthenticated. Default: [\"OK\"]."
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Additional gRPC metadata sent with each call (analogous to HTTP headers)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "port",
+        "tls",
+        "tls_insecure",
+        "tls_ca_cert",
+        "tls_server_name",
+        "method",
+        "service",
+        "ok_codes",
+        "metadata"
+      ],
+      "description": "GRPCCheckConfig defines a gRPC health check."
     },
     "GoBGPAPIConfig": {
       "properties": {

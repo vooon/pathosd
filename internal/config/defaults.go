@@ -130,6 +130,14 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 		if c.TCP.Host == "" {
 			c.TCP.Host = vipHostIP(vipPrefix)
 		}
+
+	case CheckTypeGRPC:
+		if c.GRPC == nil {
+			c.GRPC = &GRPCCheckConfig{}
+		}
+		if c.GRPC.Host == "" {
+			c.GRPC.Host = vipHostIP(vipPrefix)
+		}
 	}
 }
 

@@ -303,6 +303,13 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 		}
 
+	case CheckTypeGRPC:
+		if c.GRPC == nil {
+			add(prefix+".grpc", "required when type is \"grpc\"")
+		} else {
+			errs = append(errs, validateGRPCCheck(prefix+".grpc", c.GRPC, vipPrefix)...)
+		}
+
 	case "":
 		add(prefix+".type", "required")
 	default:
@@ -379,6 +386,53 @@ func validatePolicy(prefix string, p *PolicyConfig) []error {
 		v := *p.LowerPriority.ASPathPrepend
 		if v < 1 || v > 16 {
 			add(prefix+".lower_priority.as_path_prepend", fmt.Sprintf("must be 1..16, got %d", v))
+		}
+	}
+
+	return errs
+}
+
+// validGRPCCodeNames lists the recognised gRPC status code names (case-insensitive).
+var validGRPCCodeNames = map[string]bool{
+	"ok": true, "canceled": true, "unknown": true, "invalidargument": true,
+	"deadlineexceeded": true, "notfound": true, "alreadyexists": true,
+	"permissiondenied": true, "resourceexhausted": true, "failedprecondition": true,
+	"aborted": true, "outofrange": true, "unimplemented": true, "internal": true,
+	"unavailable": true, "dataloss": true, "unauthenticated": true,
+}
+
+func validateGRPCCheck(prefix string, g *GRPCCheckConfig, vipPrefix string) []error {
+	var errs []error
+	add := func(path, msg string) {
+		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+	}
+
+	if g.Port == 0 {
+		add(prefix+".port", "required")
+	}
+	if g.Host == "" && !isSingleHost(vipPrefix) {
+		add(prefix+".host", "required when vip prefix is not a /32 or /128")
+	}
+	if !g.TLS {
+		if g.TLSInsecure {
+			add(prefix+".tls_insecure", "requires tls=true")
+		}
+		if g.TLSCACert != "" {
+			add(prefix+".tls_ca_cert", "requires tls=true")
+		}
+		if g.TLSServerName != "" {
+			add(prefix+".tls_server_name", "requires tls=true")
+		}
+	} else {
+		if g.TLSInsecure && g.TLSCACert != "" {
+			add(prefix+".tls_ca_cert", "cannot be set together with tls_insecure")
+		}
+	}
+	for _, name := range g.OKCodes {
+		// Strip underscores to normalise SCREAMING_SNAKE_CASE → lowered PascalCase
+		normalised := strings.ToLower(strings.ReplaceAll(name, "_", ""))
+		if !validGRPCCodeNames[normalised] {
+			add(prefix+".ok_codes", fmt.Sprintf("unknown gRPC status code %q", name))
 		}
 	}
 

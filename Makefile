@@ -52,6 +52,7 @@ e2e-deploy:
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=etcd --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
 e2e-test:

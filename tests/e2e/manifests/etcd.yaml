@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd
+  namespace: pathosd-e2e
+  labels:
+    app: etcd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+        - name: etcd
+          image: gcr.io/etcd-development/etcd:v3.5.21
+          imagePullPolicy: IfNotPresent
+          command:
+            - etcd
+            - --advertise-client-urls=http://0.0.0.0:2379
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --data-dir=/tmp/etcd-data
+          ports:
+            - containerPort: 2379
+              protocol: TCP
+              name: grpc
+          readinessProbe:
+            grpc:
+              port: 2379
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+---
+# Headless service: DNS resolves directly to pod IP.
+# When the deployment is scaled to 0, DNS returns no records and
+# the gRPC dial fails immediately — triggering a health-check failure.
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: pathosd-e2e
+  labels:
+    app: etcd
+spec:
+  clusterIP: None
+  selector:
+    app: etcd
+  ports:
+    - name: grpc
+      port: 2379
+      targetPort: 2379
+      protocol: TCP

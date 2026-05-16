@@ -111,6 +111,19 @@ data:
             tls_ca_cert: /etc/pathosd/tls/ca.crt
         policy:
           fail_action: withdraw
+      - name: grpc-vip
+        prefix: 10.100.6.1/32
+        check:
+          type: grpc
+          interval: 2s
+          timeout: 1s
+          rise: 3
+          fall: 3
+          grpc:
+            host: etcd.pathosd-e2e.svc.cluster.local
+            port: 2379
+        policy:
+          fail_action: withdraw
 ---
 apiVersion: apps/v1
 kind: Deployment

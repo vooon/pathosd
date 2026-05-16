@@ -33,6 +33,7 @@ const (
 	tcpVIPPrefix   = "10.100.3.1/32"
 	udpVIPPrefix   = "10.100.4.1/32"
 	httpsVIPPrefix = "10.100.5.1/32"
+	grpcVIPPrefix  = "10.100.6.1/32"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -78,6 +79,7 @@ func TestE2E(t *testing.T) {
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/nginx-tls", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/coredns", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/syslog", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/etcd", "--replicas=1")
 	})
 
 	t.Run("pods_ready", func(t *testing.T) {
@@ -86,6 +88,7 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -115,7 +118,8 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "dns-vip") == "announced" &&
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced" &&
-				vipStateFromStatus(status, "https-vip") == "announced"
+				vipStateFromStatus(status, "https-vip") == "announced" &&
+				vipStateFromStatus(status, "grpc-vip") == "announced"
 		})
 	})
 
@@ -130,7 +134,8 @@ func TestE2E(t *testing.T) {
 			_, tcpOK := routes[tcpVIPPrefix]
 			_, udpOK := routes[udpVIPPrefix]
 			_, httpsOK := routes[httpsVIPPrefix]
-			return webOK && dnsOK && tcpOK && udpOK && httpsOK
+			_, grpcOK := routes[grpcVIPPrefix]
+			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK
 		})
 
 		routes := frrRoutes(t)
@@ -139,12 +144,14 @@ func TestE2E(t *testing.T) {
 		tcpPath := firstRoutePath(t, routes, tcpVIPPrefix)
 		udpPath := firstRoutePath(t, routes, udpVIPPrefix)
 		httpsPath := firstRoutePath(t, routes, httpsVIPPrefix)
+		grpcPath := firstRoutePath(t, routes, grpcVIPPrefix)
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
 		assert.Contains(t, extractASPath(tcpPath), "65100")
 		assert.Contains(t, extractASPath(udpPath), "65100")
 		assert.Contains(t, extractASPath(httpsPath), "65100")
+		assert.Contains(t, extractASPath(grpcPath), "65100")
 	})
 
 	// bfd_config_accepted verifies that enabling BFD on a BGP neighbor does
@@ -173,6 +180,7 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, "announced", vipStateFromStatus(status, "tcp-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "udp-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "https-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "grpc-vip"))
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
@@ -424,6 +432,53 @@ func TestE2E(t *testing.T) {
 			}
 			_, httpsOK := routes[httpsVIPPrefix]
 			return httpsOK
+		})
+	})
+
+	t.Run("etcd_down_grpc_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "etcd", 0)
+
+		// Headless Service DNS returns no records when no pods are running,
+		// so the gRPC dial fails immediately.
+		waitForCondition(t, "grpc-vip withdrawn, other VIPs remain announced", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "grpc-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "dns-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR withdraws grpc-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, grpcExists := routes[grpcVIPPrefix]
+			return !grpcExists
+		})
+	})
+
+	t.Run("etcd_up_grpc_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "etcd", 1)
+		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
+
+		waitForCondition(t, "grpc-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "grpc-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR receives grpc-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, grpcOK := routes[grpcVIPPrefix]
+			return grpcOK
 		})
 	})
 

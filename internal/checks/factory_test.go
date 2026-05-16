@@ -70,6 +70,16 @@ func TestNewChecker(t *testing.T) {
 			cfg:             &config.CheckConfig{Type: "tcp"},
 			wantErrContains: "tcp check config is nil",
 		},
+		{
+			name:     "grpc",
+			cfg:      &config.CheckConfig{Type: "grpc", GRPC: &config.GRPCCheckConfig{Host: "127.0.0.1", Port: 9999}},
+			wantType: "grpc",
+		},
+		{
+			name:            "grpc nil sub-config",
+			cfg:             &config.CheckConfig{Type: "grpc"},
+			wantErrContains: "grpc check config is nil",
+		},
 	}
 
 	for _, tt := range tests {

@@ -51,7 +51,9 @@ e2e-deploy:
 	kubectl apply -f tests/e2e/manifests/
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx-tls --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=syslog --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=etcd --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
@@ -70,5 +72,8 @@ e2e-redeploy: e2e-build
 	kubectl apply -f tests/e2e/manifests/
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx-tls --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=syslog --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=etcd --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s

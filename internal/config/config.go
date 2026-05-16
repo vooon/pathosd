@@ -13,6 +13,7 @@ const (
 	CheckTypePing = "ping"
 	CheckTypeUDP  = "udp"
 	CheckTypeTCP  = "tcp"
+	CheckTypeGRPC = "grpc"
 )
 
 // Config is the top-level configuration for pathosd.
@@ -256,7 +257,7 @@ type VIPConfig struct {
 // CheckConfig defines health check type, scheduling, and type-specific parameters.
 type CheckConfig struct {
 	// Health check backend type.
-	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp"`
+	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
 	// Interval between consecutive health checks. Default: 5s.
 	Interval *Duration `yaml:"interval" json:"interval" toml:"interval"`
 	// Maximum time to wait for a check to complete; must be less than interval. Default: 2s.
@@ -275,6 +276,8 @@ type CheckConfig struct {
 	UDP *UDPCheckConfig `yaml:"udp,omitempty" json:"udp,omitempty" toml:"udp,omitempty"`
 	// TCP check configuration (required when type is "tcp").
 	TCP *TCPCheckConfig `yaml:"tcp,omitempty" json:"tcp,omitempty" toml:"tcp,omitempty"`
+	// gRPC check configuration (required when type is "grpc").
+	GRPC *GRPCCheckConfig `yaml:"grpc,omitempty" json:"grpc,omitempty" toml:"grpc,omitempty"`
 }
 
 // HTTPCheckConfig defines an HTTP health check.
@@ -343,6 +346,44 @@ type DNSCheckConfig struct {
 	Port uint16 `yaml:"port" json:"port" toml:"port"`
 	// DNS query type. Default: A.
 	QueryType string `yaml:"query_type" json:"query_type" toml:"query_type" jsonschema:"enum=A,enum=AAAA,enum=CNAME,enum=PTR,enum=NS,enum=MX,enum=SOA,enum=TXT,enum=SRV,default=A"`
+}
+
+// GRPCCheckConfig defines a gRPC health check.
+// When method is empty the standard gRPC Health Checking Protocol is used
+// (grpc.health.v1.Health/Check). When method is set, that unary RPC is called
+// with an empty proto3 request and the response gRPC status code is checked
+// against ok_codes — similar to how the HTTP checker validates response_codes.
+type GRPCCheckConfig struct {
+	// Host to connect to. Defaults to VIP prefix IP for /32 or /128.
+	Host string `yaml:"host" json:"host" toml:"host"`
+	// Port to connect to. Required.
+	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"required,minimum=1,maximum=65535"`
+	// Enable TLS transport. Default: false (plaintext).
+	TLS bool `yaml:"tls" json:"tls" toml:"tls" jsonschema:"default=false"`
+	// Skip TLS certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.
+	TLSInsecure bool `yaml:"tls_insecure" json:"tls_insecure" toml:"tls_insecure" jsonschema:"default=false"`
+	// Path to a PEM-encoded CA certificate file for TLS verification. Requires tls=true.
+	// Mutually exclusive with tls_insecure.
+	TLSCACert string `yaml:"tls_ca_cert" json:"tls_ca_cert" toml:"tls_ca_cert"`
+	// TLS SNI server name used during the handshake and for certificate verification.
+	// Requires tls=true. Defaults to the connect host.
+	TLSServerName string `yaml:"tls_server_name" json:"tls_server_name" toml:"tls_server_name"`
+	// Full gRPC method path to call, e.g. "myapp.v1.Greeter/Hello".
+	// Leading slash is optional. When empty (default), the standard gRPC Health
+	// Checking Protocol is used (grpc.health.v1.Health/Check).
+	Method string `yaml:"method" json:"method" toml:"method"`
+	// Service name passed in the HealthCheckRequest when using the standard health
+	// protocol (method is empty). Empty string means server-wide health check.
+	Service string `yaml:"service" json:"service" toml:"service"`
+	// gRPC status codes considered a passing result. Only used when method is set;
+	// the standard health protocol always requires SERVING.
+	// Values are gRPC status code names (case-insensitive): OK, Canceled, Unknown,
+	// InvalidArgument, DeadlineExceeded, NotFound, AlreadyExists, PermissionDenied,
+	// ResourceExhausted, FailedPrecondition, Aborted, OutOfRange, Unimplemented,
+	// Internal, Unavailable, DataLoss, Unauthenticated. Default: ["OK"].
+	OKCodes []string `yaml:"ok_codes" json:"ok_codes" toml:"ok_codes"`
+	// Additional gRPC metadata sent with each call (analogous to HTTP headers).
+	Metadata map[string]string `yaml:"metadata" json:"metadata" toml:"metadata"`
 }
 
 // PingCheckConfig defines an ICMP ping health check.

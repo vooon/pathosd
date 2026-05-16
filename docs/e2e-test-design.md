@@ -17,7 +17,10 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `namespace.yaml`
 - `frr.yaml`
 - `nginx.yaml`
+- `nginx-tls.yaml`
 - `coredns.yaml`
+- `syslog.yaml`
+- `etcd.yaml`
 - `pathosd.yaml`
 
 Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`Pod`, `Service`) for that component.
@@ -26,8 +29,10 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 
 - `pathosd` (ASN 65100): health checker + BGP speaker under test
 - `frr` (ASN 65200): BGP peer used for route assertions
-- `nginx`: HTTP health target for `web-vip`
+- `nginx`: HTTP/HTTPS health target for `web-vip`, `tcp-vip`, `https-vip`
 - `coredns`: DNS health target for `dns-vip`
+- `syslog`: UDP health target for `udp-vip`
+- `etcd`: gRPC health target for `grpc-vip`
 
 All components run in namespace `pathosd-e2e` on k3d/k3s.
 
@@ -54,6 +59,14 @@ All components run in namespace `pathosd-e2e` on k3d/k3s.
 - Serves `example.test` zone from ConfigMap files
 - `Deployment` + `Service` on TCP/UDP 53
 
+### etcd (`etcd.yaml`)
+
+- Image: `gcr.io/etcd-development/etcd:v3.5.21`
+- Single-node etcd serving gRPC on port 2379 (plaintext)
+- Implements `grpc.health.v1.Health/Check` natively
+- Headless service: DNS returns pod IP directly; DNS NXDOMAIN on scale-to-0 fails the gRPC dial immediately
+- Kubernetes native gRPC readiness probe on port 2379
+
 ### pathosd (`pathosd.yaml`)
 
 - Image: `pathosd:e2e`
@@ -70,6 +83,10 @@ Configured VIPs:
   - includes `lower_priority_file: /tmp/pathosd-web-vip-drain.lock`
   - pessimization uses prepend + community (`65100:666`)
 - `dns-vip` (`10.100.2.1/32`): DNS check, `fail_action: withdraw`
+- `tcp-vip` (`10.100.3.1/32`): TCP check against nginx:80, `fail_action: withdraw`
+- `udp-vip` (`10.100.4.1/32`): UDP check against syslog:514, `fail_action: withdraw`
+- `https-vip` (`10.100.5.1/32`): HTTPS check with custom CA cert, `fail_action: withdraw`
+- `grpc-vip` (`10.100.6.1/32`): gRPC standard health protocol against etcd:2379, `fail_action: withdraw`
 
 ## Test Implementation
 
@@ -77,11 +94,11 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 
 ### High-level flow
 
-1. Wait for all pods ready.
+1. Wait for all pods ready (frr, nginx, nginx-tls, coredns, syslog, etcd, pathosd).
 2. Port-forward `svc/pathosd` and validate `/healthz`.
 3. Wait until `/readyz` reports required peer established.
-4. Assert both VIPs become `announced`.
-5. Assert FRR receives both routes.
+4. Assert all VIPs become `announced`.
+5. Assert FRR receives all six routes.
 6. Dedicated lock-file case:
    - create `/tmp/pathosd-web-vip-drain.lock` inside pathosd container
    - assert `web-vip` becomes `pessimized` while still `healthy`
@@ -89,7 +106,7 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
    - remove file and assert recovery to `announced`
 7. nginx-down case:
    - scale nginx to 0
-   - assert `web-vip` pessimization
+   - assert `web-vip` pessimization and `tcp-vip` withdrawal
    - assert FRR route remains with prepended AS path and community
 8. nginx-up recovery.
 9. coredns-down case:
@@ -97,7 +114,19 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
    - assert `dns-vip` withdrawn
    - assert FRR route is removed
 10. coredns-up recovery.
-11. Assert `/metrics` and ad-hoc trigger API behavior.
+11. syslog-down case:
+    - scale syslog to 0
+    - assert `udp-vip` withdrawn and FRR route removed
+12. syslog-up recovery.
+13. nginx-tls-down case:
+    - scale nginx-tls to 0
+    - assert `https-vip` withdrawn and FRR route removed
+14. nginx-tls-up recovery.
+15. etcd-down case:
+    - scale etcd to 0
+    - assert `grpc-vip` withdrawn and FRR route removed
+16. etcd-up recovery.
+17. Assert `/metrics` and ad-hoc trigger API behavior.
 
 ### FRR JSON parsing note
 
@@ -116,7 +145,7 @@ Workflow: `.github/workflows/e2e.yaml`
 2. Import image into k3d.
 3. Apply namespace first and wait for it to become `Active`.
 4. Apply all manifests.
-5. Wait for `frr`, `nginx`, `coredns`, `pathosd` pods.
+5. Wait for `frr`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
 6. Run `go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...`.
 7. On failure, dump pod status, pathosd logs, FRR logs, and FRR summary.
 

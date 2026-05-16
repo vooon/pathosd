@@ -1,6 +1,6 @@
 # pathosd
 
-Health-aware BGP VIP announcer. Runs local health checks (HTTP, DNS, ICMP ping) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
+Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
 
 ## What It Is
 
@@ -16,7 +16,7 @@ The health checker and BGP speaker live in the same process. There is no separat
 
 ## Features
 
-- **Health checks**: HTTP (with TLS, custom headers, response codes/text), DNS (A/AAAA/CNAME/etc.), ICMP ping (with loss ratio thresholds)
+- **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods)
 - **Rise/Fall hysteresis**: Configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities)
 - **VIPs start withdrawn**: No route is announced until the service proves healthy
@@ -201,7 +201,7 @@ git diff --exit-code schema/
 
 ## E2E Testing
 
-End-to-end tests run pathosd with FRR, nginx, and CoreDNS inside k3d/k3s and validate announce, pessimization, and withdraw behavior.
+End-to-end tests run pathosd with FRR, nginx, CoreDNS, etcd, and syslog inside k3d/k3s and validate announce, pessimization, and withdraw behavior across all check types.
 
 - Test code: `tests/e2e/e2e_test.go` (`//go:build e2e`)
 - Manifests: `tests/e2e/manifests/`

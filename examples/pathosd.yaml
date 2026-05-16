@@ -193,3 +193,44 @@ vips:
         # host: 10.10.5.1  # explicit host override
     policy:
       fail_action: withdraw
+
+  # gRPC health check — standard gRPC Health Checking Protocol
+  # (grpc.health.v1.Health/Check). Passes when the server responds SERVING.
+  # host defaults to VIP IP for /32 prefix.
+  - name: grpc-service
+    prefix: 10.10.6.1/32
+    check:
+      type: grpc
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 3
+      grpc:
+        port: 50051
+        # service: "myapp.v1.API"  # empty = server-wide health check
+    policy:
+      fail_action: withdraw
+
+  # gRPC custom method — calls any unary RPC with an empty proto3 request.
+  # Passes when the response gRPC status code is in ok_codes (default: [OK]).
+  # This mirrors the HTTP checker's response_codes semantics.
+  - name: grpc-custom
+    prefix: 10.10.6.2/32
+    check:
+      type: grpc
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 3
+      grpc:
+        host: myservice.internal
+        port: 9090
+        method: myapp.v1.Health/Ping  # calls this unary RPC with an empty proto3 request
+        ok_codes: [OK]                # gRPC status codes considered healthy
+        tls: true
+        tls_ca_cert: /etc/pathosd/ca.crt
+        # tls_server_name: myservice.internal  # override SNI if needed
+        metadata:
+          x-api-token: example-token  # gRPC request metadata (like HTTP headers)
+    policy:
+      fail_action: withdraw

@@ -11,7 +11,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/miekg/dns v1.1.72
-	github.com/osrg/gobgp/v4 v4.6.0
+	github.com/osrg/gobgp/v4 v4.7.0
 	github.com/prometheus-community/pro-bing v0.9.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.69.0

@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/alecthomas/kong v1.15.0
+	github.com/alecthomas/kong v1.16.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0

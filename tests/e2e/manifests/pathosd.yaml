@@ -10,10 +10,11 @@ data:
       asn: 65100
       router_id: "%{POD_IPV4}"
       local_address: "%{POD_IPV4}"
-      # IPv6 next-hop for the IPv6 VIP route. Peering itself is over IPv4
-      # transport (MP-BGP carries the IPv6 unicast NLRI), so no host IPv6 is
-      # required in the cluster.
-      local_address_ipv6: 2001:db8:42::1
+      # IPv6 next-hop for the IPv6 VIP route. ::1 (loopback) is used so BIRD
+      # treats it as directly connected and accepts the route without needing
+      # host IPv6. Peering itself is over IPv4 transport (MP-BGP carries the
+      # IPv6 unicast NLRI).
+      local_address_ipv6: ::1
     api:
       listen: ":59179"
     logging:

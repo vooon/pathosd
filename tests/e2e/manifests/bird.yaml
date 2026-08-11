@@ -29,22 +29,24 @@ data:
     protocol device {
     }
 
-    # BIRD drops BGP routes whose next hop is not resolvable. The IPv6 routes
-    # from pathosd use next hop 2001:db8:42::1 (a documentation address that is
-    # not actually routed), so install a static reject route for that prefix to
-    # make the next hop reachable for BGP validation.
-    protocol static {
-        ipv6;
-        route 2001:db8:42::/64 reject;
-    }
-
     # Active peer toward pathosd (pathosd is passive for this session). The TCP
     # transport is IPv4, but the session negotiates IPv6 unicast (MP-BGP) so it
     # carries the IPv6 VIP routes. FRR covers the IPv4 side.
+    #
+    # BIRD drops BGP routes whose next hop is not directly reachable. The IPv6
+    # routes from pathosd carry a documentation next hop (2001:db8:42::1) that
+    # is not routed, so rewrite it to ::1 (loopback, always directly connected)
+    # in the import filter for the IPv6 VIP we care about.
     protocol bgp pathosd {
         local as 65300;
         neighbor __PATHOSD_PEER__ as 65100;
-        ipv6 { import all; export all; };
+        ipv6 {
+            import filter {
+                bgp_next_hop = ::1;
+                accept;
+            };
+            export none;
+        };
     }
 ---
 apiVersion: v1

@@ -432,6 +432,31 @@ func (s *HTTPCheckerSuite) TestProxyDown() {
 	s.False(result.Success)
 }
 
+// TestIPv6HostURLBracketed verifies the request URL is well-formed for a bare
+// IPv6 host (http://[::1]:port/) so IPv6 VIP HTTP checks work.
+func (s *HTTPCheckerSuite) TestIPv6HostURLBracketed() {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		s.T().Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "ipv6 ok")
+	}))
+	ts.Listener = ln
+	ts.Start()
+	s.T().Cleanup(ts.Close)
+
+	host, port := s.splitAddr(ts)
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proto: "http", Host: host, Port: port,
+		URL: "/", Method: "GET", ResponseCodes: []int{200},
+	})
+	s.Require().NoError(err)
+
+	result := c.Check(context.TODO())
+	s.True(result.Success)
+}
+
 func (s *HTTPCheckerSuite) TestContextTimeout() {
 	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
 		// Block until the client disconnects or a long timeout.

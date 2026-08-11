@@ -4,7 +4,9 @@ schema: v1
 router:
   asn: 65001
   router_id: 10.0.0.1
-  local_address: 127.0.0.1
+  # IPv6 local_address — required to originate the IPv6 VIP below (IPv6 routes
+  # use it as next-hop). IPv4 VIPs fall back to router_id as their next-hop.
+  local_address: 2001:db8::1
 
 api:
   listen: 127.0.0.1:59179
@@ -252,5 +254,24 @@ vips:
         # tls_server_name: myservice.internal  # override SNI if needed
         metadata:
           x-api-token: example-token  # gRPC request metadata (like HTTP headers)
+    policy:
+      fail_action: withdraw
+
+  # IPv6 VIP — dual-stack support. The route is announced over IPv6 unicast
+  # (MP-BGP) with the router's IPv6 local_address as the next-hop. Because the
+  # router_id is always IPv4, announcing an IPv6 VIP requires router.local_address
+  # to be an IPv6 address. IPv6 unicast AFI/SAFI is enabled on peers automatically
+  # when at least one IPv6 VIP is configured.
+  - name: ipv6-vip
+    prefix: 2001:db8::1/128
+    check:
+      type: tcp
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 3
+      tcp:
+        host: 2001:db8::10
+        port: 443
     policy:
       fail_action: withdraw

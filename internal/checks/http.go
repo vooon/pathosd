@@ -130,7 +130,12 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 	if c.sniHost != "" {
 		urlHost = c.sniHost
 	}
-	url := fmt.Sprintf("%s://%s:%d%s", c.cfg.Proto, urlHost, c.cfg.Port, c.cfg.URL)
+	// Bracket bare IPv6 hosts so the URL is well-formed (http://[::1]:80/).
+	host := urlHost
+	if ip := net.ParseIP(urlHost); ip != nil && ip.To4() == nil {
+		host = "[" + urlHost + "]"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", c.cfg.Proto, host, c.cfg.Port, c.cfg.URL)
 
 	req, err := http.NewRequestWithContext(ctx, c.cfg.Method, url, nil)
 	if err != nil {

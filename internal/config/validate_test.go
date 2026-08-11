@@ -484,6 +484,35 @@ func TestValidate_HTTPCheck(t *testing.T) {
 		cfg.VIPs[0].Check.HTTP.TLSInsecure = true
 		assert.Empty(t, Validate(cfg))
 	})
+
+	t.Run("valid proxy URL with hostname origin", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.HTTP.Proxy = "http://proxy.example:3128"
+		cfg.VIPs[0].Check.HTTP.Host = "example.com"
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("invalid proxy scheme", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.HTTP.Proxy = "socks5://proxy.example:1080"
+		cfg.VIPs[0].Check.HTTP.Host = "example.com"
+		assertErrorContains(t, Validate(cfg), ".proxy")
+	})
+
+	t.Run("proxy requires hostname origin, not VIP IP", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.HTTP.Proxy = "http://proxy.example:3128"
+		// Host left as the VIP IP default (10.10.1.1) — a forward proxy fetch
+		// target must be a resolvable hostname, so this must be rejected.
+		assertErrorContains(t, Validate(cfg), ".proxy")
+	})
+
+	t.Run("proxy with empty host is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.HTTP.Proxy = "http://proxy.example:3128"
+		cfg.VIPs[0].Check.HTTP.Host = ""
+		assertErrorContains(t, Validate(cfg), ".proxy")
+	})
 }
 
 func TestValidate_DNSCheck(t *testing.T) {

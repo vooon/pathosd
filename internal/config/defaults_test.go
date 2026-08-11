@@ -405,6 +405,33 @@ func TestApplyDefaults_HTTPCheck_FullURL(t *testing.T) {
 		assert.Equal(t, uint16(8080), h.Port)
 	})
 
+	t.Run("proxy mode defaults host to URL hostname and skips TLSServerName", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:   "https://example.com/healthz",
+			Proxy: "http://proxy.example:3128",
+		}, "10.0.0.1/32")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP
+		// Origin is the URL hostname the proxy fetches, not the VIP IP.
+		assert.Equal(t, "example.com", h.Host)
+		assert.Equal(t, "/healthz", h.URL)
+		assert.Equal(t, "https", h.Proto)
+		assert.Equal(t, uint16(443), h.Port)
+		// No curl --resolve semantics in proxy mode: the transport connects to
+		// the proxy and the URL hostname drives SNI/verification.
+		assert.Empty(t, h.TLSServerName)
+	})
+
+	t.Run("proxy mode preserves explicit host override", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:   "https://example.com/healthz",
+			Host:  "resolver.example.com",
+			Proxy: "http://proxy.example:3128",
+		}, "10.0.0.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "resolver.example.com", cfg.VIPs[0].Check.HTTP.Host)
+	})
+
 	t.Run("https full URL with explicit hostname host auto-sets TLSServerName", func(t *testing.T) {
 		// Simulates k8s: url=https://web.example.test/healthz, host=nginx-tls.svc.cluster.local
 		cfg := makeVIPWithHTTP(HTTPCheckConfig{

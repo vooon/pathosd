@@ -183,6 +183,13 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.Proto = "http"
 	}
 
+	// In proxy mode the origin host the proxy fetches is the URL hostname, not
+	// the VIP. The proxy is what resolves and connects to the origin, so the
+	// check must target the URL hostname rather than the VIP IP.
+	if h.Proxy != "" && h.Host == "" && urlHostname != "" {
+		h.Host = urlHostname
+	}
+
 	// Host defaults to VIP IP for /32 or /128.
 	if h.Host == "" {
 		h.Host = vipHostIP(vipPrefix)
@@ -192,7 +199,9 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 	// connect host (cfg.Host) differs from the URL hostname — covers both the
 	// VIP-IP case (host is a bare IP) and the k8s-service case (host is a
 	// different DNS name, e.g. nginx-tls.svc.cluster.local vs web.example.test).
-	if h.TLSServerName == "" && urlHostname != "" && h.Proto == "https" && h.Host != urlHostname {
+	// Skipped in proxy mode: the transport connects to the proxy and the URL
+	// hostname is already used for SNI/verification against the origin.
+	if h.Proxy == "" && h.TLSServerName == "" && urlHostname != "" && h.Proto == "https" && h.Host != urlHostname {
 		h.TLSServerName = urlHostname
 	}
 

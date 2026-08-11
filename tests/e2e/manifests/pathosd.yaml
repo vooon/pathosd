@@ -314,6 +314,9 @@ metadata:
     app: pathosd
 spec:
   clusterIP: None
+  # Publish endpoints while pathosd is still initializing so bird's wrapper can
+  # resolve pathosd's IP before it is Ready.
+  publishNotReadyAddresses: true
   selector:
     app: pathosd
   ports:

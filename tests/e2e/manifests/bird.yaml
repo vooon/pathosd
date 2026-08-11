@@ -79,6 +79,9 @@ metadata:
     app: bird
 spec:
   clusterIP: None
+  # Publish endpoints while the pod is still initializing so pathosd's
+  # wait-bird init can resolve bird's IP before the bird daemon is up.
+  publishNotReadyAddresses: true
   selector:
     app: bird
   ports:

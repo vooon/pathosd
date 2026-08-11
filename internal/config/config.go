@@ -156,6 +156,10 @@ type RouterConfig struct {
 	RouterID string `yaml:"router_id" json:"router_id" toml:"router_id" jsonschema:"required,format=ipv4"`
 	// Local address to bind BGP sessions. If empty, the OS selects the source address.
 	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address"`
+	// IPv6 local address used as the next-hop (and listen address) for IPv6
+	// VIP routes. Required when any VIP prefix is IPv6. This is separate from
+	// local_address so an IPv4 peer source and IPv6 route next-hop can coexist.
+	LocalAddressIPv6 string `yaml:"local_address_ipv6" json:"local_address_ipv6" toml:"local_address_ipv6"`
 }
 
 // APIConfig configures the HTTP API server.

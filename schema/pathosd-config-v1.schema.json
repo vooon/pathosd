@@ -715,6 +715,10 @@
         "local_address": {
           "type": "string",
           "description": "Local address to bind BGP sessions. If empty, the OS selects the source address."
+        },
+        "local_address_ipv6": {
+          "type": "string",
+          "description": "IPv6 local address used as the next-hop (and listen address) for IPv6\nVIP routes. Required when any VIP prefix is IPv6. This is separate from\nlocal_address so an IPv4 peer source and IPv6 route next-hop can coexist."
         }
       },
       "additionalProperties": false,
@@ -722,7 +726,8 @@
       "required": [
         "asn",
         "router_id",
-        "local_address"
+        "local_address",
+        "local_address_ipv6"
       ],
       "description": "RouterConfig identifies this BGP speaker."
     },

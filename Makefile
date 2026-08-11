@@ -38,14 +38,9 @@ E2E_CLUSTER   ?= pathosd-e2e
 E2E_IMAGE     := pathosd:e2e
 BIRD_IMAGE    := bird3:e2e
 E2E_NAMESPACE := pathosd-e2e
-# Dual-stack (IPv4 + IPv6) pod/service CIDRs so IPv6 VIPs can be exercised.
-E2E_K3S_ARGS := \
-	--k3s-arg=--cluster-cidr=10.42.0.0/16,2001:db8:42::/56@server:* \
-	--k3s-arg=--service-cidr=10.43.0.0/16,2001:db8:43::/112@server:* \
-	--k3s-arg=--flannel-ipv6-masq@server:*
 
 e2e-cluster:
-	k3d cluster create $(E2E_CLUSTER) --wait $(E2E_K3S_ARGS)
+	k3d cluster create $(E2E_CLUSTER) --wait
 
 e2e-build:
 	docker build -f Dockerfile.e2e -t $(E2E_IMAGE) .

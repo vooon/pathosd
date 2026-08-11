@@ -4,9 +4,12 @@ schema: v1
 router:
   asn: 65001
   router_id: 10.0.0.1
-  # IPv6 local_address — required to originate the IPv6 VIP below (IPv6 routes
-  # use it as next-hop). IPv4 VIPs fall back to router_id as their next-hop.
-  local_address: 2001:db8::1
+  # local_address is the IPv4 peer source / IPv4 route next-hop.
+  local_address: 127.0.0.1
+  # local_address_ipv6 is the IPv6 next-hop for IPv6 VIP routes. Required when
+  # any VIP prefix is IPv6; separate from local_address so IPv4 and IPv6 can
+  # coexist.
+  local_address_ipv6: 2001:db8::1
 
 api:
   listen: 127.0.0.1:59179

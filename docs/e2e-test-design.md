@@ -29,16 +29,16 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 
 ## Runtime Topology
 
-- `pathosd` (ASN 65100): health checker + BGP speaker under test; dual-stack (IPv4 + IPv6)
+- `pathosd` (ASN 65100): health checker + BGP speaker under test
 - `frr` (ASN 65200): **IPv4** BGP peer used for IPv4 route assertions
 - `bird` (bird3, ASN 65300): **IPv6** BGP peer used for IPv6 route assertions
 - `nginx`: HTTP/HTTPS health target for `web-vip`, `tcp-vip`, `https-vip`
 - `coredns`: DNS health target for `dns-vip`
 - `syslog`: UDP health target for `udp-vip`
 - `etcd`: gRPC health target for `grpc-vip`
-- `ipv6-target`: TCP health target for `ipv6-vip` (exposed via a headless service returning its pod IPv6 address for the AAAA record)
+- `ipv6-target`: TCP health target for `ipv6-vip`
 
-All components run in namespace `pathosd-e2e` on a dual-stack k3d/k3s cluster (IPv4 + IPv6 pod/service CIDRs).
+All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 VIP routes are carried over IPv4-transport MP-BGP (no host IPv6 required).
 
 ## Component Details
 
@@ -55,8 +55,8 @@ All components run in namespace `pathosd-e2e` on a dual-stack k3d/k3s cluster (I
 
 - Image: `bird3:e2e` (built from `Dockerfile.bird3`, Debian trixie + `bird3` package)
 - Runs as a single `Pod` named `bird` (stable `kubectl exec` target)
-- **Active IPv6 peer**: bird3 dials pathosd's pod IPv6 address; pathosd is `passive` for this session
-- A wrapper (`run.sh`) resolves pathosd's pod IPv6 address from the headless `pathosd-bgp` service and templates it into `bird.conf` as `neighbor`, then runs `bird -f`
+- **Active IPv6-carrying peer**: bird3 dials pathosd over IPv4 transport and negotiates IPv6-unicast (MP-BGP); pathosd is `passive` for this session
+- A wrapper (`run.sh`) resolves pathosd's pod IPv4 address from the headless `pathosd-bgp` service and templates it into `bird.conf` as `neighbor`, then runs `bird -f`
 - Exposes TCP/179 via a headless service (`clusterIP: None`)
 - Only IPv6 unicast is carried (`ipv6 { import all; export all; }`) — FRR covers the IPv4 side
 - Assertions use `birdc -s /run/bird/bird.ctl` text output
@@ -83,19 +83,19 @@ All components run in namespace `pathosd-e2e` on a dual-stack k3d/k3s cluster (I
 
 ### ipv6-target (`ipv6-target.yaml`)
 
-- `alpine` + `socat` running a persistent TCP listener (`TCP-LISTEN:8080,fork`) on both address families
-- Headless service: DNS returns the pod's IPv6 address (AAAA); scaling to 0 makes the check fail and withdraws `ipv6-vip`. The IPv6-specific behavior (IPv6 unicast announcement) is validated by bird receiving `ipv6-vip`
+- `alpine` + `socat` running a persistent TCP listener (`TCP-LISTEN:8080,fork`)
+- Headless service; scaling to 0 makes the check fail and withdraws `ipv6-vip`. The IPv6-specific behavior (IPv6 unicast announcement) is validated by bird receiving `ipv6-vip`
 
 ### pathosd (`pathosd.yaml`)
 
 - Image: `pathosd:e2e`
 - Runs with `--config /etc/pathosd/pathosd.yaml`
 - Uses env placeholders in config:
-  - `%{POD_IPV4}` for `router_id` (always IPv4)
-  - `%{POD_IPV6}` for `router.local_address` (IPv6 next-hop for IPv6 VIPs)
-  - `%{FRR_PEER_IP}` for the IPv4 FRR neighbor (with explicit `%{POD_IPV4}` local address)
-  - `%{BIRD_PEER_IP}` for the IPv6 bird neighbor
-- `wait-frr` init container resolves the FRR pod IPv4 IP; `wait-bird` resolves the bird pod IPv6 IP
+  - `%{POD_IPV4}` for `router_id` and `router.local_address`
+  - `router.local_address_ipv6` is a fixed IPv6 address used as the IPv6 next-hop
+  - `%{FRR_PEER_IP}` for the IPv4 FRR neighbor
+  - `%{BIRD_PEER_IP}` for the (IPv4-transport) bird neighbor
+- `wait-frr` and `wait-bird` init containers resolve the FRR/bird pod IPv4 IPs
 - Readiness probes `/readyz`; liveness probes `/healthz`
 
 Configured VIPs:
@@ -108,7 +108,7 @@ Configured VIPs:
 - `udp-vip` (`10.100.4.1/32`): UDP check against syslog:514, `fail_action: withdraw`
 - `https-vip` (`10.100.5.1/32`): HTTPS check with custom CA cert, `fail_action: withdraw`
 - `grpc-vip` (`10.100.6.1/32`): gRPC standard health protocol against etcd:2379, `fail_action: withdraw`
-- `ipv6-vip` (`2001:db8:100::1/128`): TCP check against `ipv6-target:8080` over IPv6, `fail_action: withdraw`; announced via IPv6 unicast to the `bird` peer
+- `ipv6-vip` (`2001:db8:100::1/128`): TCP check against `ipv6-target:8080`, `fail_action: withdraw`; announced via IPv6 unicast (over IPv4 transport) to the `bird` peer
 
 ## Test Implementation
 
@@ -165,7 +165,7 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 Workflow: `.github/workflows/e2e.yaml`
 
 1. Build `pathosd:e2e` (`Dockerfile.e2e`) and `bird3:e2e` (`Dockerfile.bird3`); import both into k3d.
-2. Create a dual-stack cluster (`--cluster-cidr`/`--service-cidr` with IPv6, `--flannel-ipv6-masq`).
+2. Create an IPv4 k3d/k3s cluster.
 3. Apply namespace first and wait for it to become `Active`.
 4. Apply all manifests.
 5. Wait for `frr`, `bird`, `nginx`, `coredns`, `etcd`, `pathosd` pods.

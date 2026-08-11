@@ -23,13 +23,8 @@ jobs:
 
       - uses: nolar/setup-k3d-k3s@v1
         with:
-          version: v1.31
+          version: v1.36
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Dual-stack (IPv4 + IPv6) so IPv6 VIPs can be exercised.
-          k3s-args: >-
-            --cluster-cidr=10.42.0.0/16,2001:db8:42::/56@server:*
-            --service-cidr=10.43.0.0/16,2001:db8:43::/112@server:*
-            --flannel-ipv6-masq@server:*
 
       - name: Build and load images
         run: |

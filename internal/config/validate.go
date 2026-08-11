@@ -38,14 +38,17 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
-	// IPv6 VIPs are originated with the local_address as the IPv6 next-hop (the
-	// router-id is always IPv4), so local_address must be IPv6 when any VIP is IPv6.
-	if hasIPv6VIP(cfg) {
-		if cfg.Router.LocalAddress == "" {
-			add("router.local_address", "required as an IPv6 address when any VIP prefix is IPv6 (used as the IPv6 next-hop)")
-		} else if ip := net.ParseIP(cfg.Router.LocalAddress); ip == nil || ip.To4() != nil {
-			add("router.local_address", fmt.Sprintf("must be an IPv6 address when any VIP prefix is IPv6, got %q", cfg.Router.LocalAddress))
+	if cfg.Router.LocalAddressIPv6 != "" {
+		if ip := net.ParseIP(cfg.Router.LocalAddressIPv6); ip == nil || ip.To4() != nil {
+			add("router.local_address_ipv6", fmt.Sprintf("must be a valid IPv6 address, got %q", cfg.Router.LocalAddressIPv6))
 		}
+	}
+
+	// IPv6 VIPs are originated with the local_address_ipv6 as the IPv6 next-hop
+	// (the router-id is always IPv4), so local_address_ipv6 is required when any
+	// VIP is IPv6.
+	if hasIPv6VIP(cfg) && cfg.Router.LocalAddressIPv6 == "" {
+		add("router.local_address_ipv6", "required as an IPv6 address when any VIP prefix is IPv6 (used as the IPv6 next-hop)")
 	}
 
 	// API

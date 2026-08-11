@@ -118,29 +118,12 @@ func (m *Manager) buildGlobalConfig() *api.Global {
 		listenPort = 179
 	}
 
-	listenAddrs := []string{m.effectiveListenAddress()}
-	if m.hasIPv6VIP() {
-		listenAddrs = ensureIPv6ListenAddress(listenAddrs)
-	}
-
 	return &api.Global{
 		Asn:             m.cfg.Router.ASN,
 		RouterId:        m.cfg.Router.RouterID,
 		ListenPort:      int32(listenPort),
-		ListenAddresses: listenAddrs,
+		ListenAddresses: []string{m.effectiveListenAddress()},
 	}
-}
-
-// ensureIPv6ListenAddress appends the IPv6 wildcard when none of the given
-// listen addresses is IPv6, so IPv6 BGP sessions can be accepted when IPv6
-// VIPs are configured.
-func ensureIPv6ListenAddress(addrs []string) []string {
-	for _, a := range addrs {
-		if addr, err := netip.ParseAddr(a); err == nil && addr.Is6() {
-			return addrs
-		}
-	}
-	return append(addrs, "::")
 }
 
 func (m *Manager) effectiveListenAddress() string {
@@ -489,20 +472,19 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 
 // nextHopFor returns the next-hop address appropriate for the given route
 // family. For IPv4 the router local_address is preferred when it is IPv4,
-// falling back to the router-id (always IPv4). For IPv6 the local_address must
-// be an IPv6 address (enforced at config validation time) since the router-id
-// is always IPv4.
+// falling back to the router-id (always IPv4). For IPv6 the router
+// local_address_ipv6 must be an IPv6 address (enforced at config validation time).
 func (m *Manager) nextHopFor(family bgppacket.Family) (netip.Addr, error) {
 	if family == bgppacket.RF_IPv6_UC {
-		if m.cfg.Router.LocalAddress == "" {
-			return netip.Addr{}, fmt.Errorf("IPv6 route requires router.local_address to be set")
+		if m.cfg.Router.LocalAddressIPv6 == "" {
+			return netip.Addr{}, fmt.Errorf("IPv6 route requires router.local_address_ipv6 to be set")
 		}
-		addr, err := netip.ParseAddr(m.cfg.Router.LocalAddress)
+		addr, err := netip.ParseAddr(m.cfg.Router.LocalAddressIPv6)
 		if err != nil {
-			return netip.Addr{}, fmt.Errorf("invalid next-hop %q: %w", m.cfg.Router.LocalAddress, err)
+			return netip.Addr{}, fmt.Errorf("invalid next-hop %q: %w", m.cfg.Router.LocalAddressIPv6, err)
 		}
 		if !addr.Is6() {
-			return netip.Addr{}, fmt.Errorf("IPv6 route requires an IPv6 router.local_address, got %q", m.cfg.Router.LocalAddress)
+			return netip.Addr{}, fmt.Errorf("IPv6 route requires an IPv6 router.local_address_ipv6, got %q", m.cfg.Router.LocalAddressIPv6)
 		}
 		return addr, nil
 	}

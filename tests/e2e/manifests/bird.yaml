@@ -9,18 +9,18 @@ data:
     set -eu
     mkdir -p /run/bird
     peer_host="pathosd-bgp.pathosd-e2e.svc.cluster.local"
-    peer6=""
+    peer_ip=""
     i=0
-    while [ -z "${peer6}" ] && [ "$i" -lt 120 ]; do
-      peer6="$(getent ahostsv6 "${peer_host}" 2>/dev/null | awk '{print $1; exit}')"
+    while [ -z "${peer_ip}" ] && [ "$i" -lt 120 ]; do
+      peer_ip="$(getent ahosts "${peer_host}" 2>/dev/null | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ {print $1; exit}')"
       i=$((i+1))
-      [ -z "${peer6}" ] && sleep 1
+      [ -z "${peer_ip}" ] && sleep 1
     done
-    if [ -z "${peer6}" ]; then
-      echo "timed out resolving pathosd IPv6 peer ${peer_host}" >&2
+    if [ -z "${peer_ip}" ]; then
+      echo "timed out resolving pathosd peer ${peer_host}" >&2
       exit 1
     fi
-    sed "s/__PATHOSD_PEER6__/${peer6}/g" /config/bird.conf.tmpl > /run/bird/bird.conf
+    sed "s/__PATHOSD_PEER__/${peer_ip}/g" /config/bird.conf.tmpl > /run/bird/bird.conf
     exec /usr/sbin/bird -f -c /run/bird/bird.conf
   bird.conf.tmpl: |
     log stderr all;
@@ -29,11 +29,12 @@ data:
     protocol device {
     }
 
-    # Active IPv6 peer toward pathosd (pathosd is passive for this session).
-    # Only IPv6 unicast is carried here — FRR covers the IPv4 side.
+    # Active peer toward pathosd (pathosd is passive for this session). The TCP
+    # transport is IPv4, but the session negotiates IPv6 unicast (MP-BGP) so it
+    # carries the IPv6 VIP routes. FRR covers the IPv4 side.
     protocol bgp pathosd {
         local as 65300;
-        neighbor __PATHOSD_PEER6__ as 65100;
+        neighbor __PATHOSD_PEER__ as 65100;
         ipv6 { import all; export all; };
     }
 ---

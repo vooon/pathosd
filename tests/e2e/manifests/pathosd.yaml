@@ -9,7 +9,11 @@ data:
     router:
       asn: 65100
       router_id: "%{POD_IPV4}"
-      local_address: "%{POD_IPV6}"
+      local_address: "%{POD_IPV4}"
+      # IPv6 next-hop for the IPv6 VIP route. Peering itself is over IPv4
+      # transport (MP-BGP carries the IPv6 unicast NLRI), so no host IPv6 is
+      # required in the cluster.
+      local_address_ipv6: 2001:db8:42::1
     api:
       listen: ":59179"
     logging:
@@ -24,9 +28,6 @@ data:
           peer_asn: 65200
           required: true
           port: 179
-          # local_address is IPv6 (router.local_address), so the IPv4 FRR
-          # session must bind the pod's IPv4 address explicitly.
-          local_address: "%{POD_IPV4}"
           # BFD enabled for fast-failure detection.
           # NOTE: GoBGP 4.5 stores BFD config in the API but does not yet
           # implement the BFD state machine, so no BFD packets are sent.
@@ -37,8 +38,9 @@ data:
             desired_minimum_tx_interval: 300000  # 300 ms in µs
             required_minimum_receive: 300000      # 300 ms in µs
             detection_multiplier: 3
-        # Active IPv6 peer: bird3 dials pathosd, so pathosd is passive here.
-        # Carries the IPv6 VIP routes (FRR covers IPv4).
+        # Active IPv6-carrying peer: bird3 dials pathosd over IPv4 transport
+        # and negotiates IPv6-unicast (MP-BGP), so pathosd is passive here and
+        # FRR covers IPv4 unicast.
         - name: bird
           address: "%{BIRD_PEER_IP}"
           peer_asn: 65300
@@ -205,9 +207,9 @@ spec:
               peer_host="bird.pathosd-e2e.svc.cluster.local"
               i=0
               while :; do
-                peer6="$(getent ahostsv6 "${peer_host}" 2>/dev/null | awk '{print $1; exit}' || true)"
-                if [ -n "${peer6}" ] && nc -z -w 1 "${peer6}" 179; then
-                  printf '%s\n' "${peer6}" > /work/bird-peer-ip
+                peer_ip="$(nslookup "${peer_host}" 2>/dev/null | awk '/^Address([[:space:]]+[0-9]+)?:/ {print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1 || true)"
+                if [ -n "${peer_ip}" ] && nc -z -w 1 "${peer_ip}" 179; then
+                  printf '%s\n' "${peer_ip}" > /work/bird-peer-ip
                   exit 0
                 fi
                 i=$((i+1))
@@ -229,11 +231,6 @@ spec:
             - |
               set -eu
               export POD_IPV4="${POD_IP}"
-              export POD_IPV6="$(printf '%s' "${POD_IPS}" | tr ',' '\n' | grep -E ':' | head -n 1 || true)"
-              if [ -z "${POD_IPV6}" ]; then
-                echo "no IPv6 pod address in POD_IPS='${POD_IPS}'" >&2
-                exit 1
-              fi
               export FRR_PEER_IP="$(cat /work/frr-peer-ip 2>/dev/null || true)"
               export BIRD_PEER_IP="$(cat /work/bird-peer-ip 2>/dev/null || true)"
               if [ -z "${FRR_PEER_IP}" ]; then
@@ -251,10 +248,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: POD_IPS
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIPs
           ports:
             - containerPort: 59179
               name: http
@@ -311,7 +304,7 @@ spec:
       targetPort: 59179
       protocol: TCP
 ---
-# Headless service so bird3 can resolve pathosd's pod IPv6 address (AAAA).
+# Headless service so bird3 can resolve pathosd's pod IPv4 address.
 apiVersion: v1
 kind: Service
 metadata:

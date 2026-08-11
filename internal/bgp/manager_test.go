@@ -146,14 +146,15 @@ func TestParseCommunities(t *testing.T) {
 }
 
 func TestManagerBuildPath(t *testing.T) {
-	newManager := func(localAddress string) *Manager {
+	newManager := func(localAddress, localAddressIPv6 string) *Manager {
 		return &Manager{
 			localASN: 65000,
 			cfg: &config.Config{
 				Router: config.RouterConfig{
-					ASN:          65000,
-					RouterID:     "10.0.0.1",
-					LocalAddress: localAddress,
+					ASN:              65000,
+					RouterID:         "10.0.0.1",
+					LocalAddress:     localAddress,
+					LocalAddressIPv6: localAddressIPv6,
 				},
 			},
 		}
@@ -173,14 +174,14 @@ func TestManagerBuildPath(t *testing.T) {
 	}{
 		{
 			name:        "valid /32 returns nlri and required attrs",
-			manager:     newManager(""),
+			manager:     newManager("", ""),
 			prefix:      "10.1.0.1/32",
 			wantNextHop: "10.0.0.1",
 			wantASPath:  []uint32{65000},
 		},
 		{
 			name:        "prepend adds repeated ASNs",
-			manager:     newManager(""),
+			manager:     newManager("", ""),
 			prefix:      "10.1.0.2/32",
 			prepend:     4,
 			wantNextHop: "10.0.0.1",
@@ -188,7 +189,7 @@ func TestManagerBuildPath(t *testing.T) {
 		},
 		{
 			name:            "communities add communities attribute",
-			manager:         newManager(""),
+			manager:         newManager("", ""),
 			prefix:          "10.1.0.3/32",
 			communities:     []string{"65535:666"},
 			wantNextHop:     "10.0.0.1",
@@ -197,40 +198,40 @@ func TestManagerBuildPath(t *testing.T) {
 		},
 		{
 			name:    "invalid prefix returns error",
-			manager: newManager(""),
+			manager: newManager("", ""),
 			prefix:  "not-a-prefix",
 			wantErr: true,
 		},
 		{
 			name:        "next hop uses local address when set",
-			manager:     newManager("10.0.0.2"),
+			manager:     newManager("10.0.0.2", ""),
 			prefix:      "10.1.0.4/32",
 			wantNextHop: "10.0.0.2",
 			wantASPath:  []uint32{65000},
 		},
 		{
-			name:        "IPv6 /128 uses IPv6 unicast family and IPv6 next hop",
-			manager:     newManager("2001:db8::1"),
+			name:        "IPv6 /128 uses IPv6 unicast family and local_address_ipv6 next hop",
+			manager:     newManager("10.0.0.2", "2001:db8::1"),
 			prefix:      "2001:db8::1234/128",
 			wantFamily:  bgppacket.RF_IPv6_UC,
 			wantNextHop: "2001:db8::1",
 			wantASPath:  []uint32{65000},
 		},
 		{
-			name:    "IPv6 /128 without local_address returns error",
-			manager: newManager(""),
+			name:    "IPv6 /128 without local_address_ipv6 returns error",
+			manager: newManager("2001:db8::1", ""),
 			prefix:  "2001:db8::1234/128",
 			wantErr: true,
 		},
 		{
-			name:    "IPv6 /128 with IPv4 local_address returns error",
-			manager: newManager("10.0.0.2"),
+			name:    "IPv6 /128 with IPv4 local_address_ipv6 returns error",
+			manager: newManager("10.0.0.2", "10.0.0.9"),
 			prefix:  "2001:db8::1234/128",
 			wantErr: true,
 		},
 		{
-			name:        "IPv4 /32 with IPv6 local_address falls back to IPv4 router-id",
-			manager:     newManager("2001:db8::1"),
+			name:        "IPv4 /32 with no local_address falls back to IPv4 router-id",
+			manager:     newManager("", "2001:db8::1"),
 			prefix:      "10.1.0.5/32",
 			wantNextHop: "10.0.0.1",
 			wantASPath:  []uint32{65000},
@@ -350,35 +351,21 @@ func TestManagerBuildGlobalConfig(t *testing.T) {
 		assert.Equal(t, []string{"0.0.0.0"}, global.ListenAddresses)
 	})
 
-	t.Run("IPv6 local_address used as listen address when IPv6 VIP configured", func(t *testing.T) {
+	t.Run("IPv6 VIPs do not auto-append an IPv6 listen address", func(t *testing.T) {
 		m := &Manager{
 			cfg: &config.Config{
 				Router: config.RouterConfig{
-					ASN:          65000,
-					RouterID:     "10.0.0.1",
-					LocalAddress: "2001:db8::1",
+					ASN:              65000,
+					RouterID:         "10.0.0.1",
+					LocalAddress:     "127.0.0.2",
+					LocalAddressIPv6: "2001:db8::1",
 				},
 				VIPs: []config.VIPConfig{{Name: "v6", Prefix: "2001:db8::2/128"}},
 			},
 		}
 
 		global := m.buildGlobalConfig()
-		assert.Equal(t, []string{"2001:db8::1"}, global.ListenAddresses)
-	})
-
-	t.Run("IPv6 wildcard appended when IPv6 VIP configured with IPv4 listen address", func(t *testing.T) {
-		m := &Manager{
-			cfg: &config.Config{
-				Router: config.RouterConfig{
-					ASN:      65000,
-					RouterID: "10.0.0.1",
-				},
-				VIPs: []config.VIPConfig{{Name: "v6", Prefix: "2001:db8::2/128"}},
-			},
-		}
-
-		global := m.buildGlobalConfig()
-		assert.Equal(t, []string{"0.0.0.0", "::"}, global.ListenAddresses)
+		assert.Equal(t, []string{"127.0.0.2"}, global.ListenAddresses)
 	})
 }
 

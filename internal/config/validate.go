@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -352,6 +353,19 @@ func validateHTTPCheck(prefix string, h *HTTPCheckConfig, vipPrefix string) []er
 
 	if h.TLSCACert != "" && h.TLSInsecure {
 		add(prefix+".tls_ca_cert", "cannot be set together with tls_insecure")
+	}
+
+	if h.Proxy != "" {
+		u, err := url.Parse(h.Proxy)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			add(prefix+".proxy", fmt.Sprintf("must be a valid http:// or https:// proxy URL, got %q", h.Proxy))
+		}
+		// Proxy mode requires a resolvable origin hostname (derived from a full
+		// url). A path-only url leaves host defaulted to the VIP IP, which a
+		// forward proxy cannot meaningfully fetch.
+		if h.Host == "" || net.ParseIP(h.Host) != nil {
+			add(prefix+".proxy", "requires a full url with a hostname origin (the proxy fetch target)")
+		}
 	}
 
 	return errs

@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -316,6 +319,117 @@ func (s *HTTPCheckerSuite) TestResponseRegex_NoMatch() {
 	result := c.Check(context.TODO())
 	s.False(result.Success)
 	s.Contains(result.Detail, "does not match regex")
+}
+
+// forwardProxy starts a minimal HTTP forward proxy that forwards requests to
+// a fixed target host:port and records whether it was used.
+func (s *HTTPCheckerSuite) forwardProxy(target string, hit *atomic.Bool) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit.Store(true)
+		r2 := r.Clone(r.Context())
+		r2.RequestURI = ""
+		r2.URL.Scheme = "http"
+		r2.URL.Host = target
+		resp, err := http.DefaultTransport.RoundTrip(r2)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	s.T().Cleanup(ts.Close)
+	return ts
+}
+
+// splitAddr splits host and port from an httptest server and returns them.
+func (s *HTTPCheckerSuite) splitAddr(ts *httptest.Server) (host string, port uint16) {
+	s.T().Helper()
+	h, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	s.Require().NoError(err)
+	p, err := strconv.Atoi(portStr)
+	s.Require().NoError(err)
+	return h, uint16(p)
+}
+
+// TestProxyRequest verifies a check is routed through the configured forward
+// proxy rather than directly to the origin.
+func (s *HTTPCheckerSuite) TestProxyRequest() {
+	origin := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "proxied ok")
+	})
+	var hit atomic.Bool
+	proxy := s.forwardProxy(origin.Listener.Addr().String(), &hit)
+
+	host, port := s.splitAddr(origin)
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proxy: proxy.URL,
+		Host:  host, Port: port,
+		URL: "/healthz", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+	})
+	s.Require().NoError(err)
+
+	result := c.Check(context.TODO())
+	s.True(result.Success)
+	s.True(hit.Load(), "request should have been routed through the proxy")
+}
+
+// TestProxyAuth verifies credentials embedded in the proxy URL are sent as
+// Proxy-Authorization.
+func (s *HTTPCheckerSuite) TestProxyAuth() {
+	origin := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "ok")
+	})
+	var seenAuth atomic.Value
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth.Store(r.Header.Get("Proxy-Authorization"))
+		r2 := r.Clone(r.Context())
+		r2.RequestURI = ""
+		r2.URL.Scheme = "http"
+		r2.URL.Host = origin.Listener.Addr().String()
+		resp, err := http.DefaultTransport.RoundTrip(r2)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	s.T().Cleanup(proxy.Close)
+
+	proxyURL := strings.Replace(proxy.URL, "http://", "http://user:pass@", 1)
+	host, port := s.splitAddr(origin)
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proxy: proxyURL,
+		Host:  host, Port: port,
+		URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+	})
+	s.Require().NoError(err)
+
+	result := c.Check(context.TODO())
+	s.True(result.Success)
+	auth, _ := seenAuth.Load().(string)
+	s.Contains(auth, "Basic ")
+}
+
+// TestProxyDown verifies a check fails when the proxy is unreachable.
+func (s *HTTPCheckerSuite) TestProxyDown() {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	s.Require().NoError(err)
+	deadAddr := ln.Addr().String()
+	s.Require().NoError(ln.Close())
+
+	c, err := NewHTTPChecker(&config.HTTPCheckConfig{
+		Proxy: "http://" + deadAddr,
+		Host:  "example.test", Port: 80,
+		URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+	})
+	s.Require().NoError(err)
+
+	result := c.Check(context.TODO())
+	s.False(result.Success)
 }
 
 func (s *HTTPCheckerSuite) TestContextTimeout() {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -36,6 +37,18 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 		DialContext:     (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSClientConfig: &tls.Config{},
 	}
+
+	// Forward proxy: route the request through the proxy, which resolves and
+	// connects to the origin. Credentials in the proxy URL (user:pass@) are
+	// sent as Proxy-Authorization automatically.
+	if cfg.Proxy != "" {
+		proxyURL, err := url.Parse(cfg.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+
 	if cfg.TLSInsecure {
 		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
@@ -64,7 +77,7 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 	// This avoids "cannot validate certificate for <IP> because it doesn't contain
 	// any IP SANs" when the cert is issued for a hostname.
 	var sniHost string
-	if cfg.TLSServerName != "" {
+	if cfg.TLSServerName != "" && cfg.Proxy == "" {
 		sniHost = cfg.TLSServerName
 		connectIP := cfg.Host
 		transport.TLSClientConfig.ServerName = sniHost

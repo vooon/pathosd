@@ -309,6 +309,12 @@ type HTTPCheckConfig struct {
 	// differs from the URL hostname — covers bare-IP VIPs and k8s Service names alike.
 	// Set explicitly to override.
 	TLSServerName string `yaml:"tls_server_name" json:"tls_server_name" toml:"tls_server_name"`
+	// Forward HTTP(S) proxy URL (e.g. http://proxy.example:3128) to route the check through.
+	// The check target is a regular URL the proxy resolves and fetches; the origin host is
+	// derived from the url field, not from the VIP. user:pass@ in the proxy URL is supported
+	// and sent as Proxy-Authorization. Mutually incompatible with tls_server_name-driven
+	// connect-to-VIP semantics. Requires url to be a full URL.
+	Proxy string `yaml:"proxy" json:"proxy" toml:"proxy"`
 	// Additional HTTP headers to send with the check request.
 	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
 }

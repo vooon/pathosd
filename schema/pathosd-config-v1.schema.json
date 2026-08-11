@@ -378,6 +378,10 @@
           "type": "string",
           "description": "TLS SNI server name sent during the handshake and used for certificate verification.\nAuto-defaults to the URL hostname for HTTPS checks when the connect host (host field)\ndiffers from the URL hostname — covers bare-IP VIPs and k8s Service names alike.\nSet explicitly to override."
         },
+        "proxy": {
+          "type": "string",
+          "description": "Forward HTTP(S) proxy URL (e.g. http://proxy.example:3128) to route the check through.\nThe check target is a regular URL the proxy resolves and fetches; the origin host is\nderived from the url field, not from the VIP. user:pass@ in the proxy URL is supported\nand sent as Proxy-Authorization. Mutually incompatible with tls_server_name-driven\nconnect-to-VIP semantics. Requires url to be a full URL."
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"
@@ -401,6 +405,7 @@
         "tls_insecure",
         "tls_ca_cert",
         "tls_server_name",
+        "proxy",
         "headers"
       ],
       "description": "HTTPCheckConfig defines an HTTP health check."

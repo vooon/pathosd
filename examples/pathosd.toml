@@ -129,6 +129,30 @@ prefix = "10.10.1.3/32"
   [vips.policy]
   fail_action = "withdraw"
 
+# HTTP check through a forward HTTP(S) proxy (e.g. Squid). The proxy is what
+# resolves and connects to the origin, so url must be a full URL and the
+# origin target is the URL hostname (host defaults to it, not the VIP IP).
+# user:pass@ in proxy is supported and sent as Proxy-Authorization. Use this
+# to verify a proxy is working as part of a VIP's health.
+[[vips]]
+name = "proxy-check"
+prefix = "10.10.1.4/32"
+
+  [vips.check]
+  type = "http"
+  interval = "5s"
+  timeout = "2s"
+  rise = 2
+  fall = 3
+
+    [vips.check.http]
+    url = "https://httpbin.org/get"
+    proxy = "http://proxy.example:3128"
+    response_codes = [200]
+
+  [vips.policy]
+  fail_action = "withdraw"
+
 # DNS health check — resolver defaults to VIP IP
 [[vips]]
 name = "dns-resolver"

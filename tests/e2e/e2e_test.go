@@ -35,6 +35,7 @@ const (
 	httpsVIPPrefix = "10.100.5.1/32"
 	grpcVIPPrefix  = "10.100.6.1/32"
 	ipv6VIPPrefix  = "2001:db8:100::1/128"
+	squidVIPPrefix = "10.100.7.1/32"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -82,6 +83,7 @@ func TestE2E(t *testing.T) {
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/syslog", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/etcd", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/ipv6-target", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/squid", "--replicas=1")
 	})
 
 	t.Run("pods_ready", func(t *testing.T) {
@@ -93,6 +95,7 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -124,7 +127,8 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "udp-vip") == "announced" &&
 				vipStateFromStatus(status, "https-vip") == "announced" &&
 				vipStateFromStatus(status, "grpc-vip") == "announced" &&
-				vipStateFromStatus(status, "ipv6-vip") == "announced"
+				vipStateFromStatus(status, "ipv6-vip") == "announced" &&
+				vipStateFromStatus(status, "squid-vip") == "announced"
 		})
 	})
 
@@ -140,7 +144,8 @@ func TestE2E(t *testing.T) {
 			_, udpOK := routes[udpVIPPrefix]
 			_, httpsOK := routes[httpsVIPPrefix]
 			_, grpcOK := routes[grpcVIPPrefix]
-			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK
+			_, squidOK := routes[squidVIPPrefix]
+			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK && squidOK
 		})
 
 		routes := frrRoutes(t)
@@ -150,6 +155,7 @@ func TestE2E(t *testing.T) {
 		udpPath := firstRoutePath(t, routes, udpVIPPrefix)
 		httpsPath := firstRoutePath(t, routes, httpsVIPPrefix)
 		grpcPath := firstRoutePath(t, routes, grpcVIPPrefix)
+		squidPath := firstRoutePath(t, routes, squidVIPPrefix)
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
@@ -157,6 +163,7 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, extractASPath(udpPath), "65100")
 		assert.Contains(t, extractASPath(httpsPath), "65100")
 		assert.Contains(t, extractASPath(grpcPath), "65100")
+		assert.Contains(t, extractASPath(squidPath), "65100")
 	})
 
 	// bird3 is the IPv6 peer; it should receive the IPv6 VIP route while FRR
@@ -204,6 +211,63 @@ func TestE2E(t *testing.T) {
 		})
 	})
 
+	// squid-vip validates the Squid forward proxy: the HTTP check targets
+	// httpbin.org through the proxy and expects HTTP 201. Scaling squid to 0
+	// makes the check fail (proxy unreachable) and withdraws the VIP.
+	t.Run("squid_vip_announced", func(t *testing.T) {
+		waitForCondition(t, "squid-vip announced via working proxy", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "announced"
+		})
+	})
+
+	t.Run("squid_down_squid_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "squid", 0)
+
+		waitForCondition(t, "squid-vip withdrawn when squid is down", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR withdraws squid-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, squidExists := routes[squidVIPPrefix]
+			return !squidExists
+		})
+	})
+
+	t.Run("squid_up_squid_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "squid", 1)
+		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
+
+		waitForCondition(t, "squid-vip recovers to announced", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR receives squid-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, squidOK := routes[squidVIPPrefix]
+			return squidOK
+		})
+	})
+
 	// bfd_config_accepted verifies that enabling BFD on a BGP neighbor does
 	// not prevent the session from establishing or VIPs from being announced.
 	// GoBGP 4.5 stores BFD config in the API but has no BFD state machine,
@@ -232,6 +296,7 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, "announced", vipStateFromStatus(status, "https-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "grpc-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "ipv6-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "squid-vip"))
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {

@@ -153,6 +153,23 @@ data:
             port: 8080
         policy:
           fail_action: withdraw
+      # HTTP check routed through the Squid forward proxy. Validates the proxy
+      # is working: the check reaches httpbin.org via the proxy and expects
+      # HTTP 201. Scaling squid to 0 makes the check fail and withdraws the VIP.
+      - name: squid-vip
+        prefix: 10.100.7.1/32
+        check:
+          type: http
+          interval: 5s
+          timeout: 2s
+          rise: 2
+          fall: 2
+          http:
+            url: http://httpbin.org/status/201
+            proxy: http://squid.pathosd-e2e.svc.cluster.local:3128
+            response_codes: [201]
+        policy:
+          fail_action: withdraw
 ---
 apiVersion: apps/v1
 kind: Deployment

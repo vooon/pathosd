@@ -17,6 +17,7 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `namespace.yaml`
 - `frr.yaml`
 - `bird.yaml`
+- `squid.yaml`
 - `nginx.yaml`
 - `nginx-tls.yaml`
 - `coredns.yaml`
@@ -37,6 +38,7 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 - `syslog`: UDP health target for `udp-vip`
 - `etcd`: gRPC health target for `grpc-vip`
 - `ipv6-target`: TCP health target for `ipv6-vip`
+- `squid`: forward HTTP proxy used by `squid-vip`
 
 All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 VIP routes are carried over IPv4-transport MP-BGP (no host IPv6 required).
 
@@ -86,6 +88,12 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 - `alpine` + `socat` running a persistent TCP listener (`TCP-LISTEN:8080,fork`)
 - Headless service; scaling to 0 makes the check fail and withdraws `ipv6-vip`. The IPv6-specific behavior (IPv6 unicast announcement) is validated by bird receiving `ipv6-vip`
 
+### squid (`squid.yaml`)
+
+- Image: `squid:e2e` (built from `Dockerfile.squid`, Debian trixie + `squid`)
+- Runs a permissive forward proxy on TCP/3128 with a minimal `squid.conf`
+- Exposed via a ClusterIP service; `squid-vip` routes its HTTP check through it
+
 ### pathosd (`pathosd.yaml`)
 
 - Image: `pathosd:e2e`
@@ -109,6 +117,7 @@ Configured VIPs:
 - `https-vip` (`10.100.5.1/32`): HTTPS check with custom CA cert, `fail_action: withdraw`
 - `grpc-vip` (`10.100.6.1/32`): gRPC standard health protocol against etcd:2379, `fail_action: withdraw`
 - `ipv6-vip` (`2001:db8:100::1/128`): TCP check against `ipv6-target:8080`, `fail_action: withdraw`; announced via IPv6 unicast (over IPv4 transport) to the `bird` peer
+- `squid-vip` (`10.100.7.1/32`): HTTP check routed through the Squid proxy to `http://httpbin.org/status/201` expecting `201`, `fail_action: withdraw`
 
 ## Test Implementation
 
@@ -153,7 +162,11 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
     - assert `ipv6-vip` withdrawn and bird route removed
 18. ipv6-target-up recovery:
     - assert `ipv6-vip` announced and bird route present
-19. Assert `/metrics` and ad-hoc trigger API behavior.
+19. squid-vip case:
+    - assert `squid-vip` announced through the working proxy
+    - scale squid to 0; assert `squid-vip` withdrawn and FRR route removed
+    - scale squid to 1; assert recovery to `announced`
+20. Assert `/metrics` and ad-hoc trigger API behavior.
 
 ### FRR vs BIRD assertions
 
@@ -164,13 +177,13 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 
 Workflow: `.github/workflows/e2e.yaml`
 
-1. Build `pathosd:e2e` (`Dockerfile.e2e`) and `bird3:e2e` (`Dockerfile.bird3`); import both into k3d.
+1. Build `pathosd:e2e` (`Dockerfile.e2e`), `bird3:e2e` (`Dockerfile.bird3`), and `squid:e2e` (`Dockerfile.squid`); import all into k3d.
 2. Create an IPv4 k3d/k3s cluster.
 3. Apply namespace first and wait for it to become `Active`.
 4. Apply all manifests.
-5. Wait for `frr`, `bird`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
+5. Wait for `frr`, `bird`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
 6. Run `go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...`.
-7. On failure, dump pod status, pathosd logs, FRR logs + summary, and bird logs + `birdc show protocols all`.
+7. On failure, dump pod status, pathosd logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
 
 ## Local Commands
 

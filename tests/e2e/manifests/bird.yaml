@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bird-config
+  namespace: pathosd-e2e
+data:
+  run.sh: |
+    #!/bin/sh
+    set -eu
+    mkdir -p /run/bird
+    peer_host="pathosd-bgp.pathosd-e2e.svc.cluster.local"
+    peer6=""
+    i=0
+    while [ -z "${peer6}" ] && [ "$i" -lt 120 ]; do
+      peer6="$(getent ahostsv6 "${peer_host}" 2>/dev/null | awk '{print $1; exit}')"
+      i=$((i+1))
+      [ -z "${peer6}" ] && sleep 1
+    done
+    if [ -z "${peer6}" ]; then
+      echo "timed out resolving pathosd IPv6 peer ${peer_host}" >&2
+      exit 1
+    fi
+    sed "s/__PATHOSD_PEER6__/${peer6}/g" /config/bird.conf.tmpl > /run/bird/bird.conf
+    exec /usr/sbin/bird -f -c /run/bird/bird.conf
+  bird.conf.tmpl: |
+    log stderr all;
+    router id 10.200.0.2;
+
+    protocol device {
+    }
+
+    # Active IPv6 peer toward pathosd (pathosd is passive for this session).
+    # Only IPv6 unicast is carried here — FRR covers the IPv4 side.
+    protocol bgp pathosd {
+        local as 65300;
+        neighbor __PATHOSD_PEER6__ as 65100;
+        ipv6 { import all; export all; };
+    }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bird
+  namespace: pathosd-e2e
+  labels:
+    app: bird
+spec:
+  containers:
+    - name: bird
+      image: bird3:e2e
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "/config/run.sh"]
+      ports:
+        - name: bgp
+          containerPort: 179
+          protocol: TCP
+      readinessProbe:
+        exec:
+          command: ["/usr/sbin/birdc", "-s", "/run/bird/bird.ctl", "show", "status"]
+        initialDelaySeconds: 2
+        periodSeconds: 2
+        timeoutSeconds: 1
+        failureThreshold: 30
+      volumeMounts:
+        - name: bird-config
+          mountPath: /config
+  volumes:
+    - name: bird-config
+      configMap:
+        name: bird-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bird
+  namespace: pathosd-e2e
+  labels:
+    app: bird
+spec:
+  clusterIP: None
+  selector:
+    app: bird
+  ports:
+    - name: bgp
+      protocol: TCP
+      port: 179
+      targetPort: 179

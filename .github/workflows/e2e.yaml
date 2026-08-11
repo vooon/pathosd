@@ -24,11 +24,18 @@ jobs:
         with:
           version: v1.31
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Dual-stack (IPv4 + IPv6) so IPv6 VIPs can be exercised.
+          k3s-args: >-
+            --cluster-cidr=10.42.0.0/16,2001:db8:42::/56@server:*
+            --service-cidr=10.43.0.0/16,2001:db8:43::/112@server:*
+            --flannel-ipv6-masq@server:*
 
-      - name: Build and load pathosd image
+      - name: Build and load images
         run: |
           docker build -f Dockerfile.e2e -t pathosd:e2e .
+          docker build -f Dockerfile.bird3 -t bird3:e2e .
           k3d image import pathosd:e2e
+          k3d image import bird3:e2e
 
       - name: Deploy e2e stack
         run: |
@@ -36,6 +43,7 @@ jobs:
           kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/pathosd-e2e --timeout=60s
           kubectl apply -f tests/e2e/manifests/
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=frr --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=bird --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=nginx --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=coredns --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=pathosd --timeout=120s
@@ -54,3 +62,7 @@ jobs:
           kubectl -n pathosd-e2e logs frr --tail=50 || true
           echo "=== FRR BGP summary ==="
           kubectl -n pathosd-e2e exec frr -- vtysh -c "show bgp summary" || true
+          echo "=== bird logs ==="
+          kubectl -n pathosd-e2e logs bird --tail=50 || true
+          echo "=== bird protocols ==="
+          kubectl -n pathosd-e2e exec bird -- birdc -s /run/bird/bird.ctl show protocols all || true

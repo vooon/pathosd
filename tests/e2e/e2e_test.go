@@ -34,6 +34,7 @@ const (
 	udpVIPPrefix   = "10.100.4.1/32"
 	httpsVIPPrefix = "10.100.5.1/32"
 	grpcVIPPrefix  = "10.100.6.1/32"
+	ipv6VIPPrefix  = "2001:db8:100::1/128"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -80,15 +81,18 @@ func TestE2E(t *testing.T) {
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/coredns", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/syslog", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/etcd", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/ipv6-target", "--replicas=1")
 	})
 
 	t.Run("pods_ready", func(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=frr", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=bird", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -119,7 +123,8 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced" &&
 				vipStateFromStatus(status, "https-vip") == "announced" &&
-				vipStateFromStatus(status, "grpc-vip") == "announced"
+				vipStateFromStatus(status, "grpc-vip") == "announced" &&
+				vipStateFromStatus(status, "ipv6-vip") == "announced"
 		})
 	})
 
@@ -154,6 +159,51 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, extractASPath(grpcPath), "65100")
 	})
 
+	// bird3 is the IPv6 peer; it should receive the IPv6 VIP route while FRR
+	// covers the IPv4 side.
+	t.Run("bird_receives_ipv6_route", func(t *testing.T) {
+		waitForCondition(t, "bird receives IPv6 VIP route", 45*time.Second, 1*time.Second, func() bool {
+			return birdRouteIPv6Present(ipv6VIPPrefix)
+		})
+
+		asPath := birdASPath6(ipv6VIPPrefix)
+		assert.Contains(t, asPath, "65100", "bird AS path for %s = %q", ipv6VIPPrefix, asPath)
+	})
+
+	t.Run("ipv6_target_down_ipv6_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "ipv6-target", 0)
+
+		waitForCondition(t, "ipv6-vip withdrawn when ipv6-target is down", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "ipv6-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced"
+		})
+
+		waitForCondition(t, "bird withdraws ipv6-vip route", 30*time.Second, 1*time.Second, func() bool {
+			return !birdRouteIPv6Present(ipv6VIPPrefix)
+		})
+	})
+
+	t.Run("ipv6_target_up_ipv6_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "ipv6-target", 1)
+		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
+
+		waitForCondition(t, "ipv6-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "ipv6-vip") == "announced"
+		})
+
+		waitForCondition(t, "bird receives ipv6-vip route", 30*time.Second, 1*time.Second, func() bool {
+			return birdRouteIPv6Present(ipv6VIPPrefix)
+		})
+	})
+
 	// bfd_config_accepted verifies that enabling BFD on a BGP neighbor does
 	// not prevent the session from establishing or VIPs from being announced.
 	// GoBGP 4.5 stores BFD config in the API but has no BFD state machine,
@@ -181,6 +231,7 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, "announced", vipStateFromStatus(status, "udp-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "https-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "grpc-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "ipv6-vip"))
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
@@ -704,6 +755,51 @@ func frrShowBGPPrefix(t *testing.T, prefix string) string {
 		"exec", "-n", e2eNamespace, "frr", "--",
 		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
 	)
+}
+
+// birdc runs a bird3 control command on the bird pod and returns its output.
+func birdc(t *testing.T, args ...string) string {
+	t.Helper()
+	full := append([]string{
+		"exec", "-n", e2eNamespace, "bird", "--",
+		"/usr/sbin/birdc", "-s", "/run/bird/bird.ctl",
+	}, args...)
+	return kubectl(t, full...)
+}
+
+// birdcNoFail runs a bird3 control command without failing the test.
+func birdcNoFail(args ...string) (string, error) {
+	full := append([]string{
+		"exec", "-n", e2eNamespace, "bird", "--",
+		"/usr/sbin/birdc", "-s", "/run/bird/bird.ctl",
+	}, args...)
+	return kubectlNoFail(full...)
+}
+
+// birdRouteIPv6Present reports whether bird3 has an IPv6 route for prefix in
+// its routing table (master6).
+func birdRouteIPv6Present(prefix string) bool {
+	out, err := birdcNoFail("show", "route", prefix)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(out, prefix)
+}
+
+// birdASPath6 returns the AS path string for an IPv6 route received by bird3,
+// extracted from "show route all <prefix>".
+func birdASPath6(prefix string) string {
+	out, err := birdcNoFail("show", "route", "all", prefix)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "BGP.as_path:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "BGP.as_path:"))
+		}
+	}
+	return ""
 }
 
 func pathosdExec(t *testing.T, script string) string {

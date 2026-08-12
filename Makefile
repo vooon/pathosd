@@ -63,6 +63,7 @@ e2e-deploy:
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=syslog --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=etcd --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=ipv6-target --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=httpbin --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=squid --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
@@ -87,5 +88,6 @@ e2e-redeploy: e2e-build
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=syslog --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=etcd --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=ipv6-target --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=httpbin --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=squid --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s

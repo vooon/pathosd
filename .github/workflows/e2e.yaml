@@ -44,6 +44,7 @@ jobs:
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=bird --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=nginx --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=coredns --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=httpbin --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=squid --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=pathosd --timeout=120s
 

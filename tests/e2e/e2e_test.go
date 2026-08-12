@@ -95,6 +95,7 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=httpbin", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})

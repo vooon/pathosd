@@ -155,8 +155,8 @@ data:
         policy:
           fail_action: withdraw
       # HTTP check routed through the Squid forward proxy. Validates the proxy
-      # is working: the check reaches httpbin.org via the proxy and expects
-      # HTTP 201. Scaling squid to 0 makes the check fail and withdraws the VIP.
+      # is working: the check reaches the local httpbin (HTTP 201) via the
+      # proxy. Scaling squid to 0 makes the check fail and withdraws the VIP.
       - name: squid-vip
         prefix: 10.100.7.1/32
         check:
@@ -166,7 +166,7 @@ data:
           rise: 2
           fall: 2
           http:
-            url: http://httpbin.org/status/201
+            url: http://httpbin.pathosd-e2e.svc.cluster.local/status/201
             proxy: http://squid.pathosd-e2e.svc.cluster.local:3128
             response_codes: [201]
         policy:

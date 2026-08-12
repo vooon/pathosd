@@ -29,10 +29,17 @@ data:
     protocol device {
     }
 
+    # Populate the IPv6 table with directly-connected routes (e.g. ::1/128 on
+    # loopback) so BIRD's BGP next-hop reachability check passes for the IPv6
+    # VIP route, whose next hop is ::1.
+    protocol direct {
+        ipv6;
+    }
+
     # Active peer toward pathosd (pathosd is passive for this session). The TCP
     # transport is IPv4, but the session negotiates IPv6 unicast (MP-BGP) so it
     # carries the IPv6 VIP routes. FRR covers the IPv4 side. The IPv6 route's
-    # next hop is ::1 (loopback, directly connected), so BIRD accepts it.
+    # next hop is ::1 (loopback, directly connected).
     protocol bgp pathosd {
         local as 65300;
         neighbor __PATHOSD_PEER__ as 65100;

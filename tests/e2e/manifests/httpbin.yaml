@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin
+  namespace: pathosd-e2e
+  labels:
+    app: httpbin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+  template:
+    metadata:
+      labels:
+        app: httpbin
+    spec:
+      containers:
+        - name: httpbin
+          # Local httpbin so the Squid proxy test has no external dependency.
+          image: mccutchen/go-httpbin:2.25.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: pathosd-e2e
+  labels:
+    app: httpbin
+spec:
+  selector:
+    app: httpbin
+  ports:
+    - name: http
+      # Expose on 80 so the proxy check's default http port works.
+      port: 80
+      targetPort: 8080
+      protocol: TCP

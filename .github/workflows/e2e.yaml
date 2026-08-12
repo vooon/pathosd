@@ -19,16 +19,21 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - uses: nolar/setup-k3d-k3s@v1
         with:
-          version: v1.31
+          version: v1.36
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and load pathosd image
+      - name: Build and load images
         run: |
           docker build -f Dockerfile.e2e -t pathosd:e2e .
+          docker build -f Dockerfile.bird3 -t bird3:e2e .
+          docker build -f Dockerfile.squid -t squid:e2e .
           k3d image import pathosd:e2e
+          k3d image import bird3:e2e
+          k3d image import squid:e2e
 
       - name: Deploy e2e stack
         run: |
@@ -36,8 +41,11 @@ jobs:
           kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/pathosd-e2e --timeout=60s
           kubectl apply -f tests/e2e/manifests/
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=frr --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=bird --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=nginx --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=coredns --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=httpbin --timeout=60s
+          kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=squid --timeout=60s
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
       - name: Run e2e tests
@@ -54,3 +62,9 @@ jobs:
           kubectl -n pathosd-e2e logs frr --tail=50 || true
           echo "=== FRR BGP summary ==="
           kubectl -n pathosd-e2e exec frr -- vtysh -c "show bgp summary" || true
+          echo "=== bird logs ==="
+          kubectl -n pathosd-e2e logs bird --tail=50 || true
+          echo "=== bird protocols ==="
+          kubectl -n pathosd-e2e exec bird -- birdc -s /run/bird/bird.ctl show protocols all || true
+          echo "=== squid logs ==="
+          kubectl -n pathosd-e2e logs deploy/squid --tail=50 || true

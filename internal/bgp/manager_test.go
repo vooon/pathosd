@@ -146,14 +146,15 @@ func TestParseCommunities(t *testing.T) {
 }
 
 func TestManagerBuildPath(t *testing.T) {
-	newManager := func(localAddress string) *Manager {
+	newManager := func(localAddress, localAddressIPv6 string) *Manager {
 		return &Manager{
 			localASN: 65000,
 			cfg: &config.Config{
 				Router: config.RouterConfig{
-					ASN:          65000,
-					RouterID:     "10.0.0.1",
-					LocalAddress: localAddress,
+					ASN:              65000,
+					RouterID:         "10.0.0.1",
+					LocalAddress:     localAddress,
+					LocalAddressIPv6: localAddressIPv6,
 				},
 			},
 		}
@@ -166,20 +167,21 @@ func TestManagerBuildPath(t *testing.T) {
 		prepend         int
 		communities     []string
 		wantErr         bool
+		wantFamily      bgppacket.Family
 		wantNextHop     string
 		wantASPath      []uint32
 		wantCommunities []uint32
 	}{
 		{
 			name:        "valid /32 returns nlri and required attrs",
-			manager:     newManager(""),
+			manager:     newManager("", ""),
 			prefix:      "10.1.0.1/32",
 			wantNextHop: "10.0.0.1",
 			wantASPath:  []uint32{65000},
 		},
 		{
 			name:        "prepend adds repeated ASNs",
-			manager:     newManager(""),
+			manager:     newManager("", ""),
 			prefix:      "10.1.0.2/32",
 			prepend:     4,
 			wantNextHop: "10.0.0.1",
@@ -187,7 +189,7 @@ func TestManagerBuildPath(t *testing.T) {
 		},
 		{
 			name:            "communities add communities attribute",
-			manager:         newManager(""),
+			manager:         newManager("", ""),
 			prefix:          "10.1.0.3/32",
 			communities:     []string{"65535:666"},
 			wantNextHop:     "10.0.0.1",
@@ -196,15 +198,42 @@ func TestManagerBuildPath(t *testing.T) {
 		},
 		{
 			name:    "invalid prefix returns error",
-			manager: newManager(""),
+			manager: newManager("", ""),
 			prefix:  "not-a-prefix",
 			wantErr: true,
 		},
 		{
 			name:        "next hop uses local address when set",
-			manager:     newManager("10.0.0.2"),
+			manager:     newManager("10.0.0.2", ""),
 			prefix:      "10.1.0.4/32",
 			wantNextHop: "10.0.0.2",
+			wantASPath:  []uint32{65000},
+		},
+		{
+			name:        "IPv6 /128 uses IPv6 unicast family and local_address_ipv6 next hop",
+			manager:     newManager("10.0.0.2", "2001:db8::1"),
+			prefix:      "2001:db8::1234/128",
+			wantFamily:  bgppacket.RF_IPv6_UC,
+			wantNextHop: "2001:db8::1",
+			wantASPath:  []uint32{65000},
+		},
+		{
+			name:    "IPv6 /128 without local_address_ipv6 returns error",
+			manager: newManager("2001:db8::1", ""),
+			prefix:  "2001:db8::1234/128",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 /128 with IPv4 local_address_ipv6 returns error",
+			manager: newManager("10.0.0.2", "10.0.0.9"),
+			prefix:  "2001:db8::1234/128",
+			wantErr: true,
+		},
+		{
+			name:        "IPv4 /32 with no local_address falls back to IPv4 router-id",
+			manager:     newManager("", "2001:db8::1"),
+			prefix:      "10.1.0.5/32",
+			wantNextHop: "10.0.0.1",
 			wantASPath:  []uint32{65000},
 		},
 	}
@@ -221,6 +250,12 @@ func TestManagerBuildPath(t *testing.T) {
 			require.NotNil(t, path)
 			require.NotNil(t, path.Nlri)
 			require.NotEmpty(t, path.Attrs)
+
+			wantFamily := tc.wantFamily
+			if wantFamily == 0 {
+				wantFamily = bgppacket.RF_IPv4_UC
+			}
+			assert.Equal(t, wantFamily, path.Family)
 
 			decoded := decodePathAttrs(t, path.Attrs)
 			require.NotNil(t, decoded.origin)
@@ -314,6 +349,23 @@ func TestManagerBuildGlobalConfig(t *testing.T) {
 
 		global := m.buildGlobalConfig()
 		assert.Equal(t, []string{"0.0.0.0"}, global.ListenAddresses)
+	})
+
+	t.Run("IPv6 VIPs do not auto-append an IPv6 listen address", func(t *testing.T) {
+		m := &Manager{
+			cfg: &config.Config{
+				Router: config.RouterConfig{
+					ASN:              65000,
+					RouterID:         "10.0.0.1",
+					LocalAddress:     "127.0.0.2",
+					LocalAddressIPv6: "2001:db8::1",
+				},
+				VIPs: []config.VIPConfig{{Name: "v6", Prefix: "2001:db8::2/128"}},
+			},
+		}
+
+		global := m.buildGlobalConfig()
+		assert.Equal(t, []string{"127.0.0.2"}, global.ListenAddresses)
 	})
 }
 
@@ -419,6 +471,33 @@ func TestManagerBuildPeer(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Nil(t, peer.EbgpMultihop)
+	})
+
+	afSafiFamilies := func(peer *api.Peer) []api.Family_Afi {
+		var out []api.Family_Afi
+		for _, af := range peer.AfiSafis {
+			if af.Config != nil && af.Config.Family != nil {
+				out = append(out, af.Config.Family.Afi)
+			}
+		}
+		return out
+	}
+
+	t.Run("IPv6 unicast AfiSafi enabled only when an IPv6 VIP is configured", func(t *testing.T) {
+		m := newManager("2001:db8::1")
+		m.cfg.VIPs = []config.VIPConfig{
+			{Name: "v6", Prefix: "2001:db8::2/128"},
+		}
+		peer, err := m.buildPeer(config.NeighborConfig{Name: "bird", Address: "2001:db8::3", PeerASN: 65300, Port: 179})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []api.Family_Afi{api.Family_AFI_IP, api.Family_AFI_IP6}, afSafiFamilies(peer))
+	})
+
+	t.Run("only IPv4 unicast AfiSafi when no IPv6 VIP is configured", func(t *testing.T) {
+		m := newManager("127.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{Name: "frr", Address: "127.0.0.2", PeerASN: 65300, Port: 179})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []api.Family_Afi{api.Family_AFI_IP}, afSafiFamilies(peer))
 	})
 }
 

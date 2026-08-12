@@ -1,0 +1,12 @@
+# Squid forward proxy for e2e proxy-support tests.
+FROM debian:trixie-20260223-slim
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		squid \
+		ca-certificates \
+		procps \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Config is mounted at /etc/squid/squid.conf by the pod. Run in the foreground.
+ENTRYPOINT ["/usr/sbin/squid", "-N", "-f", "/etc/squid/squid.conf"]

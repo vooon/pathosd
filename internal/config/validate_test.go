@@ -151,6 +151,32 @@ func TestValidate_Router(t *testing.T) {
 	})
 }
 
+func TestValidate_IPv6VIP(t *testing.T) {
+	t.Run("IPv6 VIP requires IPv6 local_address_ipv6", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Prefix = "2001:db8::1/128"
+		cfg.VIPs[0].Check.HTTP.Host = "2001:db8::1"
+		cfg.Router.LocalAddressIPv6 = "" // not set
+		assertErrorContains(t, Validate(cfg), "router.local_address_ipv6")
+	})
+
+	t.Run("IPv6 VIP rejected with IPv4 local_address_ipv6", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Prefix = "2001:db8::1/128"
+		cfg.VIPs[0].Check.HTTP.Host = "2001:db8::1"
+		cfg.Router.LocalAddressIPv6 = "192.168.1.1"
+		assertErrorContains(t, Validate(cfg), "router.local_address_ipv6")
+	})
+
+	t.Run("IPv6 VIP with IPv6 local_address_ipv6 is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Prefix = "2001:db8::1/128"
+		cfg.VIPs[0].Check.HTTP.Host = "2001:db8::1"
+		cfg.Router.LocalAddressIPv6 = "2001:db8::2"
+		assert.Empty(t, Validate(cfg))
+	})
+}
+
 func TestValidate_API(t *testing.T) {
 	t.Run("missing listen", func(t *testing.T) {
 		cfg := validConfig()

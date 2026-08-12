@@ -38,6 +38,19 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	if cfg.Router.LocalAddressIPv6 != "" {
+		if ip := net.ParseIP(cfg.Router.LocalAddressIPv6); ip == nil || ip.To4() != nil {
+			add("router.local_address_ipv6", fmt.Sprintf("must be a valid IPv6 address, got %q", cfg.Router.LocalAddressIPv6))
+		}
+	}
+
+	// IPv6 VIPs are originated with the local_address_ipv6 as the IPv6 next-hop
+	// (the router-id is always IPv4), so local_address_ipv6 is required when any
+	// VIP is IPv6.
+	if hasIPv6VIP(cfg) && cfg.Router.LocalAddressIPv6 == "" {
+		add("router.local_address_ipv6", "required as an IPv6 address when any VIP prefix is IPv6 (used as the IPv6 next-hop)")
+	}
+
 	// API
 	if cfg.API.Listen == "" {
 		add("api.listen", "required")
@@ -379,6 +392,16 @@ func isSingleHost(prefix string) bool {
 	}
 	ones, bits := ipNet.Mask.Size()
 	return (bits == 32 && ones == 32) || (bits == 128 && ones == 128)
+}
+
+// hasIPv6VIP reports whether any configured VIP prefix is IPv6.
+func hasIPv6VIP(cfg *Config) bool {
+	for _, v := range cfg.VIPs {
+		if ip, _, err := net.ParseCIDR(v.Prefix); err == nil && ip.To4() == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePolicy(prefix string, p *PolicyConfig) []error {

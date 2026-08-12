@@ -1,0 +1,13 @@
+# BIRD 3 BGP daemon for e2e IPv6 peering tests.
+# Runs in the foreground; config is templated at startup by the pod wrapper.
+FROM debian:trixie-20260223-slim
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		bird3 \
+		ca-certificates \
+		busybox \
+	&& rm -rf /var/lib/apt/lists/*
+
+# bird3 provides bird, birdc, birdcl under /usr/sbin.
+ENTRYPOINT ["/usr/sbin/bird"]

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: squid-config
+  namespace: pathosd-e2e
+data:
+  squid.conf: |
+    http_port 3128
+    visible_hostname pathosd-e2e
+    acl all src all
+    http_access allow all
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squid
+  namespace: pathosd-e2e
+  labels:
+    app: squid
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: squid
+  template:
+    metadata:
+      labels:
+        app: squid
+    spec:
+      containers:
+        - name: squid
+          image: squid:e2e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: proxy
+              containerPort: 3128
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 3128
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 30
+          volumeMounts:
+            - name: squid-config
+              mountPath: /etc/squid/squid.conf
+              subPath: squid.conf
+              readOnly: true
+      volumes:
+        - name: squid-config
+          configMap:
+            name: squid-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: squid
+  namespace: pathosd-e2e
+  labels:
+    app: squid
+spec:
+  selector:
+    app: squid
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: 3128
+      protocol: TCP

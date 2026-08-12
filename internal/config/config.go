@@ -155,7 +155,11 @@ type RouterConfig struct {
 	// BGP Router ID in dotted-quad notation (e.g. 10.0.0.1).
 	RouterID string `yaml:"router_id" json:"router_id" toml:"router_id" jsonschema:"required,format=ipv4"`
 	// Local address to bind BGP sessions. If empty, the OS selects the source address.
-	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address" jsonschema:"format=ipv4"`
+	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address"`
+	// IPv6 local address used as the next-hop (and listen address) for IPv6
+	// VIP routes. Required when any VIP prefix is IPv6. This is separate from
+	// local_address so an IPv4 peer source and IPv6 route next-hop can coexist.
+	LocalAddressIPv6 string `yaml:"local_address_ipv6" json:"local_address_ipv6" toml:"local_address_ipv6"`
 }
 
 // APIConfig configures the HTTP API server.
@@ -185,7 +189,7 @@ type BGPConfig struct {
 	// BGP keepalive interval. Default: 30s.
 	KeepaliveTime *Duration `yaml:"keepalive_time" json:"keepalive_time" toml:"keepalive_time"`
 	// Local address to listen for inbound BGP TCP sessions. If empty, falls back to router.local_address, then 0.0.0.0.
-	ListenAddress string `yaml:"listen_address" json:"listen_address" toml:"listen_address" jsonschema:"format=ipv4"`
+	ListenAddress string `yaml:"listen_address" json:"listen_address" toml:"listen_address"`
 	// TCP port to listen on for inbound BGP TCP sessions. Default: 179. Set to -1 to disable BGP listening entirely.
 	ListenPort int `yaml:"listen_port" json:"listen_port" toml:"listen_port" jsonschema:"minimum=-1,maximum=65535"`
 	// Embedded GoBGP gRPC API configuration (used by gobgp CLI for debugging).
@@ -222,8 +226,8 @@ type BFDConfig struct {
 type NeighborConfig struct {
 	// Human-readable name for this peer (used in logs and metrics).
 	Name string `yaml:"name" json:"name" toml:"name" jsonschema:"required"`
-	// IPv4 address of the BGP peer.
-	Address string `yaml:"address" json:"address" toml:"address" jsonschema:"required,format=ipv4"`
+	// IPv4 or IPv6 address of the BGP peer.
+	Address string `yaml:"address" json:"address" toml:"address" jsonschema:"required"`
 	// Peer's Autonomous System Number.
 	PeerASN uint32 `yaml:"peer_asn" json:"peer_asn" toml:"peer_asn" jsonschema:"required,minimum=1,maximum=4294967295"`
 	// If true, all VIPs require this peer to be established. Default: false.
@@ -231,7 +235,7 @@ type NeighborConfig struct {
 	// TCP port for the BGP session. Default: 179.
 	Port uint16 `yaml:"port" json:"port" toml:"port"`
 	// Local source address for active peering with this neighbor. If empty, falls back to router.local_address.
-	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address" jsonschema:"format=ipv4"`
+	LocalAddress string `yaml:"local_address" json:"local_address" toml:"local_address"`
 	// Wait for the peer to initiate the connection instead of connecting actively.
 	Passive bool `yaml:"passive" json:"passive" toml:"passive"`
 	// Enable eBGP multihop — required when the peer is not directly connected (e.g. loopback-based sessions).

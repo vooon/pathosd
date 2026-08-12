@@ -34,6 +34,8 @@ const (
 	udpVIPPrefix   = "10.100.4.1/32"
 	httpsVIPPrefix = "10.100.5.1/32"
 	grpcVIPPrefix  = "10.100.6.1/32"
+	ipv6VIPPrefix  = "2001:db8:100::1/128"
+	squidVIPPrefix = "10.100.7.1/32"
 	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -80,15 +82,21 @@ func TestE2E(t *testing.T) {
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/coredns", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/syslog", "--replicas=1")
 		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/etcd", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/ipv6-target", "--replicas=1")
+		_, _ = kubectlNoFail("-n", e2eNamespace, "scale", "deployment/squid", "--replicas=1")
 	})
 
 	t.Run("pods_ready", func(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=frr", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=bird", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=syslog", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=etcd", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=httpbin", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -119,7 +127,9 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced" &&
 				vipStateFromStatus(status, "https-vip") == "announced" &&
-				vipStateFromStatus(status, "grpc-vip") == "announced"
+				vipStateFromStatus(status, "grpc-vip") == "announced" &&
+				vipStateFromStatus(status, "ipv6-vip") == "announced" &&
+				vipStateFromStatus(status, "squid-vip") == "announced"
 		})
 	})
 
@@ -135,7 +145,8 @@ func TestE2E(t *testing.T) {
 			_, udpOK := routes[udpVIPPrefix]
 			_, httpsOK := routes[httpsVIPPrefix]
 			_, grpcOK := routes[grpcVIPPrefix]
-			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK
+			_, squidOK := routes[squidVIPPrefix]
+			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK && squidOK
 		})
 
 		routes := frrRoutes(t)
@@ -145,6 +156,7 @@ func TestE2E(t *testing.T) {
 		udpPath := firstRoutePath(t, routes, udpVIPPrefix)
 		httpsPath := firstRoutePath(t, routes, httpsVIPPrefix)
 		grpcPath := firstRoutePath(t, routes, grpcVIPPrefix)
+		squidPath := firstRoutePath(t, routes, squidVIPPrefix)
 
 		assert.Contains(t, extractASPath(webPath), "65100")
 		assert.Contains(t, extractASPath(dnsPath), "65100")
@@ -152,6 +164,107 @@ func TestE2E(t *testing.T) {
 		assert.Contains(t, extractASPath(udpPath), "65100")
 		assert.Contains(t, extractASPath(httpsPath), "65100")
 		assert.Contains(t, extractASPath(grpcPath), "65100")
+		assert.Contains(t, extractASPath(squidPath), "65100")
+	})
+
+	// bird3 is the IPv6-capable MP-BGP peer. GitHub Actions runner pods have no
+	// IPv6, so BIRD cannot hold the IPv6 route in its table; instead validate the
+	// IPv6 origin path end-to-end: the IPv6 VIP is announced by pathosd and the
+	// bird peer session carrying IPv6 unicast is established.
+	t.Run("bird_ipv6_peer_established", func(t *testing.T) {
+		waitForCondition(t, "bird IPv6 peer established and ipv6-vip announced", 45*time.Second, 1*time.Second, func() bool {
+			if !birdPeerEstablished() {
+				return false
+			}
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "ipv6-vip") == "announced"
+		})
+	})
+
+	t.Run("ipv6_target_down_ipv6_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "ipv6-target", 0)
+
+		waitForCondition(t, "ipv6-vip withdrawn when ipv6-target is down", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "ipv6-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced"
+		})
+	})
+
+	t.Run("ipv6_target_up_ipv6_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "ipv6-target", 1)
+		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
+
+		waitForCondition(t, "ipv6-vip recovers to announced", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "ipv6-vip") == "announced"
+		})
+	})
+
+	// squid-vip validates the Squid forward proxy: the HTTP check targets
+	// httpbin.org through the proxy and expects HTTP 201. Scaling squid to 0
+	// makes the check fail (proxy unreachable) and withdraws the VIP.
+	t.Run("squid_vip_announced", func(t *testing.T) {
+		waitForCondition(t, "squid-vip announced via working proxy", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "announced"
+		})
+	})
+
+	t.Run("squid_down_squid_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "squid", 0)
+
+		waitForCondition(t, "squid-vip withdrawn when squid is down", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "web-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR withdraws squid-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, squidExists := routes[squidVIPPrefix]
+			return !squidExists
+		})
+	})
+
+	t.Run("squid_up_squid_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "squid", 1)
+		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
+
+		waitForCondition(t, "squid-vip recovers to announced", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "squid-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR receives squid-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, squidOK := routes[squidVIPPrefix]
+			return squidOK
+		})
 	})
 
 	// bfd_config_accepted verifies that enabling BFD on a BGP neighbor does
@@ -181,6 +294,8 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, "announced", vipStateFromStatus(status, "udp-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "https-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "grpc-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "ipv6-vip"))
+		assert.Equal(t, "announced", vipStateFromStatus(status, "squid-vip"))
 	})
 
 	t.Run("web_vip_lock_file_pessimized", func(t *testing.T) {
@@ -527,17 +642,21 @@ func kubectlNoFail(args ...string) (string, error) {
 }
 
 // waitForPodReady waits until at least one pod matching the label selector is Ready.
+// It polls so a scale-up that has not created its pod yet ("no matching resources")
+// does not race past the wait.
 func waitForPodReady(t *testing.T, namespace, labelSelector string, timeout time.Duration) {
 	t.Helper()
-	kubectl(
-		t,
-		"-n", namespace,
-		"wait",
-		"--for=condition=Ready",
-		"pod",
-		"-l", labelSelector,
-		"--timeout="+timeout.String(),
-	)
+	waitForCondition(t, fmt.Sprintf("pod ready for %s/%s", namespace, labelSelector), timeout, 500*time.Millisecond, func() bool {
+		_, err := kubectlNoFail(
+			"-n", namespace,
+			"wait",
+			"--for=condition=Ready",
+			"pod",
+			"-l", labelSelector,
+			"--timeout=2s",
+		)
+		return err == nil
+	})
 }
 
 // waitForCondition polls fn every interval until it returns true or timeout expires.
@@ -704,6 +823,35 @@ func frrShowBGPPrefix(t *testing.T, prefix string) string {
 		"exec", "-n", e2eNamespace, "frr", "--",
 		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
 	)
+}
+
+// birdc runs a bird3 control command on the bird pod and returns its output.
+func birdc(t *testing.T, args ...string) string {
+	t.Helper()
+	full := append([]string{
+		"exec", "-n", e2eNamespace, "bird", "--",
+		"/usr/sbin/birdc", "-s", "/run/bird/bird.ctl",
+	}, args...)
+	return kubectl(t, full...)
+}
+
+// birdcNoFail runs a bird3 control command without failing the test.
+func birdcNoFail(args ...string) (string, error) {
+	full := append([]string{
+		"exec", "-n", e2eNamespace, "bird", "--",
+		"/usr/sbin/birdc", "-s", "/run/bird/bird.ctl",
+	}, args...)
+	return kubectlNoFail(full...)
+}
+
+// birdPeerEstablished reports whether bird3's BGP session to pathosd is
+// Established (the IPv6-capable MP-BGP peer carrying IPv6 unicast).
+func birdPeerEstablished() bool {
+	out, err := birdcNoFail("show", "protocols", "all", "pathosd")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(out, "Established")
 }
 
 func pathosdExec(t *testing.T, script string) string {

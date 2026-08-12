@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,12 +52,13 @@ func (m *Manager) syncRouteStateMetric(ctx context.Context, prefix string) {
 	metric := pathosMetrics.RouteState
 
 	current := make(map[string]routeStateLabels)
+	family := routeFamily(prefix)
 	for _, peer := range m.cfg.BGP.Neighbors {
 		peerASN := strconv.FormatUint(uint64(peer.PeerASN), 10)
 		req := apiutil.ListPathRequest{
 			TableType: api.TableType_TABLE_TYPE_ADJ_OUT,
 			Name:      peer.Address,
-			Family:    bgppacket.RF_IPv4_UC,
+			Family:    family,
 			Prefixes: []*apiutil.LookupPrefix{{
 				Prefix:       prefix,
 				LookupOption: apiutil.LOOKUP_EXACT,
@@ -98,6 +100,14 @@ func (m *Manager) syncRouteStateMetric(ctx context.Context, prefix string) {
 	}
 
 	m.routeStateByPrefix[prefix] = current
+}
+
+// routeFamily returns the BGP address family for a prefix string.
+func routeFamily(prefix string) bgppacket.Family {
+	if pfx, err := netip.ParsePrefix(prefix); err == nil && pfx.Addr().Is6() {
+		return bgppacket.RF_IPv6_UC
+	}
+	return bgppacket.RF_IPv4_UC
 }
 
 func routeStateLabelsFromPath(nlri bgppacket.NLRI, path *apiutil.Path, peerIP, peerASN string) routeStateLabels {

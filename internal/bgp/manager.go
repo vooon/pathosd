@@ -163,12 +163,7 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 			LocalAddress: localAddress,
 			RemotePort:   uint32(n.Port),
 		},
-		AfiSafis: []*api.AfiSafi{{
-			Config: &api.AfiSafiConfig{
-				Family:  &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
-				Enabled: true,
-			},
-		}},
+		AfiSafis: m.buildPeerAfiSafis(),
 	}
 
 	if n.Passive {
@@ -430,13 +425,14 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 		return nil, fmt.Errorf("building nlri: %w", err)
 	}
 
-	nextHop := m.cfg.Router.LocalAddress
-	if nextHop == "" {
-		nextHop = m.cfg.Router.RouterID
+	family := bgppacket.RF_IPv4_UC
+	if pfx.Addr().Is6() {
+		family = bgppacket.RF_IPv6_UC
 	}
-	nextHopAddr, err := netip.ParseAddr(nextHop)
+
+	nextHopAddr, err := m.nextHopFor(family)
 	if err != nil {
-		return nil, fmt.Errorf("invalid next-hop %q: %w", nextHop, err)
+		return nil, err
 	}
 
 	nh, err := bgppacket.NewPathAttributeNextHop(nextHopAddr)
@@ -468,15 +464,76 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 	}
 
 	return &apiutil.Path{
-		Family: bgppacket.RF_IPv4_UC,
+		Family: family,
 		Nlri:   nlri,
 		Attrs:  attrs,
 	}, nil
 }
 
+// nextHopFor returns the next-hop address appropriate for the given route
+// family. For IPv4 the router local_address is preferred when it is IPv4,
+// falling back to the router-id (always IPv4). For IPv6 the router
+// local_address_ipv6 must be an IPv6 address (enforced at config validation time).
+func (m *Manager) nextHopFor(family bgppacket.Family) (netip.Addr, error) {
+	if family == bgppacket.RF_IPv6_UC {
+		if m.cfg.Router.LocalAddressIPv6 == "" {
+			return netip.Addr{}, fmt.Errorf("IPv6 route requires router.local_address_ipv6 to be set")
+		}
+		addr, err := netip.ParseAddr(m.cfg.Router.LocalAddressIPv6)
+		if err != nil {
+			return netip.Addr{}, fmt.Errorf("invalid next-hop %q: %w", m.cfg.Router.LocalAddressIPv6, err)
+		}
+		if !addr.Is6() {
+			return netip.Addr{}, fmt.Errorf("IPv6 route requires an IPv6 router.local_address_ipv6, got %q", m.cfg.Router.LocalAddressIPv6)
+		}
+		return addr, nil
+	}
+
+	nextHop := m.cfg.Router.LocalAddress
+	if addr, err := netip.ParseAddr(nextHop); err != nil || !addr.Is4() {
+		nextHop = m.cfg.Router.RouterID
+	}
+	addr, err := netip.ParseAddr(nextHop)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("invalid next-hop %q: %w", nextHop, err)
+	}
+	return addr, nil
+}
+
 func (m *Manager) hasIBGPPeer() bool {
 	for _, n := range m.cfg.BGP.Neighbors {
 		if n.PeerASN == m.localASN {
+			return true
+		}
+	}
+	return false
+}
+
+// buildPeerAfiSafis returns the address family list enabled on a peer. IPv4
+// unicast is always enabled; IPv6 unicast is enabled only when at least one
+// configured VIP is an IPv6 prefix.
+func (m *Manager) buildPeerAfiSafis() []*api.AfiSafi {
+	afs := []*api.AfiSafi{{
+		Config: &api.AfiSafiConfig{
+			Family:  &api.Family{Afi: api.Family_AFI_IP, Safi: api.Family_SAFI_UNICAST},
+			Enabled: true,
+		},
+	}}
+	if m.hasIPv6VIP() {
+		afs = append(afs, &api.AfiSafi{
+			Config: &api.AfiSafiConfig{
+				Family:  &api.Family{Afi: api.Family_AFI_IP6, Safi: api.Family_SAFI_UNICAST},
+				Enabled: true,
+			},
+		})
+	}
+	return afs
+}
+
+// hasIPv6VIP reports whether any configured VIP prefix is IPv6.
+func (m *Manager) hasIPv6VIP() bool {
+	for _, v := range m.cfg.VIPs {
+		if pfx, err := netip.ParsePrefix(v.Prefix); err == nil && pfx.Addr().Is6() {
 			return true
 		}
 	}

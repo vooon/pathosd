@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ipv6-target
+  namespace: pathosd-e2e
+  labels:
+    app: ipv6-target
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ipv6-target
+  template:
+    metadata:
+      labels:
+        app: ipv6-target
+    spec:
+      containers:
+        - name: ipv6-target
+          image: alpine:3.21
+          imagePullPolicy: IfNotPresent
+          # Persistent TCP listener on both address families (TCP-LISTEN binds
+          # v4 and v6). Health target for the IPv6 VIP; the IPv6-specific
+          # behavior itself is validated by bird3 receiving the IPv6 route.
+          command: ["/bin/sh", "-ec"]
+          args:
+            - "apk add -q --no-cache socat && exec socat TCP-LISTEN:8080,fork,reuseaddr PIPE"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: tcp
+---
+# Headless service: DNS returns the pod's IPv6 address (AAAA).
+# Scaling to 0 makes the check fail (no records) -> IPv6 VIP withdrawn.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ipv6-target
+  namespace: pathosd-e2e
+  labels:
+    app: ipv6-target
+spec:
+  clusterIP: None
+  selector:
+    app: ipv6-target
+  ports:
+    - name: tcp
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

@@ -7,6 +7,7 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 - Single static binary: health checker + BGP speaker in one process.
 - Fail-closed invariant: process death = BGP sessions drop = all routes withdrawn.
 - VIPs start withdrawn; must prove healthy (pass `rise` consecutive checks) before announcement.
+- IPv4 and IPv6 VIPs: IPv6 `/128` prefixes are originated over IPv4-transport MP-BGP using `router.local_address_ipv6` as the IPv6 next-hop (router-id stays IPv4).
 - DI and lifecycle via `go.uber.org/fx`; context everywhere.
 - Runtime is composed with component-owned Fx lifecycle hooks (BGP, watcher, schedulers, HTTP).
 - Startup/shutdown uses explicit `app.Start`/`app.Wait`/`app.Stop`; startup failures must propagate to CLI.

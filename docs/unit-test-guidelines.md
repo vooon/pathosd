@@ -2,7 +2,7 @@
 
 ## Project Context
 - Module: `github.com/vooon/pathosd`, Go 1.26
-- Config model is finalized; checkers need tests before further feature work
+- These are the conventions for unit-testing the health-check backends and the scheduler.
 - Use Go 1.26 features freely (e.g. `new(123)`)
 
 ## Key Packages and Interfaces
@@ -66,7 +66,32 @@ type Checker interface {
   - MaxLossRatio logic (mock stats if possible)
 - Consider integration test or skip if mocking pro-bing is impractical
 
-#### 4. Scheduler (`internal/checks/scheduler.go`)
+#### 4. TCP Checker (`internal/checks/tcp.go`)
+- Constructor: `NewTCPChecker(cfg *config.TCPCheckConfig)`
+- Test with a local `net.Listen` TCP server
+- Test cases:
+  - Success: connection established
+  - Connection refused → check fails
+  - Context cancellation/timeout → TimedOut
+
+#### 5. UDP Checker (`internal/checks/udp.go`)
+- Constructor: `NewUDPChecker(cfg *config.UDPCheckConfig)`
+- Sends a probe datagram; a connected-socket read returning `ECONNREFUSED` (ICMP port unreachable) means nothing is listening → fail; a read timeout means the datagram was accepted → pass
+- Test cases:
+  - Listener on a local UDP socket → pass
+  - Closed port (no listener) → fail
+  - Context cancellation → TimedOut
+
+#### 6. gRPC Checker (`internal/checks/grpc.go`)
+- Constructor: `NewGRPCChecker(cfg *config.GRPCCheckConfig)`
+- Test with a local gRPC server implementing the standard health protocol (`grpc.health.v1.Health`) and/or a custom unary method
+- Test cases:
+  - Standard health protocol: `SERVING` → pass, `NOT_SERVING` → fail
+  - Custom unary `method` with `ok_codes` matching / not matching
+  - TLS transport (`tls: true`) via a local TLS gRPC server
+  - Context cancellation → TimedOut
+
+#### 7. Scheduler (`internal/checks/scheduler.go`)
 - Constructor: `NewScheduler(cfg SchedulerConfig)`
 - Pure logic, very testable with a fake Checker
 - Test cases:
@@ -80,7 +105,7 @@ type Checker interface {
 
 #### 5. Factory (`internal/checks/factory.go`)
 - `NewChecker(cfg *config.CheckConfig) (Checker, error)`
-- Test: returns correct type for "http"/"dns"/"ping", error for unknown type, error when sub-config is nil
+- Test: returns correct type for "http"/"dns"/"ping"/"udp"/"tcp"/"grpc", error for unknown type, error when sub-config is nil
 
 ## Testing Conventions
 - Test files go next to source: `internal/checks/http_test.go`, etc.
@@ -90,6 +115,8 @@ type Checker interface {
 - Fake checker for scheduler tests: implement `Checker` interface with configurable results
 - For HTTP: use `net/http/httptest`
 - For DNS: use `github.com/miekg/dns` server on localhost
+- For TCP/UDP: use `net.Listen`/`net.ListenUDP` on `127.0.0.1:0`
+- For gRPC: use a local `grpc.Server` (e.g. with `grpc_health_v1` or a test service)
 - Test file naming: `{source}_test.go`
 
 ## Config Structs (key fields for test setup)
@@ -110,6 +137,23 @@ Names []string; Resolver string; Port uint16; QueryType string
 ```go
 DstIP, SrcIP string; Count int; Timeout, Interval *Duration
 MaxLossRatio float64
+```
+
+### TCPCheckConfig
+```go
+Host string; Port uint16
+```
+
+### UDPCheckConfig
+```go
+Host string; Port uint16; Payload []byte
+```
+
+### GRPCCheckConfig
+```go
+Host string; Port uint16
+TLS, TLSInsecure bool; TLSCACert, TLSServerName string
+Method, Service string; OKCodes []string; Metadata map[string]string
 ```
 
 ## Build & Test Commands

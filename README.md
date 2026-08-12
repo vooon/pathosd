@@ -2,7 +2,20 @@
 
 Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
 
-## What It Is
+## Why pathosd?
+
+High-availability services need a single, stable IP that fails over with the service. Classic approaches fall short:
+
+- **Keepalived (VRRP)**: ties failover to a shared virtual MAC and requires a master/backup election. It couples the health decision to link-layer state and doesn't interoperate with routing fabrics.
+- **Static VIPs**: a load balancer or router advertises a VIP unconditionally — traffic is black-holed whenever the service behind it is down.
+- **Plain BGP speakers**: GoBGP/BIRD can advertise a prefix, but *you* still have to build the health-checking, hysteresis, and withdraw logic and wire it into the route originator.
+
+`pathosd` combines the health check and the BGP originator **in one process**, so the health decision and the route state are always consistent. VIPs are only announced once the backing service proves healthy, and withdrawn the instant it does not — with no external dependencies and no IPC to drift out of sync.
+
+- **Fail-closed by design**: if `pathosd` dies, BGP sessions drop and every route is withdrawn. A dead health checker never leaves stale routes in the network.
+- **Works with any BGP fabric**: it is a route *originator*, so it peers with FRR, BIRD, or any standard BGP router — no VRRP, no shared MAC, no proprietary protocol.
+- **IPv4 and IPv6**: announce IPv4 `/32` and IPv6 `/128` VIPs (or any prefix) over standard BGP/MP-BGP.
+- **One moving part**: pure static binary, no sidecars, no agent to coordinate with.
 
 `pathosd` is a **service route originator**, not a router. It embeds [GoBGP](https://github.com/osrg/gobgp) to advertise /32 (or other) prefixes for Virtual IPs when the backing service is healthy, and withdraws them when it is not.
 
@@ -20,6 +33,7 @@ The health checker and BGP speaker live in the same process. There is no separat
 - **Rise/Fall hysteresis**: Configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities)
 - **VIPs start withdrawn**: No route is announced until the service proves healthy
+- **IPv4 + IPv6 VIPs**: announce IPv4 `/32` and IPv6 `/128` prefixes (or any subnet) over BGP/MP-BGP; IPv6 routes are carried over IPv4-transport MP-BGP with a dedicated IPv6 next-hop
 - **Prometheus metrics**: VIP state, check results, durations, peer status — plus GoBGP's built-in peer/route metrics
 - **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
 - **Optional GoBGP gRPC API**: enable for `gobgp` CLI inspection/debugging
@@ -48,6 +62,7 @@ Config values can reference environment variables using VictoriaMetrics-style pl
 router:
   router_id: "%{POD_IP}"
   local_address: "%{PATHOSD_LOCAL_IP}"
+  local_address_ipv6: "%{PATHOSD_LOCAL_IPV6}"
 bgp:
   listen_address: "%{PATHOSD_LISTEN_IP}"
   listen_port: 1179
@@ -71,6 +86,7 @@ bgp:
 - Each VIP name and prefix must be unique
 - At least one neighbor and one VIP are required
 - `lower_priority` block is only valid when `fail_action` is `lower_priority`
+- Any IPv6 VIP prefix requires `router.local_address_ipv6` (used as the IPv6 next-hop); the `router_id` stays IPv4
 
 ### OpenWrt/FRR Localhost Peering
 

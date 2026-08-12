@@ -48,16 +48,15 @@ data:
           required: true
           port: 179
           passive: true
-        # Third peer: standalone GoBGP daemon (ASN 65400) that dials pathosd and
-        # carries both IPv4 and IPv6 unicast. Unlike BIRD, GoBGP stores routes
-        # with unreachable next-hops, so the e2e verifies the IPv6 (and IPv4)
-        # routes are actually received by querying gobgp's gRPC API.
+        # Third peer: standalone GoBGP daemon (ASN 65400). pathosd dials gobgp (active)
+        # and it carries both IPv4 and IPv6 unicast. Unlike BIRD, GoBGP stores
+        # routes with unreachable next-hops, so the e2e verifies the IPv6 (and
+        # IPv4) routes are actually received by querying gobgp's gRPC API.
         - name: gobgp
           address: "%{GOBGP_PEER_IP}"
           peer_asn: 65400
           required: true
           port: 179
-          passive: true
     vips:
       - name: web-vip
         prefix: 10.100.1.1/32

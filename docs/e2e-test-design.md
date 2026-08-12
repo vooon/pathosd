@@ -97,7 +97,7 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 
 - Image: `gobgp:e2e` (built from `Dockerfile.gobgp`, the standalone `gobgpd` from the GoBGP v4 module)
 - Runs as a `Pod` named `gobgp`; a wrapper resolves pathosd's pod IPv4 address from the headless `pathosd-bgp` service and templates it into `gobgpd.toml`, then runs `gobgpd`
-- **Active peer** that dials pathosd (pathosd is `passive`) and carries both IPv4 and IPv6 unicast
+- **Passive peer**: pathosd dials gobgp (like FRR) and it carries both IPv4 and IPv6 unicast
 - Unlike BIRD, GoBGP stores routes with unreachable next-hops, so it holds the IPv6 VIP route in its RIB
 - Exposes TCP/179 and the GoBGP gRPC API (50051); the e2e queries the RIB via gRPC to assert the IPv4 and IPv6 VIP routes were actually received
 

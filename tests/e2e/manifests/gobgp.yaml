@@ -26,14 +26,16 @@ data:
     as = 65400
     router-id = "10.200.0.3"
 
-    # Active peer toward pathosd (pathosd is passive for this session). Carries
-    # both IPv4 and IPv6 unicast so the e2e can verify received routes via the
-    # GoBGP gRPC API (unlike BIRD, GoBGP accepts routes with unreachable
-    # next-hops, so the IPv6 route is stored in the RIB).
+    # Passive peer: pathosd dials gobgp (like FRR). Carries both IPv4 and IPv6
+    # unicast so the e2e can verify received routes via the GoBGP gRPC API
+    # (unlike BIRD, GoBGP accepts routes with unreachable next-hops, so the IPv6
+    # route is stored in the RIB).
     [[neighbors]]
     [neighbors.config]
       neighbor-address = "__PATHOSD_PEER__"
       peer-as = 65100
+    [neighbors.transport.config]
+      passive-mode = true
     [[neighbors.afi-safis]]
     [neighbors.afi-safis.config]
       afi-safi-name = "ipv4-unicast"

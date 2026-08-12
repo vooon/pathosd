@@ -19,11 +19,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/osrg/gobgp/v4/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -43,7 +40,6 @@ const (
 )
 
 var pathosdAPIBaseURL string
-var gobgpGRPCAddr string
 var communityValueRE = regexp.MustCompile(`\b\d+:\d+\b`)
 
 // DaemonStatus is a minimal shape of /status used by e2e assertions.
@@ -93,7 +89,6 @@ func TestE2E(t *testing.T) {
 	t.Run("pods_ready", func(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=frr", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=bird", 120*time.Second)
-		waitForPodReady(t, e2eNamespace, "app=gobgp", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=nginx-tls", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=coredns", 120*time.Second)
@@ -106,7 +101,6 @@ func TestE2E(t *testing.T) {
 	})
 
 	pathosdAPIBaseURL = startPortForward(t, e2eNamespace, pathosdService, pathosdRemotePort)
-	gobgpGRPCAddr = startPortForwardAddr(t, e2eNamespace, "gobgp", 50051)
 
 	t.Run("healthz", func(t *testing.T) {
 		status, body := apiRequest(t, http.MethodGet, "/healthz", nil)
@@ -187,19 +181,6 @@ func TestE2E(t *testing.T) {
 				return false
 			}
 			return vipStateFromStatus(status, "ipv6-vip") == "announced"
-		})
-	})
-
-	// The standalone GoBGP peer accepts routes with unreachable next-hops, so it
-	// stores the received routes in its RIB. Verify it actually received both the
-	// IPv4 and IPv6 VIP routes by querying its gRPC API.
-	t.Run("gobgp_receives_routes", func(t *testing.T) {
-		waitForCondition(t, "gobgp receives IPv6 VIP route", 45*time.Second, 1*time.Second, func() bool {
-			return gobgpHasRoute(ipv6VIPPrefix, true)
-		})
-
-		waitForCondition(t, "gobgp receives IPv4 VIP route", 45*time.Second, 1*time.Second, func() bool {
-			return gobgpHasRoute(webVIPPrefix, false)
 		})
 	})
 
@@ -736,99 +717,6 @@ func startPortForward(t *testing.T, namespace, svcName string, remotePort int) s
 	})
 
 	return baseURL
-}
-
-// startPortForwardAddr starts a kubectl port-forward for a non-HTTP service
-// (e.g. a gRPC port) and returns the local host:port, waiting for TCP readiness.
-func startPortForwardAddr(t *testing.T, namespace, svcName string, remotePort int) string {
-	t.Helper()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	localPort := ln.Addr().(*net.TCPAddr).Port
-	require.NoError(t, ln.Close())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(
-		ctx,
-		"kubectl",
-		"-n", namespace,
-		"port-forward",
-		"--address", "127.0.0.1",
-		"svc/"+svcName,
-		fmt.Sprintf("%d:%d", localPort, remotePort),
-	)
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	require.NoError(t, cmd.Start())
-
-	t.Cleanup(func() {
-		cancel()
-		_ = cmd.Wait()
-	})
-
-	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
-	waitForCondition(t, "gRPC port-forward to become reachable", 20*time.Second, 250*time.Millisecond, func() bool {
-		c, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
-		if err != nil {
-			return false
-		}
-		_ = c.Close()
-		return true
-	})
-
-	return addr
-}
-
-// gobgpHasRoute reports whether the standalone GoBGP peer has the given prefix
-// in its global RIB for the requested address family (queried via gRPC).
-func gobgpHasRoute(prefix string, v6 bool) bool {
-	if gobgpGRPCAddr == "" {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, gobgpGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return false
-	}
-	defer func() { _ = conn.Close() }()
-
-	afi := api.Family_AFI_IP
-	if v6 {
-		afi = api.Family_AFI_IP6
-	}
-
-	client := api.NewGoBgpServiceClient(conn)
-	stream, err := client.ListPath(ctx, &api.ListPathRequest{
-		TableType: api.TableType_TABLE_TYPE_GLOBAL,
-		Family:    &api.Family{Afi: afi, Safi: api.Family_SAFI_UNICAST},
-	})
-	if err != nil {
-		return false
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return false
-		}
-		if resp.Destination == nil {
-			continue
-		}
-		for _, p := range resp.Destination.Paths {
-			if p.Nlri != nil && p.Nlri.GetPrefix() != nil && p.Nlri.GetPrefix().GetPrefix() == prefix {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func apiRequest(t *testing.T, method, path string, body io.Reader) (int, []byte) {

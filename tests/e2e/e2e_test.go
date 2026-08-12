@@ -642,17 +642,21 @@ func kubectlNoFail(args ...string) (string, error) {
 }
 
 // waitForPodReady waits until at least one pod matching the label selector is Ready.
+// It polls so a scale-up that has not created its pod yet ("no matching resources")
+// does not race past the wait.
 func waitForPodReady(t *testing.T, namespace, labelSelector string, timeout time.Duration) {
 	t.Helper()
-	kubectl(
-		t,
-		"-n", namespace,
-		"wait",
-		"--for=condition=Ready",
-		"pod",
-		"-l", labelSelector,
-		"--timeout="+timeout.String(),
-	)
+	waitForCondition(t, fmt.Sprintf("pod ready for %s/%s", namespace, labelSelector), timeout, 500*time.Millisecond, func() bool {
+		_, err := kubectlNoFail(
+			"-n", namespace,
+			"wait",
+			"--for=condition=Ready",
+			"pod",
+			"-l", labelSelector,
+			"--timeout=2s",
+		)
+		return err == nil
+	})
 }
 
 // waitForCondition polls fn every interval until it returns true or timeout expires.

@@ -38,6 +38,7 @@ E2E_CLUSTER   ?= pathosd-e2e
 E2E_IMAGE     := pathosd:e2e
 BIRD_IMAGE    := bird3:e2e
 SQUID_IMAGE   := squid:e2e
+GOBGP_IMAGE   := gobgp:e2e
 E2E_NAMESPACE := pathosd-e2e
 
 e2e-cluster:
@@ -47,9 +48,11 @@ e2e-build:
 	docker build -f Dockerfile.e2e -t $(E2E_IMAGE) .
 	docker build -f Dockerfile.bird3 -t $(BIRD_IMAGE) .
 	docker build -f Dockerfile.squid -t $(SQUID_IMAGE) .
+	docker build -f Dockerfile.gobgp -t $(GOBGP_IMAGE) .
 	k3d image import $(E2E_IMAGE) -c $(E2E_CLUSTER)
 	k3d image import $(BIRD_IMAGE) -c $(E2E_CLUSTER)
 	k3d image import $(SQUID_IMAGE) -c $(E2E_CLUSTER)
+	k3d image import $(GOBGP_IMAGE) -c $(E2E_CLUSTER)
 
 e2e-deploy:
 	kubectl apply -f tests/e2e/manifests/namespace.yaml
@@ -57,6 +60,7 @@ e2e-deploy:
 	kubectl apply -f tests/e2e/manifests/
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=bird --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=gobgp --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx-tls --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s
@@ -82,6 +86,7 @@ e2e-redeploy: e2e-build
 	kubectl apply -f tests/e2e/manifests/
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=frr --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=bird --timeout=60s
+	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=gobgp --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=nginx-tls --timeout=60s
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=coredns --timeout=60s

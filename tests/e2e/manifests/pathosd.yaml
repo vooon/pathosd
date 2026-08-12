@@ -48,6 +48,16 @@ data:
           required: true
           port: 179
           passive: true
+        # Third peer: standalone GoBGP daemon (ASN 65400) that dials pathosd and
+        # carries both IPv4 and IPv6 unicast. Unlike BIRD, GoBGP stores routes
+        # with unreachable next-hops, so the e2e verifies the IPv6 (and IPv4)
+        # routes are actually received by querying gobgp's gRPC API.
+        - name: gobgp
+          address: "%{GOBGP_PEER_IP}"
+          peer_asn: 65400
+          required: true
+          port: 179
+          passive: true
     vips:
       - name: web-vip
         prefix: 10.100.1.1/32
@@ -240,6 +250,31 @@ spec:
           volumeMounts:
             - name: runtime-data
               mountPath: /work
+        - name: wait-gobgp
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              set -eu
+              peer_host="gobgp.pathosd-e2e.svc.cluster.local"
+              i=0
+              while :; do
+                peer_ip="$(nslookup "${peer_host}" 2>/dev/null | awk '/^Address([[:space:]]+[0-9]+)?:/ {print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1 || true)"
+                if [ -n "${peer_ip}" ] && nc -z -w 1 "${peer_ip}" 179; then
+                  printf '%s\n' "${peer_ip}" > /work/gobgp-peer-ip
+                  exit 0
+                fi
+                i=$((i+1))
+                if [ "$i" -ge 120 ]; then
+                  echo "timed out waiting for gobgp bgp endpoint" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+          volumeMounts:
+            - name: runtime-data
+              mountPath: /work
       containers:
         - name: pathosd
           image: pathosd:e2e
@@ -251,12 +286,17 @@ spec:
               export POD_IPV4="${POD_IP}"
               export FRR_PEER_IP="$(cat /work/frr-peer-ip 2>/dev/null || true)"
               export BIRD_PEER_IP="$(cat /work/bird-peer-ip 2>/dev/null || true)"
+              export GOBGP_PEER_IP="$(cat /work/gobgp-peer-ip 2>/dev/null || true)"
               if [ -z "${FRR_PEER_IP}" ]; then
                 echo "FRR peer IP is not available" >&2
                 exit 1
               fi
               if [ -z "${BIRD_PEER_IP}" ]; then
                 echo "Bird peer IP is not available" >&2
+                exit 1
+              fi
+              if [ -z "${GOBGP_PEER_IP}" ]; then
+                echo "GoBGP3 peer IP is not available" >&2
                 exit 1
               fi
 

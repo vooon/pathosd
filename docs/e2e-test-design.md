@@ -17,6 +17,7 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `namespace.yaml`
 - `frr.yaml`
 - `bird.yaml`
+- `gobgp.yaml`
 - `squid.yaml`
 - `httpbin.yaml`
 - `nginx.yaml`
@@ -34,6 +35,7 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 - `pathosd` (ASN 65100): health checker + BGP speaker under test
 - `frr` (ASN 65200): **IPv4** BGP peer used for IPv4 route assertions
 - `bird` (bird3, ASN 65300): **IPv6** BGP peer used for IPv6 route assertions
+- `gobgp` (GoBGP, ASN 65400): third BGP peer carrying both IPv4 and IPv6; queried via gRPC to confirm received routes
 - `nginx`: HTTP/HTTPS health target for `web-vip`, `tcp-vip`, `https-vip`
 - `coredns`: DNS health target for `dns-vip`
 - `syslog`: UDP health target for `udp-vip`
@@ -90,6 +92,14 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 
 - `alpine` + `socat` running a persistent TCP listener (`TCP-LISTEN:8080,fork`)
 - Headless service; scaling to 0 makes the check fail and withdraws `ipv6-vip`. The IPv6-specific behavior (IPv6 unicast announcement) is validated by bird receiving `ipv6-vip`
+
+### gobgp (`gobgp.yaml`)
+
+- Image: `gobgp:e2e` (built from `Dockerfile.gobgp`, the standalone `gobgpd` from the GoBGP v4 module)
+- Runs as a `Pod` named `gobgp`; a wrapper resolves pathosd's pod IPv4 address from the headless `pathosd-bgp` service and templates it into `gobgpd.toml`, then runs `gobgpd`
+- **Active peer** that dials pathosd (pathosd is `passive`) and carries both IPv4 and IPv6 unicast
+- Unlike BIRD, GoBGP stores routes with unreachable next-hops, so it holds the IPv6 VIP route in its RIB
+- Exposes TCP/179 and the GoBGP gRPC API (50051); the e2e queries the RIB via gRPC to assert the IPv4 and IPv6 VIP routes were actually received
 
 ### squid (`squid.yaml`)
 
@@ -170,28 +180,31 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
     - assert `ipv6-vip` withdrawn
 18. ipv6-target-up recovery:
     - assert `ipv6-vip` announced and bird peer established
-19. squid-vip case:
+19. gobgp route check:
+    - query gobgp's gRPC RIB and assert it received both the IPv4 and IPv6 VIP routes
+20. squid-vip case:
     - assert `squid-vip` announced through the working proxy
     - scale squid to 0; assert `squid-vip` withdrawn and FRR route removed
     - scale squid to 1; assert recovery to `announced`
-20. Assert `/metrics` and ad-hoc trigger API behavior.
+21. Assert `/metrics` and ad-hoc trigger API behavior.
 
-### FRR vs BIRD assertions
+### FRR vs BIRD vs GoBGP assertions
 
 - FRR (`vtysh`) asserts the **IPv4** unicast routes: `show bgp ipv4 unicast json` and prefix-specific JSON for community/AS-path details.
 - BIRD (`birdc`) asserts the **IPv6** peer session is `Established` (`show protocols all`) and the IPv6 VIP is announced by pathosd. BIRD emits text output (no JSON). Because runner pods have no IPv6, BIRD's routing table cannot hold the IPv6 route, so only the peer session (which carries IPv6 unicast via MP-BGP) is asserted.
+- GoBGP is queried via its gRPC API (`ListPath`) to assert it actually received the **IPv4 and IPv6** VIP routes in its RIB — the strongest proof a peer received the routes.
 
 ## CI Flow
 
 Workflow: `.github/workflows/e2e.yaml`
 
-1. Build `pathosd:e2e` (`Dockerfile.e2e`), `bird3:e2e` (`Dockerfile.bird3`), and `squid:e2e` (`Dockerfile.squid`); import all into k3d.
+1. Build `pathosd:e2e` (`Dockerfile.e2e`), `bird3:e2e` (`Dockerfile.bird3`), `squid:e2e` (`Dockerfile.squid`), and `gobgp:e2e` (`Dockerfile.gobgp`); import all into k3d.
 2. Create an IPv4 k3d/k3s cluster.
 3. Apply namespace first and wait for it to become `Active`.
 4. Apply all manifests.
-5. Wait for `frr`, `bird`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
+5. Wait for `frr`, `bird`, `gobgp`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
 6. Run `go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...`.
-7. On failure, dump pod status, pathosd logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
+7. On failure, dump pod status, pathosd logs, FRR logs + summary, bird logs + `birdc show protocols all`, squid logs, and gobgp logs.
 
 ## Local Commands
 

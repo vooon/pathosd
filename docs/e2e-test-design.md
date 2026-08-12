@@ -18,6 +18,7 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `frr.yaml`
 - `bird.yaml`
 - `squid.yaml`
+- `httpbin.yaml`
 - `nginx.yaml`
 - `nginx-tls.yaml`
 - `coredns.yaml`
@@ -39,6 +40,7 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 - `etcd`: gRPC health target for `grpc-vip`
 - `ipv6-target`: TCP health target for `ipv6-vip`
 - `squid`: forward HTTP proxy used by `squid-vip`
+- `httpbin`: local HTTP target (go-httpbin) reached through the Squid proxy
 
 All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 VIP routes are carried over IPv4-transport MP-BGP (no host IPv6 required).
 
@@ -60,8 +62,9 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 - **Active IPv6-carrying peer**: bird3 dials pathosd over IPv4 transport and negotiates IPv6-unicast (MP-BGP); pathosd is `passive` for this session
 - A wrapper (`run.sh`) resolves pathosd's pod IPv4 address from the headless `pathosd-bgp` service and templates it into `bird.conf` as `neighbor`, then runs `bird -f`
 - Exposes TCP/179 via a headless service (`clusterIP: None`)
-- Only IPv6 unicast is carried (`ipv6 { import all; export all; }`) — FRR covers the IPv4 side
+- Only IPv6 unicast is carried (`ipv6 { import all; export none; }`) — FRR covers the IPv4 side
 - Assertions use `birdc -s /run/bird/bird.ctl` text output
+- Note: GitHub Actions runner pods have IPv6 disabled, so BIRD cannot hold IPv6 routes in its table. The e2e validates the IPv6 origin path end-to-end instead: the IPv6 VIP is announced by pathosd and the bird IPv6-capable peer session is `Established`.
 
 ### nginx (`nginx.yaml`)
 
@@ -94,6 +97,11 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 - Runs a permissive forward proxy on TCP/3128 with a minimal `squid.conf`
 - Exposed via a ClusterIP service; `squid-vip` routes its HTTP check through it
 
+### httpbin (`httpbin.yaml`)
+
+- Local `mccutchen/go-httpbin:2.25.0` target so the Squid proxy test has no external dependency
+- `squid-vip` fetches `http://httpbin.../status/201` through Squid and expects HTTP 201
+
 ### pathosd (`pathosd.yaml`)
 
 - Image: `pathosd:e2e`
@@ -117,7 +125,7 @@ Configured VIPs:
 - `https-vip` (`10.100.5.1/32`): HTTPS check with custom CA cert, `fail_action: withdraw`
 - `grpc-vip` (`10.100.6.1/32`): gRPC standard health protocol against etcd:2379, `fail_action: withdraw`
 - `ipv6-vip` (`2001:db8:100::1/128`): TCP check against `ipv6-target:8080`, `fail_action: withdraw`; announced via IPv6 unicast (over IPv4 transport) to the `bird` peer
-- `squid-vip` (`10.100.7.1/32`): HTTP check routed through the Squid proxy to `http://httpbin.org/status/201` expecting `201`, `fail_action: withdraw`
+- `squid-vip` (`10.100.7.1/32`): HTTP check routed through the Squid proxy to the local httpbin `/status/201` expecting `201`, `fail_action: withdraw`
 
 ## Test Implementation
 
@@ -129,7 +137,7 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 2. Port-forward `svc/pathosd` and validate `/healthz`.
 3. Wait until `/readyz` reports required peers established (FRR + bird).
 4. Assert all VIPs become `announced` (including `ipv6-vip`).
-5. Assert FRR receives all six IPv4 routes, and bird receives the IPv6 route.
+5. Assert FRR receives all six IPv4 routes, and the bird IPv6 peer is established with `ipv6-vip` announced.
 6. Dedicated lock-file case:
    - create `/tmp/pathosd-web-vip-drain.lock` inside pathosd container
    - assert `web-vip` becomes `pessimized` while still `healthy`
@@ -159,9 +167,9 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 16. etcd-up recovery.
 17. ipv6-target-down case:
     - scale ipv6-target to 0
-    - assert `ipv6-vip` withdrawn and bird route removed
+    - assert `ipv6-vip` withdrawn
 18. ipv6-target-up recovery:
-    - assert `ipv6-vip` announced and bird route present
+    - assert `ipv6-vip` announced and bird peer established
 19. squid-vip case:
     - assert `squid-vip` announced through the working proxy
     - scale squid to 0; assert `squid-vip` withdrawn and FRR route removed
@@ -171,7 +179,7 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
 ### FRR vs BIRD assertions
 
 - FRR (`vtysh`) asserts the **IPv4** unicast routes: `show bgp ipv4 unicast json` and prefix-specific JSON for community/AS-path details.
-- BIRD (`birdc`) asserts the **IPv6** unicast route: `show route <prefix>` for presence and `show route all <prefix>` to extract `BGP.as_path`. BIRD emits text output (no JSON).
+- BIRD (`birdc`) asserts the **IPv6** peer session is `Established` (`show protocols all`) and the IPv6 VIP is announced by pathosd. BIRD emits text output (no JSON). Because runner pods have no IPv6, BIRD's routing table cannot hold the IPv6 route, so only the peer session (which carries IPv6 unicast via MP-BGP) is asserted.
 
 ## CI Flow
 

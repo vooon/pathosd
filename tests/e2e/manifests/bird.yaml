@@ -8,14 +8,6 @@ data:
     #!/bin/sh
     set -eu
     mkdir -p /run/bird
-    # GitHub Actions runner pods have IPv6 disabled. Enable it so BIRD sees the
-    # IPv6 loopback (::1) as directly connected and accepts the IPv6 VIP route's
-    # ::1 next hop.
-    sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
-    sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
-    sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
-    ip link set lo up >/dev/null 2>&1 || true
-    ip addr add ::1/128 dev lo >/dev/null 2>&1 || true
     peer_host="pathosd-bgp.pathosd-e2e.svc.cluster.local"
     peer_ip=""
     i=0
@@ -37,17 +29,9 @@ data:
     protocol device {
     }
 
-    # Populate the IPv6 table with directly-connected routes (e.g. ::1/128 on
-    # loopback) so BIRD's BGP next-hop reachability check passes for the IPv6
-    # VIP route, whose next hop is ::1.
-    protocol direct {
-        ipv6;
-    }
-
     # Active peer toward pathosd (pathosd is passive for this session). The TCP
     # transport is IPv4, but the session negotiates IPv6 unicast (MP-BGP) so it
-    # carries the IPv6 VIP routes. FRR covers the IPv4 side. The IPv6 route's
-    # next hop is ::1 (loopback, directly connected).
+    # carries the IPv6 VIP routes. FRR covers the IPv4 side.
     protocol bgp pathosd {
         local as 65300;
         neighbor __PATHOSD_PEER__ as 65100;
@@ -67,10 +51,6 @@ spec:
       image: bird3:e2e
       imagePullPolicy: IfNotPresent
       command: ["/bin/sh", "/config/run.sh"]
-      # Privileged so the wrapper can enable IPv6 (sysctl) and configure the
-      # loopback interface in the runner's pod network namespace.
-      securityContext:
-        privileged: true
       ports:
         - name: bgp
           containerPort: 179

@@ -9,8 +9,6 @@ data:
     visible_hostname pathosd-e2e
     acl all src all
     http_access allow all
-    access_log stdio:/dev/stdout
-    cache_log /dev/stdout
 ---
 apiVersion: apps/v1
 kind: Deployment

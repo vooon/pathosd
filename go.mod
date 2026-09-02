@@ -11,10 +11,10 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/miekg/dns v1.1.73
-	github.com/osrg/gobgp/v4 v4.8.0
+	github.com/osrg/gobgp/v4 v4.9.0
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/prometheus/common v0.70.1
+	github.com/prometheus/common v0.71.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
 	go.opentelemetry.io/contrib/bridges/prometheus v0.71.0
@@ -66,14 +66,14 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-runewidth v0.0.28 // indirect
+	github.com/mattn/go-runewidth v0.0.29 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/segmentio/fasthash v1.0.3 // indirect
@@ -100,6 +100,6 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260831171406-18b4a7587f8a // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a // indirect
 )

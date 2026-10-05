@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"html/template"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/version"
 	"github.com/vooon/pathosd/internal/bgp"
@@ -19,6 +17,7 @@ import (
 	"github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/model"
 	"github.com/vooon/pathosd/internal/policy"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type ServerDeps struct {
@@ -64,8 +63,9 @@ func NewServer(deps ServerDeps) *http.Server {
 	mux.Handle("GET /metrics", promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Schedulers))
 	return &http.Server{
-		Addr:    deps.Config.API.Listen,
-		Handler: otelhttp.NewHandler(mux, "pathosd.http"),
+		Addr:              deps.Config.API.Listen,
+		Handler:           otelhttp.NewHandler(mux, "pathosd.http"),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 }
 
@@ -84,7 +84,7 @@ func handleLanding(deps ServerDeps) http.HandlerFunc {
 			Commit:      version.GetRevision(),
 			GeneratedAt: time.Now(),
 			Peers:       deps.BGP.GetPeerStates(r.Context()),
-			VIPs:        deps.Policy.GetVIPStatuses(),
+			VIPs:        vipStatuses(deps),
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -125,10 +125,22 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 			Version:  version.Version,
 			Commit:   version.GetRevision(),
 			Peers:    deps.BGP.GetPeerStates(r.Context()),
-			VIPs:     deps.Policy.GetVIPStatuses(),
+			VIPs:     vipStatuses(deps),
 		}
 		writeJSON(w, http.StatusOK, status)
 	}
+}
+
+// vipStatuses returns policy VIP statuses enriched with scheduler counters.
+func vipStatuses(deps ServerDeps) []model.VIPStatus {
+	statuses := deps.Policy.GetVIPStatuses()
+	for i := range statuses {
+		if sched, ok := deps.Schedulers[statuses[i].Name]; ok {
+			statuses[i].ConsecutiveOK = sched.ConsecutiveOK()
+			statuses[i].ConsecutiveFail = sched.ConsecutiveFail()
+		}
+	}
+	return statuses
 }
 
 func handleTriggerCheck(schedulers map[string]*checks.Scheduler) http.HandlerFunc {
@@ -154,22 +166,5 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		slog.Error("failed to write JSON response", "status", status, "error", err)
-	}
-}
-
-func ListenAndServe(ctx context.Context, srv *http.Server) error {
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("HTTP API listening", "address", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-		close(errCh)
-	}()
-	select {
-	case <-ctx.Done():
-		return srv.Shutdown(context.Background())
-	case err := <-errCh:
-		return err
 	}
 }

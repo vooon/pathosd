@@ -203,7 +203,7 @@ func TestRegisterBGPMetrics(t *testing.T) {
 		names[mf.GetName()] = struct{}{}
 	}
 
-	assert.Contains(t, names, "bgp_peer_state")
+	assert.Contains(t, names, "bgp_peer_session_state")
 	assert.Contains(t, names, "fsm_loop_event_timing_sec")
 }
 

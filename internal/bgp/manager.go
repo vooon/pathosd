@@ -305,6 +305,9 @@ func (m *Manager) upsertVIP(prefix string, prepend int, communities []string, op
 		if err := m.server.DeletePath(apiutil.DeletePathRequest{UUIDs: []uuid.UUID{oldUUID}}); err != nil {
 			return m.pathOpError(operation, prefix, fmt.Errorf("deleting previous path: %w", err))
 		}
+		// Forget the deleted path now so a failed AddPath below does not
+		// leave a stale UUID behind.
+		m.clearInstalledUUID(prefix)
 	}
 
 	resps, err := m.server.AddPath(apiutil.AddPathRequest{
@@ -440,8 +443,11 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 		return nil, fmt.Errorf("building next-hop attribute: %w", err)
 	}
 
+	// GoBGP prepends the local ASN once on eBGP export, so a plain
+	// announcement carries an empty AS_PATH and pessimization only adds the
+	// extra prepends. iBGP peers never get prepends.
 	asPathParams := []bgppacket.AsPathParamInterface{}
-	if !m.hasIBGPPeer() {
+	if prepend > 0 && !m.hasIBGPPeer() {
 		asPathParams = append(asPathParams, bgppacket.NewAs4PathParam(
 			bgppacket.BGP_ASPATH_ATTR_TYPE_SEQ,
 			buildASPath(m.localASN, prepend),
@@ -559,12 +565,10 @@ func (m *Manager) clearInstalledUUID(prefix string) {
 	delete(m.installedRouteUUID, prefix)
 }
 
+// buildASPath returns the local ASN repeated prepend times. GoBGP adds the
+// regular local ASN hop itself on eBGP export.
 func buildASPath(localASN uint32, prepend int) []uint32 {
-	count := 1
-	if prepend > 0 {
-		count = prepend
-	}
-	path := make([]uint32, count)
+	path := make([]uint32, max(prepend, 0))
 	for i := range path {
 		path[i] = localASN
 	}

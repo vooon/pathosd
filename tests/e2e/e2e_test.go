@@ -158,13 +158,13 @@ func TestE2E(t *testing.T) {
 		grpcPath := firstRoutePath(t, routes, grpcVIPPrefix)
 		squidPath := firstRoutePath(t, routes, squidVIPPrefix)
 
-		assert.Contains(t, extractASPath(webPath), "65100")
-		assert.Contains(t, extractASPath(dnsPath), "65100")
-		assert.Contains(t, extractASPath(tcpPath), "65100")
-		assert.Contains(t, extractASPath(udpPath), "65100")
-		assert.Contains(t, extractASPath(httpsPath), "65100")
-		assert.Contains(t, extractASPath(grpcPath), "65100")
-		assert.Contains(t, extractASPath(squidPath), "65100")
+		assert.Equal(t, 1, countASN(extractASPath(webPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(dnsPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(tcpPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(udpPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(httpsPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(grpcPath), "65100"), "plain announce must carry the local ASN once")
+		assert.Equal(t, 1, countASN(extractASPath(squidPath), "65100"), "plain announce must carry the local ASN once")
 	})
 
 	// bird3 is the IPv6-capable MP-BGP peer. GitHub Actions runner pods have no

@@ -62,6 +62,7 @@ type VIPStatus struct {
 	LastTransitionTime   time.Time    `json:"last_transition_time"`
 	LastTransitionReason string       `json:"last_transition_reason"`
 	CheckType            string       `json:"check_type"`
+	BGPPending           bool         `json:"bgp_pending"`
 }
 
 // PeerStatus is the observable state for one BGP neighbor.

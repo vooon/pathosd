@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -26,6 +27,7 @@ const (
 
 type fakeBGPNotifier struct {
 	mu         sync.Mutex
+	failNext   int // number of upcoming calls that return an error
 	announces  []string
 	withdraws  []string
 	pessimizes []struct {
@@ -39,6 +41,14 @@ func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.announces = append(f.announces, prefix)
+	return f.maybeFailLocked()
+}
+
+func (f *fakeBGPNotifier) maybeFailLocked() error {
+	if f.failNext > 0 {
+		f.failNext--
+		return errors.New("injected BGP failure")
+	}
 	return nil
 }
 
@@ -598,4 +608,30 @@ func TestManager_GetVIPStatuses(t *testing.T) {
 		assert.Equal(t, "fall threshold reached", status.LastTransitionReason)
 		assert.Equal(t, config.CheckTypeDNS, status.CheckType)
 	})
+}
+
+func TestManager_RetriesFailedBGPOperation(t *testing.T) {
+	notifier := &fakeBGPNotifier{failNext: 1}
+	mgr := NewManager(testVIPConfigs(), newTestMetrics(), notifier)
+
+	mgr.OnHealthTransition(checks.HealthTransition{VIPName: withdrawVIPName, Healthy: true, Reason: "test"})
+	status := getVIPStatus(t, mgr, withdrawVIPName)
+	assert.Equal(t, model.StateAnnounced, status.State)
+	assert.True(t, status.BGPPending)
+
+	mgr.OnCheckResult(withdrawVIPName, checks.Result{Success: true})
+	status = getVIPStatus(t, mgr, withdrawVIPName)
+	assert.False(t, status.BGPPending)
+
+	notifier.mu.Lock()
+	defer notifier.mu.Unlock()
+	assert.Equal(t, []string{withdrawPrefix, withdrawPrefix}, notifier.announces)
+}
+
+func TestManager_GetVIPStatusesSorted(t *testing.T) {
+	mgr := NewManager(testVIPConfigs(), newTestMetrics(), nil)
+	statuses := mgr.GetVIPStatuses()
+	require.Len(t, statuses, 2)
+	assert.Equal(t, pessimizeVIPName, statuses[0].Name)
+	assert.Equal(t, withdrawVIPName, statuses[1].Name)
 }

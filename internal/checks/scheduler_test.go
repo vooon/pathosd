@@ -220,3 +220,28 @@ func TestScheduler_TriggerCheck_ContextCancelled(t *testing.T) {
 	// Either the first select or second select catches cancellation.
 	assert.Error(t, err)
 }
+
+// ctxChecker cancels the caller context mid-check and fails if the check
+// context observes that cancellation.
+type ctxChecker struct{ cancelCaller context.CancelFunc }
+
+func (c *ctxChecker) Type() string { return "ctx" }
+
+func (c *ctxChecker) Check(ctx context.Context) Result {
+	c.cancelCaller()
+	if ctx.Err() != nil {
+		return Result{Success: false, Detail: "cancelled", TimedOut: true}
+	}
+	return successResult()
+}
+
+func TestScheduler_TriggerCheck_CallerCancelDoesNotFailCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	s := makeScheduler(&ctxChecker{cancelCaller: cancel}, 1, 1)
+
+	result, err := s.TriggerCheck(ctx)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.Equal(t, 0, s.ConsecutiveFail())
+}

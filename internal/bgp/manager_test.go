@@ -63,12 +63,12 @@ func TestBuildASPath(t *testing.T) {
 		want    []uint32
 	}{
 		{
-			name:    "prepend zero returns single ASN",
+			name:    "prepend zero returns empty path",
 			prepend: 0,
-			want:    []uint32{localASN},
+			want:    []uint32{},
 		},
 		{
-			name:    "prepend one returns single ASN",
+			name:    "prepend one returns one ASN",
 			prepend: 1,
 			want:    []uint32{localASN},
 		},
@@ -177,7 +177,7 @@ func TestManagerBuildPath(t *testing.T) {
 			manager:     newManager("", ""),
 			prefix:      "10.1.0.1/32",
 			wantNextHop: "10.0.0.1",
-			wantASPath:  []uint32{65000},
+			wantASPath:  []uint32{},
 		},
 		{
 			name:        "prepend adds repeated ASNs",
@@ -193,7 +193,7 @@ func TestManagerBuildPath(t *testing.T) {
 			prefix:          "10.1.0.3/32",
 			communities:     []string{"65535:666"},
 			wantNextHop:     "10.0.0.1",
-			wantASPath:      []uint32{65000},
+			wantASPath:      []uint32{},
 			wantCommunities: []uint32{0xFFFF029A},
 		},
 		{
@@ -207,7 +207,7 @@ func TestManagerBuildPath(t *testing.T) {
 			manager:     newManager("10.0.0.2", ""),
 			prefix:      "10.1.0.4/32",
 			wantNextHop: "10.0.0.2",
-			wantASPath:  []uint32{65000},
+			wantASPath:  []uint32{},
 		},
 		{
 			name:        "IPv6 /128 uses IPv6 unicast family and local_address_ipv6 next hop",
@@ -215,7 +215,7 @@ func TestManagerBuildPath(t *testing.T) {
 			prefix:      "2001:db8::1234/128",
 			wantFamily:  bgppacket.RF_IPv6_UC,
 			wantNextHop: "2001:db8::1",
-			wantASPath:  []uint32{65000},
+			wantASPath:  []uint32{},
 		},
 		{
 			name:    "IPv6 /128 without local_address_ipv6 returns error",
@@ -234,7 +234,7 @@ func TestManagerBuildPath(t *testing.T) {
 			manager:     newManager("", "2001:db8::1"),
 			prefix:      "10.1.0.5/32",
 			wantNextHop: "10.0.0.1",
-			wantASPath:  []uint32{65000},
+			wantASPath:  []uint32{},
 		},
 	}
 
@@ -263,8 +263,12 @@ func TestManagerBuildPath(t *testing.T) {
 			require.NotNil(t, decoded.nextHop)
 			assert.Equal(t, tc.wantNextHop, decoded.nextHop.Value.String())
 			require.NotNil(t, decoded.asPath)
-			require.Len(t, decoded.asPath.Value, 1)
-			assert.Equal(t, tc.wantASPath, decoded.asPath.Value[0].GetAS())
+			if len(tc.wantASPath) == 0 {
+				assert.Empty(t, decoded.asPath.Value)
+			} else {
+				require.Len(t, decoded.asPath.Value, 1)
+				assert.Equal(t, tc.wantASPath, decoded.asPath.Value[0].GetAS())
+			}
 
 			if len(tc.wantCommunities) > 0 {
 				require.NotNil(t, decoded.communities)

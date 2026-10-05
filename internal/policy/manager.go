@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -47,6 +48,9 @@ type vipState struct {
 	lastCheckTime        time.Time
 	lastTransitionAt     time.Time
 	lastTransitionReason string
+	// bgpPending is set when applying the current state to BGP failed; the
+	// operation is retried on every subsequent check result.
+	bgpPending bool
 }
 
 func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPNotifier) *Manager {
@@ -135,6 +139,12 @@ func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 			m.transitionStateLocked(context.Background(), vs, cfg, newState, reason)
 		}
 	}
+	if vs.bgpPending && m.notifier != nil {
+		if err := m.applyBGP(context.Background(), cfg, vs.state); err == nil {
+			vs.bgpPending = false
+			slog.Info("BGP state change retry succeeded", "vip", cfg.Name, "prefix", cfg.Prefix, "state", vs.state.String())
+		}
+	}
 	m.mu.Unlock()
 
 	checkType := cfg.Check.Type
@@ -176,8 +186,10 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 			LastTransitionTime:   vs.lastTransitionAt,
 			LastTransitionReason: vs.lastTransitionReason,
 			CheckType:            cfg.Check.Type,
+			BGPPending:           vs.bgpPending,
 		})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -215,11 +227,11 @@ func (m *Manager) transitionStateLocked(ctx context.Context, vs *vipState, cfg *
 	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
 
 	if m.notifier != nil {
-		m.applyBGP(ctx, cfg, newState)
+		vs.bgpPending = m.applyBGP(ctx, cfg, newState) != nil
 	}
 }
 
-func (m *Manager) applyBGP(ctx context.Context, cfg *config.VIPConfig, state model.VIPState) {
+func (m *Manager) applyBGP(ctx context.Context, cfg *config.VIPConfig, state model.VIPState) error {
 	var err error
 	switch state {
 	case model.StateAnnounced:
@@ -240,4 +252,5 @@ func (m *Manager) applyBGP(ctx context.Context, cfg *config.VIPConfig, state mod
 	if err != nil {
 		slog.Error("BGP state change failed", "vip", cfg.Name, "prefix", cfg.Prefix, "state", state.String(), "error", err)
 	}
+	return err
 }

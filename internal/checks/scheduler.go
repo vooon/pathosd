@@ -34,6 +34,10 @@ type Scheduler struct {
 	onCheckResult func(vipName string, result Result)
 	tracer        trace.Tracer
 
+	// runMu serializes checks (ticker and ad-hoc triggers) so that state
+	// updates and their callbacks are delivered in order.
+	runMu sync.Mutex
+
 	mu              sync.Mutex
 	healthy         bool
 	consecutiveOK   int
@@ -83,11 +87,14 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
+// TriggerCheck runs an ad-hoc check. The check is detached from ctx
+// cancellation (only the configured timeout applies), so an aborted caller
+// cannot produce a spurious failure that counts toward fall.
 func (s *Scheduler) TriggerCheck(ctx context.Context) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	return s.runCheck(ctx), nil
+	return s.runCheck(context.WithoutCancel(ctx)), nil
 }
 
 func (s *Scheduler) SetCallbacks(onTransition func(HealthTransition), onCheckResult func(string, Result)) {
@@ -124,6 +131,9 @@ func (s *Scheduler) ConsecutiveFail() int {
 }
 
 func (s *Scheduler) runCheck(parentCtx context.Context) Result {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+
 	spanCtx, span := s.tracer.Start(parentCtx, "health_check",
 		trace.WithAttributes(
 			attribute.String("vip.name", s.vipName),

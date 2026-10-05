@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/common/version"
@@ -236,7 +237,10 @@ func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metric
 }
 
 func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Scheduler, pol *policy.Manager) {
-	var schedCancels []context.CancelFunc
+	var (
+		schedCancels []context.CancelFunc
+		schedWG      sync.WaitGroup
+	)
 
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -245,7 +249,7 @@ func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Sche
 				sched.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
 				schedCtx, cancel := context.WithCancel(context.Background())
 				schedCancels = append(schedCancels, cancel)
-				go sched.Run(schedCtx)
+				schedWG.Go(func() { sched.Run(schedCtx) })
 				slog.Info("scheduler started", "vip", sched.VIPName())
 			}
 			return nil
@@ -254,7 +258,18 @@ func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Sche
 			for _, cancel := range schedCancels {
 				cancel()
 			}
-			return nil
+			// Wait for in-flight checks so no callback reaches BGP after it stops.
+			done := make(chan struct{})
+			go func() {
+				schedWG.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				return nil
+			case <-ctx.Done():
+				return fmt.Errorf("waiting for schedulers to stop: %w", ctx.Err())
+			}
 		},
 	})
 }

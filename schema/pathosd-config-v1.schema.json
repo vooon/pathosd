@@ -117,16 +117,16 @@
         },
         "interval": {
           "$ref": "#/$defs/Duration",
-          "description": "Interval between consecutive health checks. Default: 5s."
+          "description": "Interval between consecutive health checks. Default: 1s."
         },
         "timeout": {
           "$ref": "#/$defs/Duration",
-          "description": "Maximum time to wait for a check to complete; must be less than interval. Default: 2s."
+          "description": "Maximum time to wait for a check to complete; must be less than interval. Default: 100ms."
         },
         "rise": {
           "type": "integer",
           "minimum": 1,
-          "description": "Number of consecutive successes required to mark healthy (HAProxy-style). Default: 3."
+          "description": "Number of consecutive successes required to mark healthy (HAProxy-style). Default: 1."
         },
         "fall": {
           "type": "integer",
@@ -685,11 +685,11 @@
         },
         "lower_priority_file": {
           "type": "string",
-          "description": "Path to a drain lock file. When present and check is healthy, force pessimized announcement instead of full priority. Does not prevent withdrawal on failure. Useful for maintenance drains."
+          "description": "Path to a drain lock file. When present and the check is healthy, the VIP is announced pessimized (using the lower_priority attributes) instead of at full priority, regardless of fail_action. Does not prevent withdrawal on failure. Useful for maintenance drains."
         },
         "lower_priority": {
           "$ref": "#/$defs/LowerPriorityConfig",
-          "description": "Configuration for the lower_priority fail action."
+          "description": "BGP attributes used for pessimized announcements: on check failure when fail_action is lower_priority, and whenever lower_priority_file is present."
         }
       },
       "additionalProperties": false,

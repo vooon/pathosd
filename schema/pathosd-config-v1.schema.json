@@ -35,10 +35,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "as_path_prepend",
-        "communities"
-      ],
       "description": "AnnounceConfig defines base BGP attributes applied to every announcement of a VIP."
     },
     "BFDConfig": {
@@ -72,9 +68,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "enabled"
-      ],
       "description": "BFDConfig configures Bidirectional Forwarding Detection for a BGP peer."
     },
     "BGPConfig": {
@@ -84,11 +77,13 @@
           "description": "Enable BGP graceful restart."
         },
         "hold_time": {
-          "$ref": "#/$defs/Duration",
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
           "description": "BGP hold time. Default: 90s."
         },
         "keepalive_time": {
-          "$ref": "#/$defs/Duration",
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
           "description": "BGP keepalive interval. Default: 30s."
         },
         "listen_address": {
@@ -117,11 +112,6 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "graceful_restart",
-        "hold_time",
-        "keepalive_time",
-        "listen_address",
-        "listen_port",
         "neighbors"
       ],
       "description": "BGPConfig defines global BGP parameters and neighbors."
@@ -141,22 +131,28 @@
           "description": "Health check backend type."
         },
         "interval": {
-          "$ref": "#/$defs/Duration",
-          "description": "Interval between consecutive health checks. Default: 1s."
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Interval between consecutive health checks. Default: 1s.",
+          "default": "1s"
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
-          "description": "Maximum time to wait for a check to complete; must be less than interval. Default: 100ms."
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum time to wait for a check to complete; must be less than interval. Default: 100ms.",
+          "default": "100ms"
         },
         "rise": {
           "type": "integer",
           "minimum": 1,
-          "description": "Number of consecutive successes required to mark healthy (HAProxy-style). Default: 1."
+          "description": "Number of consecutive successes required to mark healthy (HAProxy-style). Default: 1.",
+          "default": 1
         },
         "fall": {
           "type": "integer",
           "minimum": 1,
-          "description": "Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3."
+          "description": "Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3.",
+          "default": 3
         },
         "http": {
           "$ref": "#/$defs/HTTPCheckConfig",
@@ -186,11 +182,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "interval",
-        "timeout",
-        "rise",
-        "fall"
+        "type"
       ],
       "description": "CheckConfig defines health check type, scheduling, and type-specific parameters."
     },
@@ -232,25 +224,9 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "names",
-        "resolver",
-        "port",
-        "query_type"
+        "names"
       ],
       "description": "DNSCheckConfig defines a DNS health check."
-    },
-    "Duration": {
-      "properties": {
-        "Duration": {
-          "$ref": "#/$defs/Duration"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "Duration"
-      ],
-      "description": "Duration wraps time.Duration for JSON and TOML unmarshaling from strings like \"1s\", \"500ms\"."
     },
     "GRPCCheckConfig": {
       "properties": {
@@ -308,16 +284,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "host",
-        "port",
-        "tls",
-        "tls_insecure",
-        "tls_ca_cert",
-        "tls_server_name",
-        "method",
-        "service",
-        "ok_codes",
-        "metadata"
+        "port"
       ],
       "description": "GRPCCheckConfig defines a gRPC health check."
     },
@@ -335,9 +302,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "enabled"
-      ],
       "description": "GoBGPAPIConfig configures the embedded GoBGP gRPC API."
     },
     "HTTPCheckConfig": {
@@ -417,20 +381,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "url",
-        "proto",
-        "host",
-        "port",
-        "method",
-        "response_codes",
-        "response_text",
-        "response_regex",
-        "response_jq",
-        "tls_insecure",
-        "tls_ca_cert",
-        "tls_server_name",
-        "proxy",
-        "headers"
+        "url"
       ],
       "description": "HTTPCheckConfig defines an HTTP health check."
     },
@@ -469,10 +420,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "level",
-        "format"
-      ],
       "description": "LoggingConfig controls structured logging output."
     },
     "LowerPriorityConfig": {
@@ -494,10 +441,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "as_path_prepend",
-        "communities"
-      ],
       "description": "LowerPriorityConfig defines BGP attributes for pessimized announcements."
     },
     "NeighborConfig": {
@@ -552,13 +495,7 @@
       "required": [
         "name",
         "address",
-        "peer_asn",
-        "required",
-        "port",
-        "local_address",
-        "passive",
-        "enable_multihop",
-        "multihop_ttl"
+        "peer_asn"
       ],
       "description": "NeighborConfig defines a BGP peer."
     },
@@ -602,16 +539,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "enabled",
-        "endpoint",
-        "insecure",
-        "headers",
-        "service_name",
-        "traces",
-        "metrics",
-        "logs"
-      ],
       "description": "OTelConfig configures OpenTelemetry export (traces, metrics, logs)."
     },
     "OTelSignalConfig": {
@@ -639,12 +566,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "endpoint",
-        "enabled",
-        "insecure",
-        "headers"
-      ],
       "description": "OTelSignalConfig configures a single OTEL signal (traces, metrics, or logs)."
     },
     "PingCheckConfig": {
@@ -670,11 +591,13 @@
           "default": 1
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
           "description": "Per-packet timeout for ICMP replies."
         },
         "interval": {
-          "$ref": "#/$defs/Duration",
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
           "description": "Interval between individual ICMP packets within a check cycle."
         },
         "max_loss_ratio": {
@@ -687,14 +610,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "dst_ip",
-        "src_ip",
-        "count",
-        "timeout",
-        "interval",
-        "max_loss_ratio"
-      ],
       "description": "PingCheckConfig defines an ICMP ping health check."
     },
     "PolicyConfig": {
@@ -723,9 +638,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "fail_action"
-      ],
       "description": "PolicyConfig defines how VIP state changes on check failure."
     },
     "RouterConfig": {
@@ -754,9 +666,7 @@
       "type": "object",
       "required": [
         "asn",
-        "router_id",
-        "local_address",
-        "local_address_ipv6"
+        "router_id"
       ],
       "description": "RouterConfig identifies this BGP speaker."
     },
@@ -776,7 +686,6 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "host",
         "port"
       ],
       "description": "TCPCheckConfig defines a TCP port reachability check."
@@ -802,9 +711,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "host",
-        "port",
-        "payload"
+        "port"
       ],
       "description": "UDPCheckConfig defines a UDP port reachability check."
     },
@@ -881,8 +788,6 @@
     "schema",
     "router",
     "api",
-    "logging",
-    "otel",
     "bgp",
     "vips"
   ],

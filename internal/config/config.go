@@ -263,13 +263,13 @@ type CheckConfig struct {
 	// Health check backend type.
 	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
 	// Interval between consecutive health checks. Default: 1s.
-	Interval *Duration `yaml:"interval" json:"interval" toml:"interval"`
+	Interval *Duration `yaml:"interval" json:"interval" toml:"interval" jsonschema:"default=1s"`
 	// Maximum time to wait for a check to complete; must be less than interval. Default: 100ms.
-	Timeout *Duration `yaml:"timeout" json:"timeout" toml:"timeout"`
+	Timeout *Duration `yaml:"timeout" json:"timeout" toml:"timeout" jsonschema:"default=100ms"`
 	// Number of consecutive successes required to mark healthy (HAProxy-style). Default: 1.
-	Rise *int `yaml:"rise" json:"rise" toml:"rise" jsonschema:"minimum=1"`
+	Rise *int `yaml:"rise" json:"rise" toml:"rise" jsonschema:"minimum=1,default=1"`
 	// Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3.
-	Fall *int `yaml:"fall" json:"fall" toml:"fall" jsonschema:"minimum=1"`
+	Fall *int `yaml:"fall" json:"fall" toml:"fall" jsonschema:"minimum=1,default=3"`
 	// HTTP check configuration (required when type is "http").
 	HTTP *HTTPCheckConfig `yaml:"http,omitempty" json:"http,omitempty" toml:"http,omitempty"`
 	// DNS check configuration (required when type is "dns").

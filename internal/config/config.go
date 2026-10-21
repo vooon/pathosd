@@ -262,11 +262,11 @@ type VIPConfig struct {
 type CheckConfig struct {
 	// Health check backend type.
 	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
-	// Interval between consecutive health checks. Default: 5s.
+	// Interval between consecutive health checks. Default: 1s.
 	Interval *Duration `yaml:"interval" json:"interval" toml:"interval"`
-	// Maximum time to wait for a check to complete; must be less than interval. Default: 2s.
+	// Maximum time to wait for a check to complete; must be less than interval. Default: 100ms.
 	Timeout *Duration `yaml:"timeout" json:"timeout" toml:"timeout"`
-	// Number of consecutive successes required to mark healthy (HAProxy-style). Default: 3.
+	// Number of consecutive successes required to mark healthy (HAProxy-style). Default: 1.
 	Rise *int `yaml:"rise" json:"rise" toml:"rise" jsonschema:"minimum=1"`
 	// Number of consecutive failures required to mark unhealthy (HAProxy-style). Default: 3.
 	Fall *int `yaml:"fall" json:"fall" toml:"fall" jsonschema:"minimum=1"`
@@ -418,9 +418,9 @@ type PingCheckConfig struct {
 type PolicyConfig struct {
 	// Action to take when the health check fails: withdraw the route entirely, or lower its BGP priority.
 	FailAction string `yaml:"fail_action" json:"fail_action" toml:"fail_action" jsonschema:"enum=withdraw,enum=lower_priority,default=lower_priority"`
-	// Path to a drain lock file. When present and check is healthy, force pessimized announcement instead of full priority. Does not prevent withdrawal on failure. Useful for maintenance drains.
+	// Path to a drain lock file. When present and the check is healthy, the VIP is announced pessimized (using the lower_priority attributes) instead of at full priority, regardless of fail_action. Does not prevent withdrawal on failure. Useful for maintenance drains.
 	LowerPriorityFile string `yaml:"lower_priority_file" json:"lower_priority_file,omitempty" toml:"lower_priority_file,omitempty"`
-	// Configuration for the lower_priority fail action.
+	// BGP attributes used for pessimized announcements: on check failure when fail_action is lower_priority, and whenever lower_priority_file is present.
 	LowerPriority *LowerPriorityConfig `yaml:"lower_priority" json:"lower_priority,omitempty" toml:"lower_priority,omitempty"`
 }
 

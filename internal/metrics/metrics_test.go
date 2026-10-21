@@ -25,7 +25,6 @@ func TestNew_RegistryGatherSucceeds(t *testing.T) {
 	m.VIPPriority.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.RouteState.WithLabelValues("10.0.0.1/32", "10.0.0.254", "65000", "", "", "100", "0", "ipv4-unicast").Set(0)
 	m.CheckTotal.WithLabelValues("v", "10.0.0.1/32", "http", "success").Add(0)
-	m.CheckAbsorbed.WithLabelValues("v", "10.0.0.1/32").Add(0)
 	m.CheckDuration.WithLabelValues("v", "10.0.0.1/32", "http").Observe(0)
 	m.CheckLastResult.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.CheckTimeoutExceeded.WithLabelValues("v", "10.0.0.1/32").Add(0)
@@ -45,7 +44,6 @@ func TestNew_RegistryGatherSucceeds(t *testing.T) {
 		"pathosd_vip_priority_status",
 		"pathosd_route_state",
 		"pathosd_check_total",
-		"pathosd_check_rise_fall_absorbed_total",
 		"pathosd_check_duration_seconds",
 		"pathosd_check_last_result",
 		"pathosd_check_timeout_exceeded_total",

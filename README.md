@@ -81,11 +81,11 @@ bgp:
 
 ### Key Config Rules
 
-- `check.timeout` must be strictly less than `check.interval`
-- `rise` and `fall` must be ≥ 1
+- `check.timeout` must be strictly less than `check.interval` (defaults: `interval: 1s`, `timeout: 100ms`)
+- `rise` and `fall` must be ≥ 1 (defaults: `rise: 1`, `fall: 3`)
 - Each VIP name and prefix must be unique
 - At least one neighbor and one VIP are required
-- `lower_priority` block is only valid when `fail_action` is `lower_priority`
+- `policy.lower_priority` (`as_path_prepend`, default 6; `communities`) is used whenever the VIP is announced pessimized: on check failure with `fail_action: lower_priority`, and whenever `lower_priority_file` exists, regardless of `fail_action`
 - Any IPv6 VIP prefix requires `router.local_address_ipv6` (used as the IPv6 next-hop); the `router_id` stays IPv4
 
 ### OpenWrt/BIRD Localhost Peering

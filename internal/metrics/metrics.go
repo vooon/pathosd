@@ -29,8 +29,6 @@ type Metrics struct {
 
 	// Check counters by result (success/fail/stale)
 	CheckTotal *prometheus.CounterVec
-	// Checks absorbed by rise/fall (did not trigger state change)
-	CheckAbsorbed *prometheus.CounterVec
 	// Check duration histogram
 	CheckDuration *prometheus.HistogramVec
 	// Check last result (0=fail, 1=ok)
@@ -137,11 +135,6 @@ func New(checkBuckets []float64) *Metrics {
 			Help: "Total health checks by result.",
 		}, []string{"vip", "nlri", "type", "result"}),
 
-		CheckAbsorbed: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "pathosd_check_rise_fall_absorbed_total",
-			Help: "Checks whose result was absorbed by rise/fall hysteresis (did not trigger state change).",
-		}, []string{"vip", "nlri"}),
-
 		CheckDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "pathosd_check_duration_seconds",
 			Help:    "Histogram of health check durations in seconds.",
@@ -166,7 +159,6 @@ func New(checkBuckets []float64) *Metrics {
 		m.VIPPriority,
 		m.RouteState,
 		m.CheckTotal,
-		m.CheckAbsorbed,
 		m.CheckDuration,
 		m.CheckLastResult,
 		m.CheckTimeoutExceeded,

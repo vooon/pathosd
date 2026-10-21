@@ -21,7 +21,8 @@ type Metrics struct {
 	VIPTransitions *prometheus.CounterVec
 	// VIP last transition timestamp
 	VIPLastTransition *prometheus.GaugeVec
-	// VIP priority status (AS-path multiplier: 1=normal, N=prepend count)
+	// VIP priority: AS-path prepend count currently applied (base while
+	// announced, base + lower_priority while pessimized)
 	VIPPriority *prometheus.GaugeVec
 
 	// Route state: per-peer per-VIP (1=advertised, 0=withdrawn)
@@ -122,7 +123,7 @@ func New(checkBuckets []float64) *Metrics {
 
 		VIPPriority: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_vip_priority_status",
-			Help: "Current AS-path multiplier for VIP (1=normal, N=prepend count when pessimized).",
+			Help: "AS-path prepend count applied to the VIP route: announce.as_path_prepend while announced, plus lower_priority.as_path_prepend while pessimized (0 = full priority).",
 		}, []string{"vip", "nlri"}),
 
 		RouteState: prometheus.NewGaugeVec(prometheus.GaugeOpts{

@@ -224,7 +224,10 @@ func TestNewManager(t *testing.T) {
 			assert.Equal(t, "initial", status.LastTransitionReason)
 
 			assert.Equal(t, float64(0), testutil.ToFloat64(m.VIPState.WithLabelValues(tc.vip, tc.prefix)))
-			assert.Equal(t, float64(1), testutil.ToFloat64(m.VIPPriority.WithLabelValues(tc.vip, tc.prefix)))
+			assert.Equal(t, float64(0), testutil.ToFloat64(m.VIPPriority.WithLabelValues(tc.vip, tc.prefix)))
+			assert.Equal(t, 0, status.ASPathPrependBase)
+			assert.Equal(t, 0, status.ASPathPrepend)
+			assert.Empty(t, status.Communities)
 		})
 	}
 }
@@ -328,6 +331,13 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		notifier := &fakeBGPNotifier{}
 		mgr := NewManager(testVIPConfigWithAnnounce(4, []string{"65535:100"}, 2, []string{"65535:666"}), m, notifier)
 
+		// Withdrawn: priority metric and status already report the base rank.
+		assert.Equal(t, float64(4), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
+		status := getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, 4, status.ASPathPrependBase)
+		assert.Equal(t, 0, status.ASPathPrepend, "no route while withdrawn")
+		assert.Empty(t, status.Communities)
+
 		mgr.OnHealthTransition(checks.HealthTransition{
 			VIPName: pessimizeVIPName,
 			Healthy: true,
@@ -335,6 +345,11 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		})
 		require.Len(t, notifier.announceAttrs, 1)
 		assert.Equal(t, model.RouteAttrs{ASPathPrepend: 4, Communities: []string{"65535:100"}}, notifier.announceAttrs[0])
+		assert.Equal(t, float64(4), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
+		status = getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, 4, status.ASPathPrependBase)
+		assert.Equal(t, 4, status.ASPathPrepend)
+		assert.Equal(t, []string{"65535:100"}, status.Communities)
 
 		mgr.OnHealthTransition(checks.HealthTransition{
 			VIPName: pessimizeVIPName,
@@ -345,6 +360,10 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		assert.Equal(t, 6, notifier.pessimizes[0].prepend, "pessimized prepend must be base + lower_priority")
 		assert.Equal(t, []string{"65535:100", "65535:666"}, notifier.pessimizes[0].communities)
 		assert.Equal(t, float64(6), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
+		status = getVIPStatus(t, mgr, pessimizeVIPName)
+		assert.Equal(t, 4, status.ASPathPrependBase)
+		assert.Equal(t, 6, status.ASPathPrepend)
+		assert.Equal(t, []string{"65535:100", "65535:666"}, status.Communities)
 	})
 
 	t.Run("no-op same state does not notify and does not increment transition metric", func(t *testing.T) {

@@ -69,6 +69,10 @@ type VIPStatus struct {
 	ConsecutiveOK   int    `json:"consecutive_ok"`
 	ConsecutiveFail int    `json:"consecutive_fail"`
 	CheckType       string `json:"check_type"`
+	// Prepend reporting (feat: announce policy).
+	ASPathPrependBase int      `json:"as_path_prepend_base"`
+	ASPathPrepend     int      `json:"as_path_prepend"`
+	Communities       []string `json:"communities"`
 }
 
 func TestE2E(t *testing.T) {
@@ -175,6 +179,17 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, 3, countASN(extractASPath(prependPrefixPath), "65100"), "healthy announce must carry 1 + announce.as_path_prepend hops")
 		assert.Contains(t, extractCommunity(prependPrefixPath), "65100:100")
 		assert.NotContains(t, extractCommunity(prependPrefixPath), "65100:666")
+
+		// /status reports the base and the effective prepend.
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		prependVIP := vipFromStatus(t, status, "prepend-vip")
+		assert.Equal(t, 2, prependVIP.ASPathPrependBase)
+		assert.Equal(t, 2, prependVIP.ASPathPrepend)
+		assert.Equal(t, []string{"65100:100"}, prependVIP.Communities)
+		webVIP := vipFromStatus(t, status, "web-vip")
+		assert.Equal(t, 0, webVIP.ASPathPrependBase)
+		assert.Equal(t, 0, webVIP.ASPathPrepend)
 	})
 
 	// bird3 is the IPv6-capable MP-BGP peer. GitHub Actions runner pods have no
@@ -380,6 +395,18 @@ func TestE2E(t *testing.T) {
 		communities := extractCommunity(prependPrefixPath)
 		assert.Contains(t, communities, "65100:100", "announce community must survive pessimization")
 		assert.Contains(t, communities, "65100:666", "lower_priority community must be added")
+
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		prependVIP := vipFromStatus(t, status, "prepend-vip")
+		assert.Equal(t, 2, prependVIP.ASPathPrependBase, "base is static")
+		assert.Equal(t, 5, prependVIP.ASPathPrepend, "effective = base + lower_priority")
+		assert.ElementsMatch(t, []string{"65100:100", "65100:666"}, prependVIP.Communities)
+
+		// The priority metric reports the effective prepend count.
+		_, body := apiRequest(t, http.MethodGet, "/metrics", nil)
+		assert.Regexp(t, `pathosd_vip_priority_status\{nlri="10.100.8.1/32",vip="prepend-vip"\} 5\b`, string(body))
+		assert.Regexp(t, `pathosd_vip_priority_status\{nlri="10.100.1.1/32",vip="web-vip"\} 6\b`, string(body))
 	})
 
 	t.Run("frr_pessimized_route", func(t *testing.T) {
@@ -838,6 +865,17 @@ func vipStateFromStatus(status DaemonStatus, vipName string) string {
 		}
 	}
 	return ""
+}
+
+func vipFromStatus(t *testing.T, status DaemonStatus, vipName string) VIPStatus {
+	t.Helper()
+	for _, vip := range status.VIPs {
+		if vip.Name == vipName {
+			return vip
+		}
+	}
+	t.Fatalf("VIP %q not found in /status", vipName)
+	return VIPStatus{}
 }
 
 func vipHealthFromStatus(status DaemonStatus, vipName string) string {

@@ -107,3 +107,22 @@ func TestUDPChecker_ContextCancelled(t *testing.T) {
 	// What matters is it doesn't panic or hang.
 	assert.NotZero(t, result.Duration)
 }
+
+// TestUDPChecker_IPv6Host verifies that a bare IPv6 host is bracketed when
+// forming the probe address, so IPv6 /128 VIPs can be checked.
+func TestUDPChecker_IPv6Host(t *testing.T) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("::1"), Port: 0})
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
+
+	c := NewUDPChecker(&config.UDPCheckConfig{Host: "::1", Port: port, Payload: []byte{0x00}})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result := c.Check(ctx)
+	assert.True(t, result.Success, "expected pass for open IPv6 UDP port; detail: %s", result.Detail)
+	assert.Contains(t, result.Detail, "[::1]:")
+}

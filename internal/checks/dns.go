@@ -17,7 +17,10 @@ type DNSChecker struct {
 }
 
 func NewDNSChecker(cfg *config.DNSCheckConfig) *DNSChecker {
-	return &DNSChecker{cfg: *cfg, client: &dns.Client{}}
+	c := &DNSChecker{cfg: *cfg, client: &dns.Client{}}
+	// dns.StringToType is case-sensitive; accept "aaaa" as well as "AAAA".
+	c.cfg.QueryType = strings.ToUpper(c.cfg.QueryType)
+	return c
 }
 
 func (c *DNSChecker) Type() string { return "dns" }

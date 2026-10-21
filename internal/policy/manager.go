@@ -73,7 +73,7 @@ func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPN
 			},
 		}
 		m.VIPState.WithLabelValues(v.Name, v.Prefix).Set(float64(model.StateWithdrawn))
-		m.VIPPriority.WithLabelValues(v.Name, v.Prefix).Set(1)
+		m.VIPPriority.WithLabelValues(v.Name, v.Prefix).Set(float64(priorityFor(&v.Policy, model.StateWithdrawn)))
 	}
 	return mgr
 }
@@ -173,6 +173,7 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 	for name, entry := range m.vips {
 		cfg := entry.cfg
 		vs := entry.state
+		attrs := RouteAttrsFor(&cfg.Policy, vs.state)
 		out = append(out, model.VIPStatus{
 			Name:                 name,
 			Prefix:               cfg.Prefix,
@@ -187,10 +188,23 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 			LastTransitionReason: vs.lastTransitionReason,
 			CheckType:            cfg.Check.Type,
 			BGPPending:           vs.bgpPending,
+			ASPathPrependBase:    BaseRouteAttrs(&cfg.Policy).ASPathPrepend,
+			ASPathPrepend:        attrs.ASPathPrepend,
+			Communities:          attrs.Communities,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// priorityFor returns the value of pathosd_vip_priority_status for a state:
+// the prepend count the route carries while pessimized, otherwise the base
+// prepend this node would announce with.
+func priorityFor(p *config.PolicyConfig, state model.VIPState) int {
+	if state == model.StatePessimized {
+		return RouteAttrsFor(p, state).ASPathPrepend
+	}
+	return BaseRouteAttrs(p).ASPathPrepend
 }
 
 func lowerPriorityFilePresent(path string) bool {
@@ -220,11 +234,7 @@ func (m *Manager) transitionStateLocked(ctx context.Context, vs *vipState, cfg *
 	m.metrics.VIPTransitions.WithLabelValues(cfg.Name, cfg.Prefix, newState.String()).Inc()
 	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(vs.lastTransitionAt.Unix()))
 
-	priority := 1.0
-	if newState == model.StatePessimized {
-		priority = float64(RouteAttrsFor(&cfg.Policy, newState).ASPathPrepend)
-	}
-	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
+	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(priorityFor(&cfg.Policy, newState)))
 
 	if m.notifier != nil {
 		vs.bgpPending = m.applyBGP(ctx, cfg, newState) != nil

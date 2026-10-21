@@ -41,6 +41,7 @@
           <th>Prefix</th>
           <th>State</th>
           <th>Health</th>
+          <th>Prepend</th>
           <th>Check</th>
           <th>Last Detail</th>
           <th>Actions</th>
@@ -53,6 +54,7 @@
           <td><code>{{.Prefix}}</code></td>
           <td><span class="tag tag-{{.StateName}}">{{.StateName}}</span></td>
           <td><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span></td>
+          <td title="base {{.ASPathPrependBase}}">{{.ASPathPrepend}}</td>
           <td>{{.CheckType}}</td>
           <td>{{.LastCheckDetail}}</td>
           <td>

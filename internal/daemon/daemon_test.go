@@ -20,6 +20,7 @@ import (
 	"github.com/vooon/pathosd/internal/checks"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/metrics"
+	"github.com/vooon/pathosd/internal/model"
 	"github.com/vooon/pathosd/internal/policy"
 )
 
@@ -366,7 +367,7 @@ func TestRegisterBGPLifecycle(t *testing.T) {
 	require.Len(t, lc.hooks, 1)
 	hook := lc.hooks[0]
 	require.NoError(t, hook.OnStart(context.Background()))
-	require.NoError(t, mgr.AnnounceVIP(context.Background(), "10.1.0.1/32"))
+	require.NoError(t, mgr.AnnounceVIP(context.Background(), "10.1.0.1/32", model.RouteAttrs{}))
 	require.NoError(t, hook.OnStop(context.Background()))
 }
 

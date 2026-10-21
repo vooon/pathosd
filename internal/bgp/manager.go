@@ -205,16 +205,31 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 	return peer, nil
 }
 
-func (m *Manager) AnnounceVIP(ctx context.Context, prefix string) error {
-	_, span := m.tracer.Start(ctx, "bgp.announce",
+// AnnounceVIP installs (or replaces) the VIP route at full priority with the
+// given attributes.
+func (m *Manager) AnnounceVIP(ctx context.Context, prefix string, attrs model.RouteAttrs) error {
+	return m.originate(ctx, prefix, attrs, "announce")
+}
+
+// PessimizeVIP installs (or replaces) the VIP route with lowered priority
+// attributes. It is the same operation as AnnounceVIP; the distinct name keeps
+// traces and logs readable.
+func (m *Manager) PessimizeVIP(ctx context.Context, prefix string, attrs model.RouteAttrs) error {
+	return m.originate(ctx, prefix, attrs, "pessimize")
+}
+
+func (m *Manager) originate(ctx context.Context, prefix string, attrs model.RouteAttrs, operation string) error {
+	_, span := m.tracer.Start(ctx, "bgp."+operation,
 		trace.WithAttributes(
 			attribute.String("bgp.prefix", prefix),
-			attribute.String("bgp.operation", "announce"),
+			attribute.String("bgp.operation", operation),
+			attribute.Int("bgp.prepend", attrs.ASPathPrepend),
+			attribute.StringSlice("bgp.communities", attrs.Communities),
 		),
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
-	err := m.upsertVIP(prefix, 0, nil, "announce")
+	err := m.upsertVIP(prefix, attrs, operation)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -232,7 +247,7 @@ func (m *Manager) WithdrawVIP(ctx context.Context, prefix string) error {
 	)
 	defer span.End()
 
-	path, err := m.buildPath(prefix, 0, nil)
+	path, err := m.buildPath(prefix, model.RouteAttrs{})
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -263,38 +278,17 @@ func (m *Manager) WithdrawVIP(ctx context.Context, prefix string) error {
 	return nil
 }
 
-func (m *Manager) PessimizeVIP(ctx context.Context, prefix string, prepend int, communities []string) error {
-	_, span := m.tracer.Start(ctx, "bgp.pessimize",
-		trace.WithAttributes(
-			attribute.String("bgp.prefix", prefix),
-			attribute.String("bgp.operation", "pessimize"),
-			attribute.Int("bgp.prepend", prepend),
-		),
-		trace.WithSpanKind(trace.SpanKindInternal),
-	)
-	defer span.End()
-	err := m.upsertVIP(prefix, prepend, communities, "pessimize")
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-	return err
-}
-
-func (m *Manager) upsertVIP(prefix string, prepend int, communities []string, operation string) error {
-	if prepend > 0 && m.hasIBGPPeer() {
+func (m *Manager) upsertVIP(prefix string, attrs model.RouteAttrs, operation string) error {
+	if attrs.ASPathPrepend > 0 && m.hasIBGPPeer() {
 		slog.Warn(
 			"ignoring local ASN prepend for iBGP-originated route",
 			"operation", operation,
 			"prefix", prefix,
-			"prepend", prepend,
+			"prepend", attrs.ASPathPrepend,
 		)
 	}
 
-	path, err := m.buildPath(prefix, 0, nil)
-	if prepend > 0 || len(communities) > 0 {
-		path, err = m.buildPath(prefix, prepend, communities)
-	}
+	path, err := m.buildPath(prefix, attrs)
 	if err != nil {
 		return err
 	}
@@ -327,15 +321,11 @@ func (m *Manager) upsertVIP(prefix string, prepend int, communities []string, op
 	m.storeInstalledUUID(prefix, newUUID)
 
 	m.syncRouteStateMetric(context.Background(), prefix)
-	if operation == "announce" {
-		slog.Info("BGP announce", "prefix", prefix, "uuid", newUUID.String())
-		return nil
-	}
 	slog.Info(
-		"BGP pessimize",
+		"BGP "+operation,
 		"prefix", prefix,
-		"prepend", prepend,
-		"communities", communities,
+		"prepend", attrs.ASPathPrepend,
+		"communities", attrs.Communities,
 		"uuid", newUUID.String(),
 	)
 	return nil
@@ -418,7 +408,7 @@ func (m *Manager) Stop(ctx context.Context) {
 
 func (m *Manager) Server() *server.BgpServer { return m.server }
 
-func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*apiutil.Path, error) {
+func (m *Manager) buildPath(prefix string, attrs model.RouteAttrs) (*apiutil.Path, error) {
 	pfx, err := netip.ParsePrefix(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("invalid prefix %q: %w", prefix, err)
@@ -447,32 +437,32 @@ func (m *Manager) buildPath(prefix string, prepend int, communities []string) (*
 	// announcement carries an empty AS_PATH and pessimization only adds the
 	// extra prepends. iBGP peers never get prepends.
 	asPathParams := []bgppacket.AsPathParamInterface{}
-	if prepend > 0 && !m.hasIBGPPeer() {
+	if attrs.ASPathPrepend > 0 && !m.hasIBGPPeer() {
 		asPathParams = append(asPathParams, bgppacket.NewAs4PathParam(
 			bgppacket.BGP_ASPATH_ATTR_TYPE_SEQ,
-			buildASPath(m.localASN, prepend),
+			buildASPath(m.localASN, attrs.ASPathPrepend),
 		))
 	}
 	asPath := bgppacket.NewPathAttributeAsPath(asPathParams)
 
-	attrs := []bgppacket.PathAttributeInterface{
+	pathAttrs := []bgppacket.PathAttributeInterface{
 		bgppacket.NewPathAttributeOrigin(bgppacket.BGP_ORIGIN_ATTR_TYPE_IGP),
 		nh,
 		asPath,
 	}
 
-	if len(communities) > 0 {
-		comms, err := parseCommunities(communities)
+	if len(attrs.Communities) > 0 {
+		comms, err := parseCommunities(attrs.Communities)
 		if err != nil {
 			return nil, err
 		}
-		attrs = append(attrs, bgppacket.NewPathAttributeCommunities(comms))
+		pathAttrs = append(pathAttrs, bgppacket.NewPathAttributeCommunities(comms))
 	}
 
 	return &apiutil.Path{
 		Family: family,
 		Nlri:   nlri,
-		Attrs:  attrs,
+		Attrs:  pathAttrs,
 	}, nil
 }
 

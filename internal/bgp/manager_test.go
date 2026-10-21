@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/metrics"
+	"github.com/vooon/pathosd/internal/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -240,7 +241,7 @@ func TestManagerBuildPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			path, err := tc.manager.buildPath(tc.prefix, tc.prepend, tc.communities)
+			path, err := tc.manager.buildPath(tc.prefix, model.RouteAttrs{ASPathPrepend: tc.prepend, Communities: tc.communities})
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -295,7 +296,7 @@ func TestManagerBuildPath(t *testing.T) {
 			},
 		}
 
-		path, err := manager.buildPath("10.1.0.99/32", 4, []string{"65535:666"})
+		path, err := manager.buildPath("10.1.0.99/32", model.RouteAttrs{ASPathPrepend: 4, Communities: []string{"65535:666"}})
 		require.NoError(t, err)
 		decoded := decodePathAttrs(t, path.Attrs)
 		require.NotNil(t, decoded.asPath)
@@ -533,7 +534,7 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 	})
 
 	t.Run("announce VIP succeeds", func(t *testing.T) {
-		require.NoError(t, m.AnnounceVIP(context.Background(), "10.1.0.1/32"))
+		require.NoError(t, m.AnnounceVIP(context.Background(), "10.1.0.1/32", model.RouteAttrs{}))
 	})
 
 	t.Run("withdraw VIP succeeds", func(t *testing.T) {
@@ -541,7 +542,7 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 	})
 
 	t.Run("pessimize VIP succeeds", func(t *testing.T) {
-		require.NoError(t, m.PessimizeVIP(context.Background(), "10.1.0.1/32", 3, []string{"65535:666"}))
+		require.NoError(t, m.PessimizeVIP(context.Background(), "10.1.0.1/32", model.RouteAttrs{ASPathPrepend: 3, Communities: []string{"65535:666"}}))
 	})
 
 	t.Run("peer states empty without configured peers", func(t *testing.T) {
@@ -550,7 +551,7 @@ func TestManagerIntegrationWithLocalGoBGP(t *testing.T) {
 	})
 
 	t.Run("announce invalid prefix returns error", func(t *testing.T) {
-		err := m.AnnounceVIP(context.Background(), "invalid-prefix")
+		err := m.AnnounceVIP(context.Background(), "invalid-prefix", model.RouteAttrs{})
 		require.Error(t, err)
 	})
 }
@@ -745,7 +746,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 	waitForPeerEstablished(t, receiver, "127.0.0.1")
 
 	const prefix = "10.1.0.50/32"
-	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix))
+	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix, model.RouteAttrs{}))
 
 	var announced []*apiutil.Path
 	require.Eventually(t, func() bool {
@@ -767,7 +768,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		return false
 	}, 8*time.Second, 100*time.Millisecond)
 
-	require.NoError(t, sender.PessimizeVIP(context.Background(), prefix, 3, []string{"65535:666"}))
+	require.NoError(t, sender.PessimizeVIP(context.Background(), prefix, model.RouteAttrs{ASPathPrepend: 3, Communities: []string{"65535:666"}}))
 
 	require.Eventually(t, func() bool {
 		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)
@@ -780,7 +781,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		return false
 	}, 8*time.Second, 100*time.Millisecond)
 
-	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix))
+	require.NoError(t, sender.AnnounceVIP(context.Background(), prefix, model.RouteAttrs{}))
 
 	require.Eventually(t, func() bool {
 		paths := listAdjOutPaths(t, sender, "127.0.0.1", prefix)

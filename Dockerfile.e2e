@@ -6,7 +6,7 @@ COPY . .
 ARG LDFLAGS=""
 RUN CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o pathosd ./cmd/pathosd
 
-FROM alpine:3.21
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /build/pathosd /usr/local/bin/pathosd
 ENTRYPOINT ["pathosd"]

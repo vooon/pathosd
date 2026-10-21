@@ -281,4 +281,12 @@ func applyPolicyDefaults(p *PolicyConfig) {
 	if p.LowerPriority.ASPathPrepend == nil {
 		p.LowerPriority.ASPathPrepend = new(6)
 	}
+
+	// Same for the announce block: always present, prepend defaults to 0.
+	if p.Announce == nil {
+		p.Announce = &AnnounceConfig{}
+	}
+	if p.Announce.ASPathPrepend == nil {
+		p.Announce.ASPathPrepend = new(0)
+	}
 }

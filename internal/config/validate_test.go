@@ -833,4 +833,48 @@ func TestValidate_Policy(t *testing.T) {
 		cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend = new(1)
 		assert.Empty(t, Validate(cfg))
 	})
+
+	t.Run("announce.as_path_prepend 0 is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.Announce = &AnnounceConfig{ASPathPrepend: new(0)}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("announce.as_path_prepend 16 is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.Announce = &AnnounceConfig{ASPathPrepend: new(16)}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("announce.as_path_prepend negative is out of range", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.Announce = &AnnounceConfig{ASPathPrepend: new(-1)}
+		assertErrorContains(t, Validate(cfg), ".announce.as_path_prepend")
+	})
+
+	t.Run("announce.as_path_prepend 17 is out of range", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.Announce = &AnnounceConfig{ASPathPrepend: new(17)}
+		assertErrorContains(t, Validate(cfg), ".announce.as_path_prepend")
+	})
+
+	t.Run("announce.communities accepts ASN:value", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.Announce = &AnnounceConfig{Communities: []string{"65535:100", "0:0"}}
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("announce.communities rejects malformed entries", func(t *testing.T) {
+		for _, bad := range []string{"65535", "65536:1", "1:65536", "a:b", "1:2:3"} {
+			cfg := validConfig()
+			cfg.VIPs[0].Policy.Announce = &AnnounceConfig{Communities: []string{bad}}
+			assertErrorContains(t, Validate(cfg), ".announce.communities[0]")
+		}
+	})
+
+	t.Run("lower_priority.communities rejects malformed entries", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Policy.LowerPriority.Communities = []string{"65535:666", "nope"}
+		assertErrorContains(t, Validate(cfg), ".lower_priority.communities[1]")
+	})
 }

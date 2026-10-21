@@ -28,15 +28,16 @@ const (
 	pathosdService    = "pathosd"
 	pathosdRemotePort = 59179
 
-	webVIPPrefix   = "10.100.1.1/32"
-	dnsVIPPrefix   = "10.100.2.1/32"
-	tcpVIPPrefix   = "10.100.3.1/32"
-	udpVIPPrefix   = "10.100.4.1/32"
-	httpsVIPPrefix = "10.100.5.1/32"
-	grpcVIPPrefix  = "10.100.6.1/32"
-	ipv6VIPPrefix  = "2001:db8:100::1/128"
-	squidVIPPrefix = "10.100.7.1/32"
-	webVIPLockFile = "/tmp/pathosd-web-vip-drain.lock"
+	webVIPPrefix     = "10.100.1.1/32"
+	dnsVIPPrefix     = "10.100.2.1/32"
+	tcpVIPPrefix     = "10.100.3.1/32"
+	udpVIPPrefix     = "10.100.4.1/32"
+	httpsVIPPrefix   = "10.100.5.1/32"
+	grpcVIPPrefix    = "10.100.6.1/32"
+	ipv6VIPPrefix    = "2001:db8:100::1/128"
+	squidVIPPrefix   = "10.100.7.1/32"
+	prependVIPPrefix = "10.100.8.1/32"
+	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
 var pathosdAPIBaseURL string
@@ -129,7 +130,8 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "https-vip") == "announced" &&
 				vipStateFromStatus(status, "grpc-vip") == "announced" &&
 				vipStateFromStatus(status, "ipv6-vip") == "announced" &&
-				vipStateFromStatus(status, "squid-vip") == "announced"
+				vipStateFromStatus(status, "squid-vip") == "announced" &&
+				vipStateFromStatus(status, "prepend-vip") == "announced"
 		})
 	})
 
@@ -146,7 +148,8 @@ func TestE2E(t *testing.T) {
 			_, httpsOK := routes[httpsVIPPrefix]
 			_, grpcOK := routes[grpcVIPPrefix]
 			_, squidOK := routes[squidVIPPrefix]
-			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK && squidOK
+			_, prependOK := routes[prependVIPPrefix]
+			return webOK && dnsOK && tcpOK && udpOK && httpsOK && grpcOK && squidOK && prependOK
 		})
 
 		routes := frrRoutes(t)
@@ -165,6 +168,13 @@ func TestE2E(t *testing.T) {
 		assert.Equal(t, 1, countASN(extractASPath(httpsPath), "65100"), "plain announce must carry the local ASN once")
 		assert.Equal(t, 1, countASN(extractASPath(grpcPath), "65100"), "plain announce must carry the local ASN once")
 		assert.Equal(t, 1, countASN(extractASPath(squidPath), "65100"), "plain announce must carry the local ASN once")
+
+		// prepend-vip: announce.as_path_prepend=2 adds two hops on top of
+		// the eBGP export hop, and announce.communities is attached.
+		prependPrefixPath := frrPrefixPath(t, prependVIPPrefix)
+		assert.Equal(t, 3, countASN(extractASPath(prependPrefixPath), "65100"), "healthy announce must carry 1 + announce.as_path_prepend hops")
+		assert.Contains(t, extractCommunity(prependPrefixPath), "65100:100")
+		assert.NotContains(t, extractCommunity(prependPrefixPath), "65100:666")
 	})
 
 	// bird3 is the IPv6-capable MP-BGP peer. GitHub Actions runner pods have no
@@ -288,6 +298,7 @@ func TestE2E(t *testing.T) {
 			"frr peer should be established even with BFD config present")
 
 		// All VIPs must remain announced.
+		assert.Equal(t, "announced", vipStateFromStatus(status, "prepend-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "web-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "dns-vip"))
 		assert.Equal(t, "announced", vipStateFromStatus(status, "tcp-vip"))
@@ -342,10 +353,33 @@ func TestE2E(t *testing.T) {
 				return false
 			}
 			return vipStateFromStatus(status, "web-vip") == "pessimized" &&
+				vipStateFromStatus(status, "prepend-vip") == "pessimized" &&
 				vipStateFromStatus(status, "tcp-vip") == "withdrawn" &&
 				vipStateFromStatus(status, "dns-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced"
 		})
+	})
+
+	t.Run("frr_prepend_vip_pessimized_sums_prepends", func(t *testing.T) {
+		// announce (2) + lower_priority (3) + the eBGP export hop = 6 hops,
+		// and both community sets are present.
+		waitForCondition(t, "FRR shows base + lower_priority prepends for prepend-vip", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			path, ok := firstRoutePathNoFail(routes, prependVIPPrefix)
+			if !ok {
+				return false
+			}
+			return countASN(extractASPath(path), "65100") == 6
+		})
+
+		prependPrefixPath := frrPrefixPath(t, prependVIPPrefix)
+		assert.Equal(t, 6, countASN(extractASPath(prependPrefixPath), "65100"))
+		communities := extractCommunity(prependPrefixPath)
+		assert.Contains(t, communities, "65100:100", "announce community must survive pessimization")
+		assert.Contains(t, communities, "65100:666", "lower_priority community must be added")
 	})
 
 	t.Run("frr_pessimized_route", func(t *testing.T) {
@@ -396,7 +430,17 @@ func TestE2E(t *testing.T) {
 			}
 			return vipStateFromStatus(status, "web-vip") == "announced" &&
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
+				vipStateFromStatus(status, "prepend-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced"
+		})
+
+		waitForCondition(t, "FRR shows prepend-vip back at base prepend", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			path, ok := firstRoutePathNoFail(routes, prependVIPPrefix)
+			return ok && countASN(extractASPath(path), "65100") == 3
 		})
 	})
 

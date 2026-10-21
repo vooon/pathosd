@@ -39,9 +39,11 @@ E2E_IMAGE     := pathosd:e2e
 BIRD_IMAGE    := bird3:e2e
 SQUID_IMAGE   := squid:e2e
 E2E_NAMESPACE := pathosd-e2e
+# Optional k3s image override, e.g. E2E_K3S_IMAGE=rancher/k3s:v1.34.12-k3s1
+E2E_K3S_IMAGE ?=
 
 e2e-cluster:
-	k3d cluster create $(E2E_CLUSTER) --wait
+	k3d cluster create $(E2E_CLUSTER) $(if $(E2E_K3S_IMAGE),--image $(E2E_K3S_IMAGE)) --wait
 
 e2e-build:
 	docker build -f Dockerfile.e2e -t $(E2E_IMAGE) .

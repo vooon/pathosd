@@ -814,7 +814,7 @@ func apiRequestAbsoluteNoFail(baseURL, method, path string, body io.Reader) (int
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -822,18 +822,6 @@ func apiRequestAbsoluteNoFail(baseURL, method, path string, body io.Reader) (int
 	}
 
 	return resp.StatusCode, respBody, nil
-}
-
-// getPathosdStatus fetches /status from pathosd via kubectl port-forward.
-// Returns parsed DaemonStatus.
-func getPathosdStatus(t *testing.T) DaemonStatus {
-	t.Helper()
-	status, body := apiRequest(t, http.MethodGet, "/status", nil)
-	require.Equal(t, http.StatusOK, status)
-
-	var out DaemonStatus
-	require.NoError(t, json.Unmarshal(body, &out))
-	return out
 }
 
 func getPathosdStatusNoFail() (DaemonStatus, error) {
@@ -850,12 +838,6 @@ func getPathosdStatusNoFail() (DaemonStatus, error) {
 		return DaemonStatus{}, err
 	}
 	return out, nil
-}
-
-// getVIPState returns the state_name of a specific VIP from /status.
-func getVIPState(t *testing.T, vipName string) string {
-	t.Helper()
-	return vipStateFromStatus(getPathosdStatus(t), vipName)
 }
 
 func vipStateFromStatus(status DaemonStatus, vipName string) string {
@@ -905,16 +887,6 @@ func frrShowBGPPrefix(t *testing.T, prefix string) string {
 		"exec", "-n", e2eNamespace, "frr", "--",
 		"vtysh", "-c", fmt.Sprintf("show bgp ipv4 unicast %s json", prefix),
 	)
-}
-
-// birdc runs a bird3 control command on the bird pod and returns its output.
-func birdc(t *testing.T, args ...string) string {
-	t.Helper()
-	full := append([]string{
-		"exec", "-n", e2eNamespace, "bird", "--",
-		"/usr/sbin/birdc", "-s", "/run/bird/bird.ctl",
-	}, args...)
-	return kubectl(t, full...)
 }
 
 // birdcNoFail runs a bird3 control command without failing the test.

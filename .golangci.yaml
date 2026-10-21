@@ -1,0 +1,6 @@
+version: "2"
+
+run:
+  # Lint the e2e suite too (it is behind a build tag and otherwise invisible to CI).
+  build-tags:
+    - e2e

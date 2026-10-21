@@ -46,6 +46,17 @@ func (h HealthStatus) String() string {
 	}
 }
 
+// RouteAttrs are the BGP path attributes pathosd controls on an originated
+// VIP route. The zero value means a plain announcement: no extra AS_PATH
+// prepends and no communities.
+type RouteAttrs struct {
+	// ASPathPrepend is the number of additional local-ASN hops added to the
+	// AS_PATH (on top of the single hop GoBGP adds on eBGP export).
+	ASPathPrepend int `json:"as_path_prepend"`
+	// Communities are standard BGP communities in "ASN:value" form.
+	Communities []string `json:"communities,omitempty"`
+}
+
 // VIPStatus is the full observable state for one VIP.
 type VIPStatus struct {
 	Name                 string       `json:"name"`

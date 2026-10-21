@@ -23,9 +23,9 @@ type StateChange struct {
 }
 
 type BGPNotifier interface {
-	AnnounceVIP(ctx context.Context, prefix string) error
+	AnnounceVIP(ctx context.Context, prefix string, attrs model.RouteAttrs) error
 	WithdrawVIP(ctx context.Context, prefix string) error
-	PessimizeVIP(ctx context.Context, prefix string, prepend int, communities []string) error
+	PessimizeVIP(ctx context.Context, prefix string, attrs model.RouteAttrs) error
 }
 
 type Manager struct {
@@ -221,8 +221,8 @@ func (m *Manager) transitionStateLocked(ctx context.Context, vs *vipState, cfg *
 	m.metrics.VIPLastTransition.WithLabelValues(cfg.Name, cfg.Prefix).Set(float64(vs.lastTransitionAt.Unix()))
 
 	priority := 1.0
-	if newState == model.StatePessimized && cfg.Policy.LowerPriority != nil && cfg.Policy.LowerPriority.ASPathPrepend != nil {
-		priority = float64(*cfg.Policy.LowerPriority.ASPathPrepend)
+	if newState == model.StatePessimized {
+		priority = float64(RouteAttrsFor(&cfg.Policy, newState).ASPathPrepend)
 	}
 	m.metrics.VIPPriority.WithLabelValues(cfg.Name, cfg.Prefix).Set(priority)
 
@@ -235,19 +235,11 @@ func (m *Manager) applyBGP(ctx context.Context, cfg *config.VIPConfig, state mod
 	var err error
 	switch state {
 	case model.StateAnnounced:
-		err = m.notifier.AnnounceVIP(ctx, cfg.Prefix)
+		err = m.notifier.AnnounceVIP(ctx, cfg.Prefix, RouteAttrsFor(&cfg.Policy, state))
 	case model.StateWithdrawn:
 		err = m.notifier.WithdrawVIP(ctx, cfg.Prefix)
 	case model.StatePessimized:
-		prepend := 6
-		var communities []string
-		if cfg.Policy.LowerPriority != nil {
-			if cfg.Policy.LowerPriority.ASPathPrepend != nil {
-				prepend = *cfg.Policy.LowerPriority.ASPathPrepend
-			}
-			communities = cfg.Policy.LowerPriority.Communities
-		}
-		err = m.notifier.PessimizeVIP(ctx, cfg.Prefix, prepend, communities)
+		err = m.notifier.PessimizeVIP(ctx, cfg.Prefix, RouteAttrsFor(&cfg.Policy, state))
 	}
 	if err != nil {
 		slog.Error("BGP state change failed", "vip", cfg.Name, "prefix", cfg.Prefix, "state", state.String(), "error", err)

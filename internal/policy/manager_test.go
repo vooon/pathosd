@@ -37,7 +37,7 @@ type fakeBGPNotifier struct {
 	}
 }
 
-func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string) error {
+func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string, _ model.RouteAttrs) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.announces = append(f.announces, prefix)
@@ -59,12 +59,13 @@ func (f *fakeBGPNotifier) WithdrawVIP(_ context.Context, prefix string) error {
 	return nil
 }
 
-func (f *fakeBGPNotifier) PessimizeVIP(_ context.Context, prefix string, prepend int, communities []string) error {
+func (f *fakeBGPNotifier) PessimizeVIP(_ context.Context, prefix string, attrs model.RouteAttrs) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	communityCopy := make([]string, len(communities))
-	copy(communityCopy, communities)
+	prepend := attrs.ASPathPrepend
+	communityCopy := make([]string, len(attrs.Communities))
+	copy(communityCopy, attrs.Communities)
 
 	f.pessimizes = append(f.pessimizes, struct {
 		prefix      string

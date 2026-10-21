@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -419,13 +420,46 @@ func validatePolicy(prefix string, p *PolicyConfig) []error {
 		add(prefix+".fail_action", fmt.Sprintf("must be withdraw or lower_priority, got %q", p.FailAction))
 	}
 
-	if p.LowerPriority != nil && p.LowerPriority.ASPathPrepend != nil {
-		v := *p.LowerPriority.ASPathPrepend
-		if v < 1 || v > 16 {
-			add(prefix+".lower_priority.as_path_prepend", fmt.Sprintf("must be 1..16, got %d", v))
+	if p.LowerPriority != nil {
+		if p.LowerPriority.ASPathPrepend != nil {
+			v := *p.LowerPriority.ASPathPrepend
+			if v < 1 || v > 16 {
+				add(prefix+".lower_priority.as_path_prepend", fmt.Sprintf("must be 1..16, got %d", v))
+			}
 		}
+		errs = append(errs, validateCommunities(prefix+".lower_priority.communities", p.LowerPriority.Communities)...)
 	}
 
+	if p.Announce != nil {
+		if p.Announce.ASPathPrepend != nil {
+			v := *p.Announce.ASPathPrepend
+			if v < 0 || v > 16 {
+				add(prefix+".announce.as_path_prepend", fmt.Sprintf("must be 0..16, got %d", v))
+			}
+		}
+		errs = append(errs, validateCommunities(prefix+".announce.communities", p.Announce.Communities)...)
+	}
+
+	return errs
+}
+
+// validateCommunities checks that every entry is a standard community in
+// "ASN:value" form with both halves in 0..65535.
+func validateCommunities(path string, communities []string) []error {
+	var errs []error
+	for i, c := range communities {
+		parts := strings.SplitN(c, ":", 2)
+		if len(parts) != 2 {
+			errs = append(errs, fmt.Errorf("%s[%d]: must be in ASN:value form, got %q", path, i, c))
+			continue
+		}
+		for _, part := range parts {
+			if _, err := strconv.ParseUint(part, 10, 16); err != nil {
+				errs = append(errs, fmt.Errorf("%s[%d]: must be in ASN:value form with both parts 0..65535, got %q", path, i, c))
+				break
+			}
+		}
+	}
 	return errs
 }
 

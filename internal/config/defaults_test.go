@@ -806,4 +806,22 @@ func TestApplyDefaults_Policy(t *testing.T) {
 		assert.NotNil(t, cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend)
 		assert.Equal(t, 6, *cfg.VIPs[0].Policy.LowerPriority.ASPathPrepend)
 	})
+
+	t.Run("Announce auto-created with zero prepend", func(t *testing.T) {
+		cfg := makePolicy(PolicyConfig{})
+		ApplyDefaults(cfg)
+		require.NotNil(t, cfg.VIPs[0].Policy.Announce)
+		require.NotNil(t, cfg.VIPs[0].Policy.Announce.ASPathPrepend)
+		assert.Equal(t, 0, *cfg.VIPs[0].Policy.Announce.ASPathPrepend)
+		assert.Empty(t, cfg.VIPs[0].Policy.Announce.Communities)
+	})
+
+	t.Run("Announce preserved", func(t *testing.T) {
+		cfg := makePolicy(PolicyConfig{
+			Announce: &AnnounceConfig{ASPathPrepend: new(4), Communities: []string{"65535:100"}},
+		})
+		ApplyDefaults(cfg)
+		assert.Equal(t, 4, *cfg.VIPs[0].Policy.Announce.ASPathPrepend)
+		assert.Equal(t, []string{"65535:100"}, cfg.VIPs[0].Policy.Announce.Communities)
+	})
 }

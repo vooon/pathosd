@@ -32,6 +32,7 @@ The health checker and BGP speaker live in the same process. There is no separat
 - **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods)
 - **Rise/Fall hysteresis**: Configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities)
+- **Standby ordering**: per-VIP `announce.as_path_prepend` / `communities` applied while healthy, so several pathosd nodes can rank the same VIP in a fixed order over eBGP
 - **VIPs start withdrawn**: No route is announced until the service proves healthy
 - **IPv4 + IPv6 VIPs**: announce IPv4 `/32` and IPv6 `/128` prefixes (or any subnet) over BGP/MP-BGP; IPv6 routes are carried over IPv4-transport MP-BGP with a dedicated IPv6 next-hop
 - **Prometheus metrics**: VIP state, check results, durations, peer status — plus GoBGP's built-in peer/route metrics
@@ -87,6 +88,34 @@ bgp:
 - At least one neighbor and one VIP are required
 - `lower_priority` block is only valid when `fail_action` is `lower_priority`
 - Any IPv6 VIP prefix requires `router.local_address_ipv6` (used as the IPv6 next-hop); the `router_id` stays IPv4
+
+### Announce Policy and Standby Ordering
+
+Each VIP has two attribute sets under `policy`:
+
+| Block | When applied | `as_path_prepend` | `communities` |
+|-------|--------------|-------------------|---------------|
+| `announce` | every announcement (healthy and pessimized) | 0–16, default 0 | attached always |
+| `lower_priority` | only while pessimized (check failed with `fail_action: lower_priority`, or `lower_priority_file` present) | 1–16, default 6, **added** to the `announce` value | **merged** with the `announce` list |
+
+Use `announce.as_path_prepend` to rank nodes announcing the same VIP: a primary with `0`, a standby with `4`, and so on. Because the pessimized prepend is the sum of both blocks, a degraded primary (`0 + 6 = 6`) still ranks below a healthy standby (`4`), and a degraded standby (`4 + 6 = 10`) ranks below a degraded primary — the standby order never inverts.
+
+```yaml
+vips:
+  - name: web
+    prefix: 10.10.1.1/32
+    check: { type: http }
+    policy:
+      fail_action: lower_priority
+      announce:
+        as_path_prepend: 4          # this node is the standby
+        communities: ["65001:200"]  # tag every announcement
+      lower_priority:
+        as_path_prepend: 6          # pessimized: 4 + 6 = 10 prepends
+        communities: ["65001:666"]  # pessimized: 65001:200 + 65001:666
+```
+
+Prepends only work over eBGP: for iBGP peers pathosd never prepends the local ASN (a warning is logged when a prepend would have applied). Communities are sent on both.
 
 ### OpenWrt/BIRD Localhost Peering
 

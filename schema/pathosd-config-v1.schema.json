@@ -16,6 +16,31 @@
       ],
       "description": "APIConfig configures the HTTP API server."
     },
+    "AnnounceConfig": {
+      "properties": {
+        "as_path_prepend": {
+          "type": "integer",
+          "maximum": 16,
+          "minimum": 0,
+          "description": "Number of times to prepend the local ASN to the AS_PATH while the VIP is healthy. Added to lower_priority.as_path_prepend when pessimized. Only effective over eBGP (prepends are not applied to iBGP peers). Default: 0.",
+          "default": 0
+        },
+        "communities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "BGP communities attached to every announcement of this VIP (e.g. \"65535:100\"). Merged with lower_priority.communities when pessimized."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "as_path_prepend",
+        "communities"
+      ],
+      "description": "AnnounceConfig defines base BGP attributes applied to every announcement of a VIP."
+    },
     "BFDConfig": {
       "properties": {
         "enabled": {
@@ -456,7 +481,7 @@
           "type": "integer",
           "maximum": 16,
           "minimum": 1,
-          "description": "Number of times to prepend the local ASN to the AS_PATH. Default: 6.",
+          "description": "Number of additional times to prepend the local ASN to the AS_PATH when pessimized, on top of announce.as_path_prepend. Default: 6.",
           "default": 6
         },
         "communities": {
@@ -687,9 +712,13 @@
           "type": "string",
           "description": "Path to a drain lock file. When present and check is healthy, force pessimized announcement instead of full priority. Does not prevent withdrawal on failure. Useful for maintenance drains."
         },
+        "announce": {
+          "$ref": "#/$defs/AnnounceConfig",
+          "description": "BGP attributes applied to every announcement of this VIP, healthy or pessimized. Use it to rank this node below another healthy node for the same VIP (standby ordering)."
+        },
         "lower_priority": {
           "$ref": "#/$defs/LowerPriorityConfig",
-          "description": "Configuration for the lower_priority fail action."
+          "description": "BGP attributes used for pessimized announcements: on check failure when fail_action is lower_priority, and whenever lower_priority_file is present."
         }
       },
       "additionalProperties": false,

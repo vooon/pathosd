@@ -178,9 +178,17 @@ prefix = "10.10.2.1/32"
   fail_action = "lower_priority"
   lower_priority_file = "/etc/pathosd/dns-resolver.drain"
 
+    # Base attributes for every announcement of this VIP. A non-zero
+    # as_path_prepend ranks this node below a node announcing the same VIP
+    # with a smaller value (standby ordering); it is added to the
+    # lower_priority prepend when pessimized so the order never inverts.
+    [vips.policy.announce]
+    as_path_prepend = 0
+    communities = ["65001:100"]
+
     [vips.policy.lower_priority]
-    as_path_prepend = 6
-    communities = ["65001:666"]
+    as_path_prepend = 6 # pessimized AS_PATH carries 0 + 6 extra hops
+    communities = ["65001:666"] # merged with announce.communities when pessimized
 
 # Ping health check
 [[vips]]

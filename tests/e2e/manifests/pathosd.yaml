@@ -138,6 +138,29 @@ data:
             port: 2379
         policy:
           fail_action: withdraw
+      # Standby-ordering VIP: healthy announcements carry a base prepend
+      # (2 extra hops) and a base community; when nginx goes down the
+      # pessimized route carries base + lower_priority prepends (2 + 3) and
+      # both community sets. Validated against FRR (eBGP).
+      - name: prepend-vip
+        prefix: 10.100.8.1/32
+        check:
+          type: tcp
+          interval: 2s
+          timeout: 1s
+          rise: 3
+          fall: 3
+          tcp:
+            host: nginx.pathosd-e2e.svc.cluster.local
+            port: 80
+        policy:
+          fail_action: lower_priority
+          announce:
+            as_path_prepend: 2
+            communities: ["65100:100"]
+          lower_priority:
+            as_path_prepend: 3
+            communities: ["65100:666"]
       # IPv6 VIP — announced over IPv6 unicast (MP-BGP) to the bird peer.
       # Health target is the IPv6-only listener; scaling it to 0 withdraws the
       # route, validated on the bird3 side (FRR covers IPv4).

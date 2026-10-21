@@ -26,21 +26,24 @@ const (
 )
 
 type fakeBGPNotifier struct {
-	mu         sync.Mutex
-	failNext   int // number of upcoming calls that return an error
-	announces  []string
-	withdraws  []string
-	pessimizes []struct {
+	mu        sync.Mutex
+	failNext  int // number of upcoming calls that return an error
+	announces []string
+	// announceAttrs records the attrs passed to AnnounceVIP, parallel to announces.
+	announceAttrs []model.RouteAttrs
+	withdraws     []string
+	pessimizes    []struct {
 		prefix      string
 		prepend     int
 		communities []string
 	}
 }
 
-func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string, _ model.RouteAttrs) error {
+func (f *fakeBGPNotifier) AnnounceVIP(_ context.Context, prefix string, attrs model.RouteAttrs) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.announces = append(f.announces, prefix)
+	f.announceAttrs = append(f.announceAttrs, attrs)
 	return f.maybeFailLocked()
 }
 
@@ -145,6 +148,29 @@ func testVIPConfigWithLowerPriorityFile(path string, prepend int, communities []
 				LowerPriority: &config.LowerPriorityConfig{
 					ASPathPrepend: new(prepend),
 					Communities:   communities,
+				},
+			},
+		},
+	}
+}
+
+func testVIPConfigWithAnnounce(basePrepend int, baseCommunities []string, lowerPrepend int, lowerCommunities []string) []config.VIPConfig {
+	return []config.VIPConfig{
+		{
+			Name:   pessimizeVIPName,
+			Prefix: pessimizePrefix,
+			Check: config.CheckConfig{
+				Type: config.CheckTypeHTTP,
+			},
+			Policy: config.PolicyConfig{
+				FailAction: "lower_priority",
+				Announce: &config.AnnounceConfig{
+					ASPathPrepend: new(basePrepend),
+					Communities:   baseCommunities,
+				},
+				LowerPriority: &config.LowerPriorityConfig{
+					ASPathPrepend: new(lowerPrepend),
+					Communities:   lowerCommunities,
 				},
 			},
 		},
@@ -295,6 +321,30 @@ func TestManager_OnHealthTransition(t *testing.T) {
 		assert.Equal(t, 3, notifier.pessimizes[0].prepend)
 		assert.Equal(t, []string{"65535:666"}, notifier.pessimizes[0].communities)
 		assert.Equal(t, float64(3), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
+	})
+
+	t.Run("announce block applies base attrs when healthy and adds to lower_priority when pessimized", func(t *testing.T) {
+		m := newTestMetrics()
+		notifier := &fakeBGPNotifier{}
+		mgr := NewManager(testVIPConfigWithAnnounce(4, []string{"65535:100"}, 2, []string{"65535:666"}), m, notifier)
+
+		mgr.OnHealthTransition(checks.HealthTransition{
+			VIPName: pessimizeVIPName,
+			Healthy: true,
+			Reason:  "rise threshold reached",
+		})
+		require.Len(t, notifier.announceAttrs, 1)
+		assert.Equal(t, model.RouteAttrs{ASPathPrepend: 4, Communities: []string{"65535:100"}}, notifier.announceAttrs[0])
+
+		mgr.OnHealthTransition(checks.HealthTransition{
+			VIPName: pessimizeVIPName,
+			Healthy: false,
+			Reason:  "fall threshold reached",
+		})
+		require.Len(t, notifier.pessimizes, 1)
+		assert.Equal(t, 6, notifier.pessimizes[0].prepend, "pessimized prepend must be base + lower_priority")
+		assert.Equal(t, []string{"65535:100", "65535:666"}, notifier.pessimizes[0].communities)
+		assert.Equal(t, float64(6), testutil.ToFloat64(m.VIPPriority.WithLabelValues(pessimizeVIPName, pessimizePrefix)))
 	})
 
 	t.Run("no-op same state does not notify and does not increment transition metric", func(t *testing.T) {

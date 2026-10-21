@@ -114,6 +114,45 @@ func TestRouteAttrsFor(t *testing.T) {
 			state:  model.StatePessimized,
 			want:   model.RouteAttrs{ASPathPrepend: 6, Communities: []string{"65535:1"}},
 		},
+		{
+			name: "announced carries the announce block",
+			policy: config.PolicyConfig{
+				FailAction:    "lower_priority",
+				Announce:      &config.AnnounceConfig{ASPathPrepend: new(4), Communities: []string{"65535:100"}},
+				LowerPriority: lower,
+			},
+			state: model.StateAnnounced,
+			want:  model.RouteAttrs{ASPathPrepend: 4, Communities: []string{"65535:100"}},
+		},
+		{
+			name: "pessimized adds base and lower_priority prepends and merges communities",
+			policy: config.PolicyConfig{
+				FailAction:    "lower_priority",
+				Announce:      &config.AnnounceConfig{ASPathPrepend: new(4), Communities: []string{"65535:100", "65535:666"}},
+				LowerPriority: lower,
+			},
+			state: model.StatePessimized,
+			want:  model.RouteAttrs{ASPathPrepend: 7, Communities: []string{"65535:100", "65535:666"}},
+		},
+		{
+			name: "announce block with zero prepend behaves like no block",
+			policy: config.PolicyConfig{
+				FailAction:    "lower_priority",
+				Announce:      &config.AnnounceConfig{ASPathPrepend: new(0)},
+				LowerPriority: lower,
+			},
+			state: model.StateAnnounced,
+			want:  model.RouteAttrs{},
+		},
+		{
+			name: "withdrawn ignores announce block",
+			policy: config.PolicyConfig{
+				FailAction: "withdraw",
+				Announce:   &config.AnnounceConfig{ASPathPrepend: new(4), Communities: []string{"65535:100"}},
+			},
+			state: model.StateWithdrawn,
+			want:  model.RouteAttrs{},
+		},
 	}
 
 	for _, tc := range tests {
@@ -122,4 +161,11 @@ func TestRouteAttrsFor(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestMergeCommunities(t *testing.T) {
+	assert.Nil(t, mergeCommunities(nil, nil))
+	assert.Equal(t, []string{"1:1"}, mergeCommunities([]string{"1:1"}, nil))
+	assert.Equal(t, []string{"1:1"}, mergeCommunities(nil, []string{"1:1"}))
+	assert.Equal(t, []string{"1:1", "2:2", "3:3"}, mergeCommunities([]string{"1:1", "2:2"}, []string{"2:2", "3:3"}))
 }

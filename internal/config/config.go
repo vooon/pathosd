@@ -420,13 +420,26 @@ type PolicyConfig struct {
 	FailAction string `yaml:"fail_action" json:"fail_action" toml:"fail_action" jsonschema:"enum=withdraw,enum=lower_priority,default=lower_priority"`
 	// Path to a drain lock file. When present and the check is healthy, the VIP is announced pessimized (using the lower_priority attributes) instead of at full priority, regardless of fail_action. Does not prevent withdrawal on failure. Useful for maintenance drains.
 	LowerPriorityFile string `yaml:"lower_priority_file" json:"lower_priority_file,omitempty" toml:"lower_priority_file,omitempty"`
+	// BGP attributes applied to every announcement of this VIP, healthy or pessimized. Use it to rank this node below another healthy node for the same VIP (standby ordering).
+	Announce *AnnounceConfig `yaml:"announce" json:"announce,omitempty" toml:"announce,omitempty"`
 	// BGP attributes used for pessimized announcements: on check failure when fail_action is lower_priority, and whenever lower_priority_file is present.
 	LowerPriority *LowerPriorityConfig `yaml:"lower_priority" json:"lower_priority,omitempty" toml:"lower_priority,omitempty"`
 }
 
+// AnnounceConfig defines base BGP attributes applied to every announcement of a VIP.
+// When the VIP is pessimized these are combined with LowerPriorityConfig: the
+// prepend counts are added and the community lists are merged, so a degraded
+// node always ranks below a healthy node that has a larger base prepend.
+type AnnounceConfig struct {
+	// Number of times to prepend the local ASN to the AS_PATH while the VIP is healthy. Added to lower_priority.as_path_prepend when pessimized. Only effective over eBGP (prepends are not applied to iBGP peers). Default: 0.
+	ASPathPrepend *int `yaml:"as_path_prepend" json:"as_path_prepend" toml:"as_path_prepend" jsonschema:"minimum=0,maximum=16,default=0"`
+	// BGP communities attached to every announcement of this VIP (e.g. "65535:100"). Merged with lower_priority.communities when pessimized.
+	Communities []string `yaml:"communities" json:"communities" toml:"communities"`
+}
+
 // LowerPriorityConfig defines BGP attributes for pessimized announcements.
 type LowerPriorityConfig struct {
-	// Number of times to prepend the local ASN to the AS_PATH. Default: 6.
+	// Number of additional times to prepend the local ASN to the AS_PATH when pessimized, on top of announce.as_path_prepend. Default: 6.
 	ASPathPrepend *int `yaml:"as_path_prepend" json:"as_path_prepend" toml:"as_path_prepend" jsonschema:"minimum=1,maximum=16,default=6"`
 	// BGP communities to attach to pessimized route announcements (e.g. "65535:666").
 	Communities []string `yaml:"communities" json:"communities" toml:"communities"`

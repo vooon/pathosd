@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/miekg/dns"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/vooon/pathosd/internal/config"
 )
@@ -133,4 +134,12 @@ func TestDNSStringToType(t *testing.T) {
 			t.Errorf("dns.StringToType missing expected query type %q", qt)
 		}
 	}
+}
+
+// TestNewDNSChecker_QueryTypeCaseInsensitive verifies that a lower-case query
+// type is normalised so the dns.StringToType lookup does not silently yield
+// type 0.
+func TestNewDNSChecker_QueryTypeCaseInsensitive(t *testing.T) {
+	c := NewDNSChecker(&config.DNSCheckConfig{QueryType: "aaaa"})
+	assert.Equal(t, "AAAA", c.cfg.QueryType)
 }

@@ -638,6 +638,30 @@ func TestValidate_PingCheck(t *testing.T) {
 		cfg.VIPs[0].Check.Ping.MaxLossRatio = 0.5
 		assert.Empty(t, Validate(cfg))
 	})
+
+	t.Run("dst_ip required when prefix is not a single host", func(t *testing.T) {
+		cfg := makePingConfig()
+		cfg.VIPs[0].Prefix = "10.0.0.0/24"
+		assertErrorContains(t, Validate(cfg), ".ping.dst_ip")
+	})
+
+	t.Run("dst_ip optional for /32 prefix", func(t *testing.T) {
+		cfg := makePingConfig()
+		cfg.VIPs[0].Check.Ping.DstIP = ""
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("dst_ip must be an IP address", func(t *testing.T) {
+		cfg := makePingConfig()
+		cfg.VIPs[0].Check.Ping.DstIP = "gateway.example"
+		assertErrorContains(t, Validate(cfg), ".ping.dst_ip")
+	})
+
+	t.Run("src_ip must be an IP address", func(t *testing.T) {
+		cfg := makePingConfig()
+		cfg.VIPs[0].Check.Ping.SrcIP = "not-an-ip"
+		assertErrorContains(t, Validate(cfg), ".ping.src_ip")
+	})
 }
 
 func TestValidate_UDPCheck(t *testing.T) {

@@ -360,3 +360,12 @@ func TestNewGRPCChecker_TLSCACert_Missing(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reading tls_ca_cert")
 }
+
+// TestGRPCChecker_IPv6HostTarget verifies that a bare IPv6 host is bracketed
+// in the client target so IPv6 /128 VIPs can be checked.
+func TestGRPCChecker_IPv6HostTarget(t *testing.T) {
+	c, err := NewGRPCChecker(&config.GRPCCheckConfig{Host: "2001:db8::1", Port: 2379})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.conn.Close() })
+	assert.Contains(t, c.conn.Target(), "[2001:db8::1]:2379")
+}

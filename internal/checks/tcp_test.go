@@ -95,3 +95,23 @@ func TestTCPChecker_MissingPort(t *testing.T) {
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Detail, "port is required")
 }
+
+// TestTCPChecker_IPv6Host verifies that a bare IPv6 host is bracketed when
+// forming the dial address, so IPv6 /128 VIPs (host defaults to the VIP IP)
+// can be checked.
+func TestTCPChecker_IPv6Host(t *testing.T) {
+	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("::1"), Port: 0})
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+
+	c := NewTCPChecker(&config.TCPCheckConfig{Host: "::1", Port: port})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	result := c.Check(ctx)
+	assert.True(t, result.Success, "expected pass for open IPv6 TCP port; detail: %s", result.Detail)
+	assert.Contains(t, result.Detail, "[::1]:")
+}

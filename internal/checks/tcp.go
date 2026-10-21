@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/vooon/pathosd/internal/config"
@@ -33,7 +34,7 @@ func (c *TCPChecker) Check(ctx context.Context) Result {
 		return Result{Duration: time.Since(start), Err: err, Detail: err.Error()}
 	}
 
-	addr := fmt.Sprintf("%s:%d", c.cfg.Host, c.cfg.Port)
+	addr := net.JoinHostPort(c.cfg.Host, strconv.Itoa(int(c.cfg.Port)))
 
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "tcp", addr)

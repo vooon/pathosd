@@ -283,6 +283,16 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			add(prefix+".ping", "required when type is \"ping\"")
 		} else {
 			p := c.Ping
+			if p.DstIP == "" {
+				if !isSingleHost(vipPrefix) {
+					add(prefix+".ping.dst_ip", "required when vip prefix is not a /32 or /128")
+				}
+			} else if net.ParseIP(p.DstIP) == nil {
+				add(prefix+".ping.dst_ip", fmt.Sprintf("must be a valid IP address, got %q", p.DstIP))
+			}
+			if p.SrcIP != "" && net.ParseIP(p.SrcIP) == nil {
+				add(prefix+".ping.src_ip", fmt.Sprintf("must be a valid IP address, got %q", p.SrcIP))
+			}
 			if p.Count < 1 || p.Count > 60 {
 				add(prefix+".ping.count", fmt.Sprintf("must be 1..60, got %d", p.Count))
 			}

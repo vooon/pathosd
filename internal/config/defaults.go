@@ -3,6 +3,7 @@ package config
 import (
 	"net"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -115,6 +116,10 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 		p := c.Ping
 		if p.Count == 0 {
 			p.Count = 1
+		}
+		// Destination defaults to the VIP IP for /32 or /128.
+		if p.DstIP == "" {
+			p.DstIP = vipHostIP(vipPrefix)
 		}
 
 	case CheckTypeUDP:
@@ -238,6 +243,9 @@ func applyDNSDefaults(d *DNSCheckConfig, vipPrefix string) {
 	if d.Port == 0 {
 		d.Port = 53
 	}
+	// Normalise to upper case: the resolver maps the name to a query type
+	// with an exact (case-sensitive) lookup.
+	d.QueryType = strings.ToUpper(d.QueryType)
 	if d.QueryType == "" {
 		d.QueryType = "A"
 	}

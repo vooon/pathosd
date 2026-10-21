@@ -543,6 +543,12 @@ func TestApplyDefaults_DNSCheck(t *testing.T) {
 		assert.Equal(t, "AAAA", cfg.VIPs[0].Check.DNS.QueryType)
 	})
 
+	t.Run("QueryType normalised to upper case", func(t *testing.T) {
+		cfg := makeDNS(DNSCheckConfig{Names: []string{"example.com"}, QueryType: "aaaa"}, "10.0.0.1/32")
+		ApplyDefaults(cfg)
+		assert.Equal(t, "AAAA", cfg.VIPs[0].Check.DNS.QueryType)
+	})
+
 	t.Run("Resolver defaults to VIP IP for /32", func(t *testing.T) {
 		cfg := makeDNS(DNSCheckConfig{Names: []string{"example.com"}}, "10.0.0.1/32")
 		ApplyDefaults(cfg)
@@ -596,6 +602,32 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 		cfg := makePing(PingCheckConfig{Count: 5})
 		ApplyDefaults(cfg)
 		assert.Equal(t, 5, cfg.VIPs[0].Check.Ping.Count)
+	})
+
+	t.Run("DstIP defaults to VIP IP for /32", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{})
+		ApplyDefaults(cfg)
+		assert.Equal(t, "10.0.0.1", cfg.VIPs[0].Check.Ping.DstIP)
+	})
+
+	t.Run("DstIP defaults to VIP IP for /128", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{})
+		cfg.VIPs[0].Prefix = "2001:db8::1/128"
+		ApplyDefaults(cfg)
+		assert.Equal(t, "2001:db8::1", cfg.VIPs[0].Check.Ping.DstIP)
+	})
+
+	t.Run("DstIP empty for /24", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{})
+		cfg.VIPs[0].Prefix = "10.0.0.0/24"
+		ApplyDefaults(cfg)
+		assert.Equal(t, "", cfg.VIPs[0].Check.Ping.DstIP)
+	})
+
+	t.Run("DstIP preserved", func(t *testing.T) {
+		cfg := makePing(PingCheckConfig{DstIP: "192.0.2.1"})
+		ApplyDefaults(cfg)
+		assert.Equal(t, "192.0.2.1", cfg.VIPs[0].Check.Ping.DstIP)
 	})
 
 	t.Run("nil Ping gets initialized", func(t *testing.T) {

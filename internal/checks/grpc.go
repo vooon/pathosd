@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +99,7 @@ func NewGRPCChecker(cfg *config.GRPCCheckConfig) (*GRPCChecker, error) {
 		creds = insecure.NewCredentials()
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(int(cfg.Port)))
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("grpc: creating client for %s: %w", addr, err)

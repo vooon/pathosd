@@ -74,6 +74,15 @@ type VIPStatus struct {
 	LastTransitionReason string       `json:"last_transition_reason"`
 	CheckType            string       `json:"check_type"`
 	BGPPending           bool         `json:"bgp_pending"`
+	// ASPathPrependBase is policy.announce.as_path_prepend: the prepend this
+	// node applies to every announcement of the VIP (its standby rank).
+	ASPathPrependBase int `json:"as_path_prepend_base"`
+	// ASPathPrepend is the prepend currently applied: the base while
+	// announced (or withdrawn), base + lower_priority while pessimized.
+	ASPathPrepend int `json:"as_path_prepend"`
+	// Communities currently attached to the route (announce block, merged
+	// with lower_priority while pessimized).
+	Communities []string `json:"communities,omitempty"`
 }
 
 // PeerStatus is the observable state for one BGP neighbor.

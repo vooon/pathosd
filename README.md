@@ -117,6 +117,8 @@ vips:
 
 Prepends only work over eBGP: for iBGP peers pathosd never prepends the local ASN (a warning is logged when a prepend would have applied). Communities are sent on both.
 
+Observability: `pathosd_vip_priority_status` reports the prepend count currently applied to the VIP (`announce.as_path_prepend` while announced or withdrawn, plus `lower_priority.as_path_prepend` while pessimized; `0` means full priority). `/status` exposes `as_path_prepend_base`, `as_path_prepend` (effective) and `communities` per VIP.
+
 ### OpenWrt/BIRD Localhost Peering
 
 On OpenWrt the mesh routers run BIRD, and pathosd lives on the same host. pathosd acts as a distinct ASN and announces anycast VIPs over a local eBGP session. The session is passive on pathosd's side: BIRD dials out to pathosd on a second IP that BIRD assigns to its own LAN interface, at port `1179`.

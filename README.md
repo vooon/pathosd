@@ -229,6 +229,10 @@ The result feeds into the normal rise/fall state machine — it does not bypass 
 | `/metrics` | GET | Prometheus metrics exposition |
 | `/api/v1/vips/{name}/check` | POST | Trigger ad-hoc health check |
 
+### Security Note
+
+The HTTP API has no authentication: it is meant to be bound to a loopback or dummy interface on the host (`api.listen`, default `:59179`) and scraped by Prometheus from there. The only mutating endpoint, the ad-hoc check trigger, is harmless: it runs the configured check once and feeds the result through the normal rise/fall hysteresis, so it cannot announce or withdraw a route on its own. If the API must be reachable from other hosts, put it behind a reverse proxy or firewall rule.
+
 ## Readiness vs Liveness
 
 - **`/healthz`** returns 200 as long as the process is up and config is loaded. It does NOT depend on BGP peer state.

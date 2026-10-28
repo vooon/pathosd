@@ -698,12 +698,16 @@ func TestManager_RetriesFailedBGPOperation(t *testing.T) {
 	assert.Equal(t, []string{withdrawPrefix, withdrawPrefix}, notifier.announces)
 }
 
-func TestManager_GetVIPStatusesSorted(t *testing.T) {
-	mgr := NewManager(testVIPConfigs(), newTestMetrics(), nil)
-	statuses := mgr.GetVIPStatuses()
-	require.Len(t, statuses, 2)
-	assert.Equal(t, pessimizeVIPName, statuses[0].Name)
-	assert.Equal(t, withdrawVIPName, statuses[1].Name)
+func TestManager_GetVIPStatusesConfigOrder(t *testing.T) {
+	cfgs := testVIPConfigs()
+	require.Equal(t, withdrawVIPName, cfgs[0].Name, "test fixture order")
+	mgr := NewManager(cfgs, newTestMetrics(), nil)
+	for range 5 {
+		statuses := mgr.GetVIPStatuses()
+		require.Len(t, statuses, 2)
+		assert.Equal(t, withdrawVIPName, statuses[0].Name)
+		assert.Equal(t, pessimizeVIPName, statuses[1].Name)
+	}
 }
 
 func TestManager_OnCheckResult_DetailedMetricsGate(t *testing.T) {

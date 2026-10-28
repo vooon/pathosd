@@ -121,6 +121,10 @@ func TestNewServer_LandingAndAssets(t *testing.T) {
 		assert.Contains(t, rr.Body.String(), "/metrics")
 		assert.Contains(t, rr.Body.String(), "Trigger check")
 		assert.Contains(t, rr.Body.String(), "vip-1")
+		assert.Contains(t, rr.Body.String(), "data-auto-refresh")
+		for _, id := range []string{"updated-at", "summary", "vips-body", "peers-body"} {
+			assert.Contains(t, rr.Body.String(), `id="`+id+`"`, "live fragment swapped by landing.js")
+		}
 	})
 
 	t.Run("embedded css asset", func(t *testing.T) {

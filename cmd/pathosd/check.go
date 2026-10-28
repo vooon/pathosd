@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +20,9 @@ import (
 // CheckCmd runs the configured health checks once, without BGP or the
 // daemon, and reports the per-check results and the combined VIP health.
 type CheckCmd struct {
-	Config           string        `help:"Path to configuration file." short:"c" type:"existingfile" required:""`
+	// No type:"existingfile": a missing file must exit 200 like any other
+	// config error, not with kong's usage code.
+	Config           string        `help:"Path to configuration file." short:"c" required:""`
 	VIP              []string      `help:"Only these VIPs (repeatable). Default: all." short:"v" name:"vip"`
 	Check            []string      `help:"Only checks with these names (repeatable). Others count as failed when combining." name:"check"`
 	Format           string        `help:"Output format." enum:"text,json" default:"text"`
@@ -49,19 +50,36 @@ type checkResultReport struct {
 	Details  model.CheckDetails `json:"details,omitempty"`
 }
 
-var errChecksFailed = errors.New("checks failed")
+// Exit codes of `pathosd check`, modelled on test(1): 0 when every selected
+// VIP is healthy, 1 when at least one is not. Internal errors (bad config,
+// unknown VIP or check name, output failure) use a code above 127 so a
+// script cannot mistake them for a health verdict; 200 stays clear of the
+// 128+signal range shells use for killed processes.
+const (
+	exitUnhealthy = 1
+	exitInternal  = 200
+)
+
+// exitCodeError carries a process exit code out of a command; main prints
+// the message (if any) and exits with the code instead of kong's default 1.
+type exitCodeError struct {
+	code int
+	msg  string
+}
+
+func (e *exitCodeError) Error() string { return e.msg }
 
 func (c *CheckCmd) Run() error {
 	cfg, err := config.Load(c.Config)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return &exitCodeError{code: exitInternal, msg: "pathosd: error: loading config: " + err.Error()}
 	}
 	reports, err := c.execute(context.Background(), cfg)
 	if err != nil {
-		return err
+		return &exitCodeError{code: exitInternal, msg: "pathosd: error: " + err.Error()}
 	}
 	if err := c.print(os.Stdout, reports); err != nil {
-		return err
+		return &exitCodeError{code: exitInternal, msg: "pathosd: error: " + err.Error()}
 	}
 	unhealthy := 0
 	for _, r := range reports {
@@ -70,7 +88,7 @@ func (c *CheckCmd) Run() error {
 		}
 	}
 	if unhealthy > 0 {
-		return fmt.Errorf("%w: %d of %d VIPs unhealthy", errChecksFailed, unhealthy, len(reports))
+		return &exitCodeError{code: exitUnhealthy, msg: fmt.Sprintf("%d of %d VIPs unhealthy", unhealthy, len(reports))}
 	}
 	return nil
 }

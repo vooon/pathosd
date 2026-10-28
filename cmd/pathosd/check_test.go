@@ -155,9 +155,23 @@ func TestCheckCmd(t *testing.T) {
 		require.ErrorContains(t, err, `no check named "dns"`)
 	})
 
-	t.Run("Run exits non-zero when a VIP is unhealthy", func(t *testing.T) {
+	t.Run("exit codes follow test(1): 0 healthy, 1 unhealthy, 200 internal error", func(t *testing.T) {
+		code := func(err error) int {
+			if err == nil {
+				return 0
+			}
+			var ec *exitCodeError
+			require.ErrorAs(t, err, &ec)
+			return ec.code
+		}
+		assert.Equal(t, 0, code((&CheckCmd{Config: cfgPath, VIP: []string{"web"}, Format: "json"}).Run()))
 		err := (&CheckCmd{Config: cfgPath, VIP: []string{"slow"}, Format: "json"}).Run()
-		require.ErrorIs(t, err, errChecksFailed)
-		require.NoError(t, (&CheckCmd{Config: cfgPath, VIP: []string{"web"}, Format: "json"}).Run())
+		assert.Equal(t, 1, code(err))
+		assert.Equal(t, "1 of 1 VIPs unhealthy", err.Error())
+		err = (&CheckCmd{Config: cfgPath, VIP: []string{"nope"}, Format: "json"}).Run()
+		assert.Equal(t, 200, code(err))
+		assert.Contains(t, err.Error(), `no VIP named "nope"`)
+		err = (&CheckCmd{Config: filepath.Join(t.TempDir(), "missing.yaml"), Format: "json"}).Run()
+		assert.Equal(t, 200, code(err))
 	})
 }

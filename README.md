@@ -272,7 +272,7 @@ VIP web (10.10.1.1/32): healthy [http || tcp]
   FAIL  tcp   tcp   1.1ms   dial tcp 10.10.1.1:443: connect: connection refused
 ```
 
-`--check` runs only the named checks; the others count as failed in the combination, exactly like `?check=` on the API. `--skip-local-address` runs the probes even when `require_local_address` would hold them back on this host.
+`--check` runs only the named checks; the others count as failed in the combination, exactly like `?check=` on the API. `--skip-local-address` runs the probes even when `require_local_address` would hold them back on this host. Exit codes follow `test(1)`: `0` every selected VIP is healthy, `1` at least one is unhealthy. Internal errors (missing or invalid config, unknown VIP or check name) exit `200`, above the range a health verdict or a signal could produce. A malformed command line exits `80` (kong's usage error), as for every subcommand.
 
 For VIPs with long check intervals on a running daemon, trigger an immediate check through the API:
 

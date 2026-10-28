@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/alecthomas/kong"
 	"github.com/prometheus/common/version"
@@ -26,5 +28,12 @@ func main() {
 		},
 	)
 	err := ctx.Run(&cli)
+	var ec *exitCodeError
+	if errors.As(err, &ec) {
+		if ec.msg != "" {
+			fmt.Fprintln(os.Stderr, ec.msg)
+		}
+		os.Exit(ec.code)
+	}
 	ctx.FatalIfErrorf(err)
 }

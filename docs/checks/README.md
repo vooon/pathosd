@@ -51,7 +51,7 @@ vips:
 
 ## Reading results
 
-- `pathosd check --config FILE [--vip NAME] [--check NAME] [--format json] [--timeout 5s]` runs the checks once from a shell, no daemon or BGP needed, prints every result and the combined VIP health, and exits non-zero on an unhealthy VIP. First stop when a config does not announce.
+- `pathosd check --config FILE [--vip NAME] [--check NAME] [--format json] [--timeout 5s]` runs the checks once from a shell, no daemon or BGP needed, prints every result and the combined VIP health, and exits like `test(1)`: 0 healthy, 1 unhealthy, 200 on a config or usage error. First stop when a config does not announce.
 
 - `GET /status` lists every VIP and check with `health`, `consecutive_ok`/`consecutive_fail`, `last_detail` (a one-line explanation such as `query writable: result_jq is not true: false`) and `last_time`.
 - `POST /api/v1/vips/<name>/check` runs the checks now and returns the full result with type-specific `details` (status code, RTTs, rows per query, brokers, ...). It feeds the normal rise/fall counters.

@@ -246,25 +246,78 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 		add(prefix+".local_interface", "requires require_local_address: true")
 	}
 
-	// Check interval / timeout relationship
-	if v.Check.Interval != nil && v.Check.Timeout != nil {
-		if v.Check.Timeout.Duration >= v.Check.Interval.Duration {
-			add(prefix+".check.timeout", fmt.Sprintf(
-				"must be less than interval (%s), got %s",
-				v.Check.Interval.Duration, v.Check.Timeout.Duration))
+	// Exactly one of check / checks.
+	single := v.Check.Type != "" || v.Check.HTTP != nil || v.Check.DNS != nil || v.Check.Ping != nil ||
+		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil
+	switch {
+	case single && len(v.Checks) > 0:
+		add(prefix+".checks", "cannot be combined with check; move the single check into the list")
+	case !single && len(v.Checks) == 0:
+		add(prefix+".check", "required (or use checks for several)")
+	}
+
+	checkPath := func(i int) string {
+		if len(v.Checks) > 0 {
+			return fmt.Sprintf("%s.checks[%d]", prefix, i)
+		}
+		return prefix + ".check"
+	}
+	checkNames := make(map[string]int)
+	for i, c := range v.CheckList() {
+		path := checkPath(i)
+		if !single && len(v.Checks) == 0 {
+			break
+		}
+		name := c.EffectiveName()
+		if c.Name != "" {
+			if err := ValidateCheckName(c.Name); err != nil {
+				add(path+".name", err.Error())
+			}
+		}
+		if j, dup := checkNames[name]; dup {
+			if c.Name == "" {
+				add(path+".name", fmt.Sprintf("required: another %s check (%s) has no name either", c.Type, checkPath(j)))
+			} else {
+				add(path+".name", fmt.Sprintf("duplicate check name %q (also %s)", name, checkPath(j)))
+			}
+		} else {
+			checkNames[name] = i
+		}
+
+		// Check interval / timeout relationship
+		if c.Interval != nil && c.Timeout != nil {
+			if c.Timeout.Duration >= c.Interval.Duration {
+				add(path+".timeout", fmt.Sprintf(
+					"must be less than interval (%s), got %s",
+					c.Interval.Duration, c.Timeout.Duration))
+			}
+		}
+
+		// Rise / fall
+		if c.Rise != nil && *c.Rise < 1 {
+			add(path+".rise", "must be >= 1")
+		}
+		if c.Fall != nil && *c.Fall < 1 {
+			add(path+".fall", "must be >= 1")
+		}
+
+		// Check config
+		errs = append(errs, validateCheck(path, c, v.Prefix)...)
+	}
+
+	if v.ChecksPolicy != "" && v.ChecksPolicy != ChecksPolicyAll && v.ChecksPolicy != ChecksPolicyAny {
+		if len(v.Checks) == 0 {
+			add(prefix+".checks_policy", "an expression needs checks (several checks); with a single check it must be omitted")
+		} else if len(checkNames) == len(v.Checks) {
+			names := make([]string, 0, len(checkNames))
+			for n := range checkNames {
+				names = append(names, n)
+			}
+			if _, err := CompileChecksPolicy(v.ChecksPolicy, names); err != nil {
+				add(prefix+".checks_policy", err.Error())
+			}
 		}
 	}
-
-	// Rise / fall
-	if v.Check.Rise != nil && *v.Check.Rise < 1 {
-		add(prefix+".check.rise", "must be >= 1")
-	}
-	if v.Check.Fall != nil && *v.Check.Fall < 1 {
-		add(prefix+".check.fall", "must be >= 1")
-	}
-
-	// Check config
-	errs = append(errs, validateCheck(prefix+".check", &v.Check, v.Prefix)...)
 
 	// Policy config
 	errs = append(errs, validatePolicy(prefix+".policy", &v.Policy)...)

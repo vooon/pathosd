@@ -158,7 +158,7 @@ func TestProvideMetrics(t *testing.T) {
 			require.NotNil(t, m)
 
 			// Seed one sample so histogram instances exist in gathered output.
-			m.CheckDuration.WithLabelValues("test-vip", "10.0.0.1/32", "http").Observe(0.1)
+			m.CheckDuration.WithLabelValues("test-vip", "10.0.0.1/32", "http", "http").Observe(0.1)
 
 			gotMaxBound := maxFiniteDurationBucketBound(t, m)
 			wantBuckets := metrics.GenerateCheckBuckets(tc.expectedMaxTo)
@@ -227,7 +227,7 @@ func TestProvideSchedulers(t *testing.T) {
 
 		_, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `creating checker for VIP "vip-bad"`)
+		assert.Contains(t, err.Error(), `creating checker "nope" for VIP "vip-bad"`)
 	})
 
 	t.Run("uses configured rise and fall values", func(t *testing.T) {
@@ -262,8 +262,8 @@ func TestProvideSchedulers(t *testing.T) {
 
 		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
-		sched := out.Schedulers["vip-explicit"]
-		require.NotNil(t, sched)
+		require.Len(t, out.Schedulers["vip-explicit"], 1)
+		sched := out.Schedulers["vip-explicit"][0]
 
 		result, err := sched.TriggerCheck(context.Background())
 		require.NoError(t, err)
@@ -313,8 +313,8 @@ func TestProvideSchedulers(t *testing.T) {
 
 		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
-		sched := out.Schedulers["vip-defaults"]
-		require.NotNil(t, sched)
+		require.Len(t, out.Schedulers["vip-defaults"], 1)
+		sched := out.Schedulers["vip-defaults"][0]
 
 		result, err := sched.TriggerCheck(context.Background())
 		require.NoError(t, err)
@@ -420,7 +420,7 @@ func TestRegisterSchedulersLifecycle(t *testing.T) {
 	}, metrics.New([]float64{0.1}), nil)
 
 	lc := &hookCollector{}
-	registerSchedulersLifecycle(lc, map[string]*checks.Scheduler{"vip-a": sched}, pol)
+	registerSchedulersLifecycle(lc, map[string][]*checks.Scheduler{"vip-a": {sched}}, pol)
 
 	require.Len(t, lc.hooks, 1)
 	hook := lc.hooks[0]

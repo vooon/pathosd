@@ -96,6 +96,31 @@ vips:
     policy:
       fail_action: withdraw
 
+  # Several checks on one VIP. Each check has its own interval/timeout/rise/fall;
+  # checks_policy combines their health: all (default), any, or a boolean
+  # expression over the check names (expr-lang syntax). Names default to the
+  # type and must be unique within the VIP.
+  - name: web-multi
+    prefix: 10.10.1.9/32
+    checks_policy: "web || (dns && ping)"
+    checks:
+      - name: web
+        type: http
+        interval: 2s
+        timeout: 500ms
+        http:
+          url: https://web.example.com/healthz
+      - type: dns
+        interval: 10s
+        timeout: 2s
+        dns:
+          names: ["web.example.com."]
+      - type: ping
+        ping:
+          privileged: false
+    policy:
+      fail_action: withdraw
+
   # HTTP health check — path-only form with JQ response match
   - name: api-backend
     prefix: 10.10.1.2/32

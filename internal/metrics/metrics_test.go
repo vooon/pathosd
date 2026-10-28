@@ -25,10 +25,10 @@ func TestNew_RegistryGatherSucceeds(t *testing.T) {
 	m.VIPLastTransition.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.VIPPriority.WithLabelValues("v", "10.0.0.1/32").Set(0)
 	m.RouteState.WithLabelValues("10.0.0.1/32", "10.0.0.254", "65000", "", "", "100", "0", "ipv4-unicast").Set(0)
-	m.CheckTotal.WithLabelValues("v", "10.0.0.1/32", "http", "success").Add(0)
-	m.CheckDuration.WithLabelValues("v", "10.0.0.1/32", "http").Observe(0)
-	m.CheckLastResult.WithLabelValues("v", "10.0.0.1/32").Set(0)
-	m.CheckTimeoutExceeded.WithLabelValues("v", "10.0.0.1/32").Add(0)
+	m.CheckTotal.WithLabelValues("v", "10.0.0.1/32", "http", "http", "success").Add(0)
+	m.CheckDuration.WithLabelValues("v", "10.0.0.1/32", "http", "http").Observe(0)
+	m.CheckLastResult.WithLabelValues("v", "10.0.0.1/32", "http").Set(0)
+	m.CheckTimeoutExceeded.WithLabelValues("v", "10.0.0.1/32", "http").Add(0)
 
 	mfs, err := m.Registry.Gather()
 	require.NoError(t, err)
@@ -64,9 +64,9 @@ func TestNew_VIPStateUpdatable(t *testing.T) {
 
 func TestNew_CheckTotalIncrementable(t *testing.T) {
 	m := New(nil)
-	m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "success").Inc()
+	m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "http", "success").Inc()
 
-	value := testutil.ToFloat64(m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "success"))
+	value := testutil.ToFloat64(m.CheckTotal.WithLabelValues("web-vip", "10.0.0.1/32", "http", "http", "success"))
 	assert.Equal(t, float64(1), value)
 }
 
@@ -102,43 +102,43 @@ func TestObserveCheckDetails(t *testing.T) {
 	const vip, nlri = "vip-1", "10.0.0.1/32"
 
 	t.Run("nil details are ignored", func(t *testing.T) {
-		m.ObserveCheckDetails(vip, nlri, nil)
+		m.ObserveCheckDetails(vip, nlri, "http", nil)
 		assert.Equal(t, 0, testutil.CollectAndCount(m.HTTPResponseStatus))
 	})
 
 	t.Run("ping", func(t *testing.T) {
-		m.ObserveCheckDetails(vip, nlri, &model.PingDetails{
+		m.ObserveCheckDetails(vip, nlri, "http", &model.PingDetails{
 			RTTs: []time.Duration{2 * time.Millisecond, 3 * time.Millisecond}, PacketLoss: 0.25,
 		})
-		assert.Equal(t, 0.25, testutil.ToFloat64(m.PingPacketLoss.WithLabelValues(vip, nlri)))
+		assert.Equal(t, 0.25, testutil.ToFloat64(m.PingPacketLoss.WithLabelValues(vip, nlri, "http")))
 		assert.Equal(t, 1, testutil.CollectAndCount(m.PingRTT))
 	})
 
 	t.Run("http", func(t *testing.T) {
 		exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
-		m.ObserveCheckDetails(vip, nlri, &model.HTTPDetails{StatusCode: 503, TLSCertNotAfter: exp})
-		assert.Equal(t, float64(503), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(vip, nlri)))
-		assert.Equal(t, float64(exp.Unix()), testutil.ToFloat64(m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri)))
+		m.ObserveCheckDetails(vip, nlri, "http", &model.HTTPDetails{StatusCode: 503, TLSCertNotAfter: exp})
+		assert.Equal(t, float64(503), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(vip, nlri, "http")))
+		assert.Equal(t, float64(exp.Unix()), testutil.ToFloat64(m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri, "http")))
 	})
 
 	t.Run("http without TLS leaves expiry untouched", func(t *testing.T) {
 		m2 := New(nil)
-		m2.ObserveCheckDetails(vip, nlri, &model.HTTPDetails{StatusCode: 200})
+		m2.ObserveCheckDetails(vip, nlri, "http", &model.HTTPDetails{StatusCode: 200})
 		assert.Equal(t, 0, testutil.CollectAndCount(m2.HTTPTLSCertExpiry))
 	})
 
 	t.Run("dns", func(t *testing.T) {
-		m.ObserveCheckDetails(vip, nlri, &model.DNSDetails{Names: []model.DNSNameDetails{
+		m.ObserveCheckDetails(vip, nlri, "http", &model.DNSDetails{Names: []model.DNSNameDetails{
 			{Name: "a.example", Rcode: 0, Answers: 2},
 			{Name: "b.example", Rcode: 3, Answers: 0},
 		}})
-		assert.Equal(t, float64(2), testutil.ToFloat64(m.DNSAnswers.WithLabelValues(vip, nlri, "a.example")))
-		assert.Equal(t, float64(3), testutil.ToFloat64(m.DNSRcode.WithLabelValues(vip, nlri, "b.example")))
+		assert.Equal(t, float64(2), testutil.ToFloat64(m.DNSAnswers.WithLabelValues(vip, nlri, "http", "a.example")))
+		assert.Equal(t, float64(3), testutil.ToFloat64(m.DNSRcode.WithLabelValues(vip, nlri, "http", "b.example")))
 	})
 
 	t.Run("grpc", func(t *testing.T) {
-		m.ObserveCheckDetails(vip, nlri, &model.GRPCDetails{StatusCode: 14})
-		assert.Equal(t, float64(14), testutil.ToFloat64(m.GRPCStatusCode.WithLabelValues(vip, nlri)))
+		m.ObserveCheckDetails(vip, nlri, "http", &model.GRPCDetails{StatusCode: 14})
+		assert.Equal(t, float64(14), testutil.ToFloat64(m.GRPCStatusCode.WithLabelValues(vip, nlri, "http")))
 	})
 
 	_, err := m.Registry.Gather()

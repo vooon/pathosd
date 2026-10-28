@@ -56,8 +56,15 @@
           <td><span class="tag tag-{{.StateName}}">{{.StateName}}</span></td>
           <td><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span></td>
           <td title="base {{.ASPathPrependBase}}">{{.ASPathPrepend}}</td>
-          <td>{{.CheckType}}</td>
-          <td>{{.LastCheckDetail}}</td>
+          <td>
+            {{if gt (len .Checks) 1}}<div class="meta">{{if or (eq .ChecksPolicy "all") (eq .ChecksPolicy "any")}}{{.ChecksPolicy}} of:{{else}}<code>{{.ChecksPolicy}}</code>{{end}}</div>{{end}}
+            {{range .Checks}}<div class="check" title="type: {{.Type}}
+consecutive ok: {{.ConsecutiveOK}}, fail: {{.ConsecutiveFail}}
+last: {{if .LastTime.IsZero}}not run yet{{else}}{{if .LastSuccess}}success{{else}}failure{{end}} at {{.LastTime.Format "15:04:05"}}{{if .LastDetail}} — {{.LastDetail}}{{end}}{{end}}"><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span> {{.Name}}{{if ne .Name .Type}} <span class="meta">({{.Type}})</span>{{end}}</div>{{end}}
+          </td>
+          <td>
+            {{if gt (len .Checks) 1}}{{range .Checks}}<div><strong>{{.Name}}:</strong> {{.LastDetail}}</div>{{end}}{{else}}{{.LastCheckDetail}}{{end}}
+          </td>
           <td>
             <button type="button" data-trigger-check data-vip="{{.Name}}">Trigger check</button>
             <span class="check-result" id="result-{{.Name}}"></span>

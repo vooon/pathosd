@@ -23,6 +23,7 @@ High-availability services need a single, stable IP that fails over with the ser
 
 - **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ, forward proxy), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods)
 - **Rise/Fall hysteresis**: configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
+- **Several checks per VIP**: each with its own interval/thresholds, combined with `all`, `any` or a boolean expression such as `web || (dns && ping)`
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities), plus a `lower_priority_file` drain switch
 - **Standby ordering**: per-VIP `announce.as_path_prepend` / `communities` applied while healthy, so several pathosd nodes can rank the same VIP in a fixed order over eBGP
 - **IPv4 + IPv6 VIPs**: IPv6 routes are carried over IPv4-transport MP-BGP with a dedicated IPv6 next-hop
@@ -124,6 +125,7 @@ bgp:
 
 - `check.timeout` must be strictly less than `check.interval` (defaults: `interval: 1s`, `timeout: 100ms`)
 - `rise` and `fall` must be ≥ 1 (defaults: `rise: 1`, `fall: 3`)
+- Exactly one of `check` or `checks` per VIP; check names must be unique within the VIP (two checks of the same type need explicit names) and `checks_policy` must compile against them
 - Each VIP name and prefix must be unique
 - At least one neighbor and one VIP are required
 - `policy.lower_priority` (`as_path_prepend`, default 6; `communities`) is used whenever the VIP is announced pessimized: on check failure with `fail_action: lower_priority`, and whenever `lower_priority_file` exists, regardless of `fail_action`
@@ -133,9 +135,123 @@ bgp:
 
 ### Rise/Fall
 
-- **Fall**: number of consecutive failures before a healthy VIP transitions to unhealthy
-- **Rise**: number of consecutive successes before an unhealthy VIP transitions to healthy
+- **Fall**: number of consecutive failures before a healthy check transitions to unhealthy
+- **Rise**: number of consecutive successes before an unhealthy check transitions to healthy
 - VIPs always start in the **withdrawn** state — they must pass `rise` consecutive checks before being announced
+
+Every check runs on its own loop (first probe at startup, then every `interval`) and keeps its own counters. A failure resets the success counter and vice versa, so the thresholds count strictly consecutive results:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Unhealthy
+    Unhealthy --> Unhealthy: failure (ok = 0)
+    Unhealthy --> Unhealthy: success, ok < rise
+    Unhealthy --> Healthy: success, ok ≥ rise
+    Healthy --> Healthy: success (fail = 0)
+    Healthy --> Healthy: failure, fail < fall
+    Healthy --> Unhealthy: failure, fail ≥ fall
+```
+
+Only the two crossing edges emit a *health transition* to the policy layer; everything else is a counter update visible in `/status` as `consecutive_ok` / `consecutive_fail`.
+
+### From Check Result to BGP Update
+
+A transition travels synchronously through the policy manager: the combined health is recomputed, the VIP state is derived from it together with `fail_action` and the drain file, and the BGP update (if any) is sent in the same call. There is no extra VIP-level timer.
+
+```mermaid
+flowchart LR
+    subgraph checks [per check, own interval]
+        P1[probe] --> F1[rise/fall]
+        P2[probe] --> F2[rise/fall]
+    end
+    F1 -- "health transition" --> C{checks_policy<br/>all / any / expr}
+    F2 -- "health transition" --> C
+    C -- "VIP health unchanged" --> L[log only]
+    C -- "VIP health changed" --> E{Evaluate<br/>fail_action, drain file}
+    E --> S[VIP state]
+    S -- announce / pessimize / withdraw --> B[GoBGP]
+```
+
+The VIP state itself has three values. `pessimized` is reachable from both sides: on failure with `fail_action: lower_priority`, and while the `lower_priority_file` exists even though the checks pass.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> withdrawn
+    withdrawn --> announced: healthy, no drain file
+    withdrawn --> pessimized: healthy, drain file present
+    announced --> withdrawn: unhealthy, fail_action withdraw
+    announced --> pessimized: unhealthy, fail_action lower_priority
+    announced --> pessimized: drain file appears
+    pessimized --> announced: healthy, drain file gone
+    pessimized --> withdrawn: unhealthy, fail_action withdraw
+```
+
+### Multiple Checks per VIP
+
+`checks` replaces the single `check` with a list. Every entry is a complete check with its own type, interval, timeout, rise and fall, so a slow TLS probe and a fast TCP probe can coexist. `checks_policy` decides how the per-check health (after each check's own rise/fall) becomes the VIP health:
+
+| `checks_policy` | VIP is healthy when |
+|-----------------|---------------------|
+| `all` (default) | every check is healthy |
+| `any` | at least one check is healthy |
+| expression | the expression over the check names is true, e.g. `web || (dns && ping)` |
+
+```yaml
+vips:
+  - name: web
+    prefix: 10.10.1.1/32
+    checks_policy: "web || (dns && ping)"
+    checks:
+      - name: web            # names default to the type; required when a type repeats
+        type: http
+        http: { url: https://web.example.com/healthz }
+      - type: dns
+        interval: 10s
+        timeout: 2s
+        dns: { names: ["web.example.com."] }
+      - type: ping
+        ping: {}
+    policy:
+      fail_action: withdraw
+```
+
+Expressions use [expr-lang](https://expr-lang.org/docs/language-definition) syntax with the check names as booleans: `&&`/`and`, `||`/`or`, `!`/`not` and parentheses. They are compiled at config load, so a misspelled or unknown check name, or an expression that is not boolean, is a validation error rather than a VIP that never announces. Check names are identifiers (`[A-Za-z_][A-Za-z0-9_]*`); `all` and `any` are reserved. A check that has not reported yet counts as unhealthy, so with `all` the VIP waits for the slowest `rise`.
+
+A check transition that does not change the combined health is logged (`check transition without VIP health change`) but causes no BGP update. `/status` lists every check under `checks` with its own health, counters and last detail; `last_transition_reason` is prefixed with the check name. The `pathosd_check_*` metrics carry a `check` label.
+
+#### Reaction time
+
+Each check reacts in a fixed time: failure is detected after about `fall × interval` (plus at most one `timeout` for the last probe), recovery after `rise × interval`. The policy decides which check's time the VIP follows:
+
+| `checks_policy` | VIP withdraws / pessimizes after | VIP announces after |
+|-----------------|----------------------------------|---------------------|
+| `all` | the **fastest** failing check: min of `fall × interval` | the **slowest** check: max of `rise × interval` |
+| `any` | the **last** healthy check fails: max of `fall × interval` | the **fastest** check: min of `rise × interval` |
+| expression | whichever check flips the expression, same per-check arithmetic | same |
+
+With the example above (`web` 1 s × fall 3, `dns` 10 s × fall 3, `ping` 1 s × fall 3) and `web || (dns && ping)`: web and ping both dying withdraws the VIP about 3 s later; a dns outage alone needs about 30 s to register and withdraws nothing while web is healthy. On startup `all` announces only after the slowest check reaches its `rise`, since a check that has never reported counts as unhealthy.
+
+```mermaid
+gantt
+    title all(web, dns): backend dies at t=0, web 1s × fall 3, dns 10s × fall 3
+    dateFormat ss
+    axisFormat %Ss
+    section web
+    probe fails (1/3)     :w1, 00, 1s
+    probe fails (2/3)     :w2, after w1, 1s
+    probe fails (3/3) → unhealthy :crit, w3, after w2, 1s
+    section dns
+    probe fails (1/3)     :d1, 00, 10s
+    probe fails (2/3)     :d2, after d1, 10s
+    probe fails (3/3) → unhealthy :d3, after d2, 10s
+    section VIP
+    announced             :v1, 00, 3s
+    withdrawn (web settled all) :crit, v2, after v1, 27s
+```
+
+Under `any` the same outage would keep the VIP announced until the dns check settles at about 30 s.
 
 ### Ad-Hoc Check Trigger
 
@@ -145,7 +261,7 @@ For VIPs with long check intervals, you can trigger an immediate check:
 curl -X POST http://127.0.0.1:59179/api/v1/vips/web-frontend/check
 ```
 
-The result feeds into the normal rise/fall state machine — it does not bypass hysteresis. The response carries the check result including type-specific details (status code, RTTs, rcode, …).
+The result feeds into the normal rise/fall state machine — it does not bypass hysteresis. The response carries the check result including type-specific details (status code, RTTs, rcode, …). For a VIP with several checks all of them run; `results` holds each check's result by name and `result` the combination under `checks_policy`. `?check=<name>` runs only that check (the others count as failed in the combined `result`).
 
 ### Local Address Guard
 
@@ -293,12 +409,12 @@ gobgp -u 127.0.0.1:50051 global rib
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | HTML status page: VIPs with state, health and last check detail, peers with session state, a trigger-check button per VIP |
+| `/` | GET | HTML status page: VIPs with state, health, every check with its health and last detail, peers with session state, a trigger-check button per VIP |
 | `/healthz` | GET | Liveness — 200 if process is running |
 | `/readyz` | GET | Readiness — 200 if all required BGP peers are established |
 | `/status` | GET | Full daemon state: peers, VIPs, last check results |
 | `/metrics` | GET | Prometheus metrics exposition |
-| `/api/v1/vips/{name}/check` | POST | Trigger ad-hoc health check |
+| `/api/v1/vips/{name}/check` | POST | Trigger ad-hoc health check(s); `?check=<name>` runs a single check of the VIP |
 
 ### Readiness vs Liveness
 
@@ -320,7 +436,7 @@ The server applies `api.read_header_timeout`, `read_timeout`, `write_timeout` an
 
 ### Metrics
 
-`/metrics` always carries the VIP state, transition, priority, route-state and check counters/histograms (`pathosd_vip_*`, `pathosd_route_state`, `pathosd_check_*`) plus GoBGP's own collectors (`bgp_peer_*`, `bgp_routes_*`, message counters). Per-check-type details are opt-in per VIP with `check.detailed_metrics: true`, because they add series per VIP (and per name for DNS):
+`/metrics` always carries the VIP state, transition, priority, route-state and check counters/histograms (`pathosd_vip_*`, `pathosd_route_state`, `pathosd_check_*`) plus GoBGP's own collectors (`bgp_peer_*`, `bgp_routes_*`, message counters). The check series are labelled `vip`, `nlri` and `check` (the check name, which is the type unless set). Per-check-type details are opt-in per check with `detailed_metrics: true`, because they add series per check (and per name for DNS):
 
 | Check | Metric | Meaning |
 |-------|--------|---------|

@@ -153,53 +153,53 @@ func New(checkBuckets []float64) *Metrics {
 		CheckTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_check_total",
 			Help: "Total health checks by result.",
-		}, []string{"vip", "nlri", "type", "result"}),
+		}, []string{"vip", "nlri", "check", "type", "result"}),
 
 		CheckDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "pathosd_check_duration_seconds",
 			Help:    "Histogram of health check durations in seconds.",
 			Buckets: checkBuckets,
-		}, []string{"vip", "nlri", "type"}),
+		}, []string{"vip", "nlri", "check", "type"}),
 
 		CheckLastResult: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_check_last_result",
 			Help: "Last check result: 0=fail, 1=success.",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 
 		CheckTimeoutExceeded: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pathosd_check_timeout_exceeded_total",
 			Help: "Total checks that exceeded their timeout.",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 
 		PingRTT: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "pathosd_ping_rtt_seconds",
 			Help:    "Round-trip time of individual ICMP echo replies (check.detailed_metrics only).",
 			Buckets: checkBuckets,
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 		PingPacketLoss: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_ping_packet_loss_ratio",
 			Help: "Packet loss of the last ping check, 0..1 (check.detailed_metrics only).",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 		HTTPResponseStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_http_response_status",
 			Help: "HTTP status code of the last check response (check.detailed_metrics only).",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 		HTTPTLSCertExpiry: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_http_tls_cert_expiry_timestamp_seconds",
 			Help: "NotAfter of the leaf TLS certificate seen by the last HTTPS check, as Unix time (check.detailed_metrics only).",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 		DNSRcode: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_dns_rcode",
 			Help: "DNS response code of the last query per name, 0 = NOERROR (check.detailed_metrics only).",
-		}, []string{"vip", "nlri", "name"}),
+		}, []string{"vip", "nlri", "check", "name"}),
 		DNSAnswers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_dns_answers",
 			Help: "Answer records in the last DNS reply per name (check.detailed_metrics only).",
-		}, []string{"vip", "nlri", "name"}),
+		}, []string{"vip", "nlri", "check", "name"}),
 		GRPCStatusCode: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_grpc_status_code",
 			Help: "gRPC status code of the last check call, 0 = OK (check.detailed_metrics only).",
-		}, []string{"vip", "nlri"}),
+		}, []string{"vip", "nlri", "check"}),
 	}
 
 	reg.MustRegister(
@@ -228,24 +228,24 @@ func New(checkBuckets []float64) *Metrics {
 
 // ObserveCheckDetails exports check-type-specific observations for a VIP.
 // Callers gate it on check.detailed_metrics; nil details are ignored.
-func (m *Metrics) ObserveCheckDetails(vip, nlri string, details model.CheckDetails) {
+func (m *Metrics) ObserveCheckDetails(vip, nlri, check string, details model.CheckDetails) {
 	switch d := details.(type) {
 	case *model.PingDetails:
 		for _, rtt := range d.RTTs {
-			m.PingRTT.WithLabelValues(vip, nlri).Observe(rtt.Seconds())
+			m.PingRTT.WithLabelValues(vip, nlri, check).Observe(rtt.Seconds())
 		}
-		m.PingPacketLoss.WithLabelValues(vip, nlri).Set(d.PacketLoss)
+		m.PingPacketLoss.WithLabelValues(vip, nlri, check).Set(d.PacketLoss)
 	case *model.HTTPDetails:
-		m.HTTPResponseStatus.WithLabelValues(vip, nlri).Set(float64(d.StatusCode))
+		m.HTTPResponseStatus.WithLabelValues(vip, nlri, check).Set(float64(d.StatusCode))
 		if !d.TLSCertNotAfter.IsZero() {
-			m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri).Set(float64(d.TLSCertNotAfter.Unix()))
+			m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri, check).Set(float64(d.TLSCertNotAfter.Unix()))
 		}
 	case *model.DNSDetails:
 		for _, n := range d.Names {
-			m.DNSRcode.WithLabelValues(vip, nlri, n.Name).Set(float64(n.Rcode))
-			m.DNSAnswers.WithLabelValues(vip, nlri, n.Name).Set(float64(n.Answers))
+			m.DNSRcode.WithLabelValues(vip, nlri, check, n.Name).Set(float64(n.Rcode))
+			m.DNSAnswers.WithLabelValues(vip, nlri, check, n.Name).Set(float64(n.Answers))
 		}
 	case *model.GRPCDetails:
-		m.GRPCStatusCode.WithLabelValues(vip, nlri).Set(float64(d.StatusCode))
+		m.GRPCStatusCode.WithLabelValues(vip, nlri, check).Set(float64(d.StatusCode))
 	}
 }

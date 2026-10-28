@@ -142,6 +142,11 @@
     },
     "CheckConfig": {
       "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of this check in logs, metrics (check label), /status and checks_policy\nexpressions. Letters, digits and underscores, not starting with a digit. Defaults to\nthe check type; required when a VIP has several checks of the same type."
+        },
         "type": {
           "type": "string",
           "enum": [
@@ -759,6 +764,20 @@
       "description": "UDPCheckConfig defines a UDP port reachability check."
     },
     "VIPConfig": {
+      "oneOf": [
+        {
+          "required": [
+            "check"
+          ],
+          "title": "single_check"
+        },
+        {
+          "required": [
+            "checks"
+          ],
+          "title": "multiple_checks"
+        }
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -770,7 +789,25 @@
         },
         "check": {
           "$ref": "#/$defs/CheckConfig",
-          "description": "Health check configuration for this VIP."
+          "description": "Health check for this VIP. Exactly one of check or checks is required."
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CheckConfig"
+          },
+          "type": "array",
+          "minItems": 1,
+          "description": "Several health checks for this VIP, combined by checks_policy. Each entry is a full\ncheck definition with its own interval, timeout, rise and fall. Exactly one of check\nor checks is required."
+        },
+        "checks_policy": {
+          "type": "string",
+          "description": "How the health of several checks combines into the VIP health: \"all\" (every check\nmust be healthy), \"any\" (one healthy check suffices) or a boolean expression over\nthe check names such as \"web || (dns \u0026\u0026 ping)\" (expr-lang syntax: \u0026\u0026 || ! and parentheses).\nDefault: all.",
+          "default": "all",
+          "examples": [
+            "all",
+            "any",
+            "web || (dns \u0026\u0026 ping)"
+          ]
         },
         "policy": {
           "$ref": "#/$defs/PolicyConfig",
@@ -791,7 +828,6 @@
       "required": [
         "name",
         "prefix",
-        "check",
         "policy"
       ],
       "description": "VIPConfig defines a Virtual IP with its health check and policy."

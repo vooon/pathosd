@@ -509,11 +509,11 @@ func TestManager_OnCheckResult(t *testing.T) {
 			m := newTestMetrics()
 			mgr := NewManager(testVIPConfigs(), m, nil)
 
-			mgr.OnCheckResult(withdrawVIPName, tc.result)
+			mgr.OnCheckResult(withdrawVIPName, "", tc.result)
 
-			assert.Equal(t, tc.expectedLastResult, testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName, withdrawPrefix)))
-			assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP, tc.expectedResultLabel)))
-			assert.Equal(t, tc.expectedTimeout, testutil.ToFloat64(m.CheckTimeoutExceeded.WithLabelValues(withdrawVIPName, withdrawPrefix)))
+			assert.Equal(t, tc.expectedLastResult, testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP)))
+			assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP, config.CheckTypeHTTP, tc.expectedResultLabel)))
+			assert.Equal(t, tc.expectedTimeout, testutil.ToFloat64(m.CheckTimeoutExceeded.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP)))
 
 			status := getVIPStatus(t, mgr, withdrawVIPName)
 			assert.Equal(t, tc.result.Success, status.LastCheckSuccess)
@@ -541,7 +541,7 @@ func TestManager_OnCheckResult(t *testing.T) {
 
 		// Create lock file and report a check result to force policy re-evaluation.
 		require.NoError(t, os.WriteFile(lockFile, []byte("1"), 0o600))
-		mgr.OnCheckResult(pessimizeVIPName, checks.Result{
+		mgr.OnCheckResult(pessimizeVIPName, "", checks.Result{
 			Success:  true,
 			Detail:   "healthy while draining",
 			Duration: 15 * time.Millisecond,
@@ -557,7 +557,7 @@ func TestManager_OnCheckResult(t *testing.T) {
 
 		// Remove lock file and report another check result -> back to announced.
 		require.NoError(t, os.Remove(lockFile))
-		mgr.OnCheckResult(pessimizeVIPName, checks.Result{
+		mgr.OnCheckResult(pessimizeVIPName, "", checks.Result{
 			Success:  true,
 			Detail:   "healthy and drain removed",
 			Duration: 10 * time.Millisecond,
@@ -574,7 +574,7 @@ func TestManager_OnCheckResult(t *testing.T) {
 		mgr := NewManager(testVIPConfigs(), m, nil)
 
 		require.NotPanics(t, func() {
-			mgr.OnCheckResult("missing-vip", checks.Result{
+			mgr.OnCheckResult("missing-vip", "", checks.Result{
 				Success: true,
 				Detail:  "ignored",
 			})
@@ -596,10 +596,10 @@ func TestManager_OnCheckResult(t *testing.T) {
 			Duration: 20 * time.Millisecond,
 		}
 
-		mgr.OnCheckResult(withdrawVIPName, first)
+		mgr.OnCheckResult(withdrawVIPName, "", first)
 		firstStatus := getVIPStatus(t, mgr, withdrawVIPName)
 
-		mgr.OnCheckResult(withdrawVIPName, second)
+		mgr.OnCheckResult(withdrawVIPName, "", second)
 		secondStatus := getVIPStatus(t, mgr, withdrawVIPName)
 
 		assert.Equal(t, first.Success, firstStatus.LastCheckSuccess)
@@ -631,12 +631,12 @@ func TestManager_GetVIPStatuses(t *testing.T) {
 		Reason:  "fall threshold reached",
 	})
 
-	mgr.OnCheckResult(withdrawVIPName, checks.Result{
+	mgr.OnCheckResult(withdrawVIPName, "", checks.Result{
 		Success:  true,
 		Detail:   "withdraw vip healthy",
 		Duration: 50 * time.Millisecond,
 	})
-	mgr.OnCheckResult(pessimizeVIPName, checks.Result{
+	mgr.OnCheckResult(pessimizeVIPName, "", checks.Result{
 		Success:  false,
 		Detail:   "pessimize vip unhealthy",
 		Duration: 75 * time.Millisecond,
@@ -689,7 +689,7 @@ func TestManager_RetriesFailedBGPOperation(t *testing.T) {
 	assert.Equal(t, model.StateAnnounced, status.State)
 	assert.True(t, status.BGPPending)
 
-	mgr.OnCheckResult(withdrawVIPName, checks.Result{Success: true})
+	mgr.OnCheckResult(withdrawVIPName, "", checks.Result{Success: true})
 	status = getVIPStatus(t, mgr, withdrawVIPName)
 	assert.False(t, status.BGPPending)
 
@@ -717,7 +717,7 @@ func TestManager_OnCheckResult_DetailedMetricsGate(t *testing.T) {
 	t.Run("off by default", func(t *testing.T) {
 		m := newTestMetrics()
 		mgr := NewManager(testVIPConfigs(), m, nil)
-		mgr.OnCheckResult(withdrawVIPName, result)
+		mgr.OnCheckResult(withdrawVIPName, "", result)
 		assert.Equal(t, 0, testutil.CollectAndCount(m.HTTPResponseStatus))
 	})
 
@@ -730,7 +730,140 @@ func TestManager_OnCheckResult_DetailedMetricsGate(t *testing.T) {
 			}
 		}
 		mgr := NewManager(cfgs, m, nil)
-		mgr.OnCheckResult(withdrawVIPName, result)
-		assert.Equal(t, float64(418), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(withdrawVIPName, withdrawPrefix)))
+		mgr.OnCheckResult(withdrawVIPName, "", result)
+		assert.Equal(t, float64(418), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(withdrawVIPName, withdrawPrefix, config.CheckTypeHTTP)))
+	})
+}
+
+func multiCheckConfigs(policy string) []config.VIPConfig {
+	return []config.VIPConfig{
+		{
+			Name:         withdrawVIPName,
+			Prefix:       withdrawPrefix,
+			ChecksPolicy: policy,
+			Checks: []config.CheckConfig{
+				{Name: "web", Type: config.CheckTypeHTTP},
+				{Type: config.CheckTypeDNS},
+				{Type: config.CheckTypePing},
+			},
+			Policy: config.PolicyConfig{FailAction: "withdraw"},
+		},
+	}
+}
+
+func transition(vip, check string, healthy bool) checks.HealthTransition {
+	reason := "fall threshold reached"
+	if healthy {
+		reason = "rise threshold reached"
+	}
+	return checks.HealthTransition{VIPName: vip, CheckName: check, Healthy: healthy, Reason: reason}
+}
+
+func TestManager_MultiCheck(t *testing.T) {
+	t.Run("all: announced only when every check is healthy", func(t *testing.T) {
+		notifier := &fakeBGPNotifier{}
+		mgr := NewManager(multiCheckConfigs(""), newTestMetrics(), notifier)
+
+		mgr.OnHealthTransition(transition(withdrawVIPName, "web", true))
+		mgr.OnHealthTransition(transition(withdrawVIPName, "dns", true))
+		st := getVIPStatus(t, mgr, withdrawVIPName)
+		assert.Equal(t, model.StateWithdrawn, st.State)
+		assert.Equal(t, model.HealthUnhealthy, st.Health, "ping still unknown counts as unhealthy")
+		assert.Empty(t, notifier.announces)
+
+		mgr.OnHealthTransition(transition(withdrawVIPName, "ping", true))
+		st = getVIPStatus(t, mgr, withdrawVIPName)
+		assert.Equal(t, model.StateAnnounced, st.State)
+		assert.Equal(t, "ping: rise threshold reached", st.LastTransitionReason)
+		assert.Equal(t, "all(http, dns, ping)", st.CheckType)
+		assert.Equal(t, "all", st.ChecksPolicy)
+
+		mgr.OnHealthTransition(transition(withdrawVIPName, "dns", false))
+		st = getVIPStatus(t, mgr, withdrawVIPName)
+		assert.Equal(t, model.StateWithdrawn, st.State)
+		assert.Equal(t, "dns: fall threshold reached", st.LastTransitionReason)
+		require.Len(t, st.Checks, 3)
+		assert.Equal(t, []string{"web", "dns", "ping"}, []string{st.Checks[0].Name, st.Checks[1].Name, st.Checks[2].Name})
+		assert.Equal(t, model.HealthHealthy, st.Checks[0].Health)
+		assert.Equal(t, model.HealthUnhealthy, st.Checks[1].Health)
+		assert.Equal(t, config.CheckTypeHTTP, st.Checks[0].Type)
+	})
+
+	t.Run("any: one healthy check keeps the VIP announced", func(t *testing.T) {
+		notifier := &fakeBGPNotifier{}
+		mgr := NewManager(multiCheckConfigs(config.ChecksPolicyAny), newTestMetrics(), notifier)
+
+		mgr.OnHealthTransition(transition(withdrawVIPName, "dns", true))
+		assert.Equal(t, model.StateAnnounced, getVIPStatus(t, mgr, withdrawVIPName).State)
+		mgr.OnHealthTransition(transition(withdrawVIPName, "web", true))
+		mgr.OnHealthTransition(transition(withdrawVIPName, "dns", false))
+		assert.Equal(t, model.StateAnnounced, getVIPStatus(t, mgr, withdrawVIPName).State)
+		assert.Empty(t, notifier.withdraws, "no VIP transition while another check is healthy")
+		mgr.OnHealthTransition(transition(withdrawVIPName, "web", false))
+		assert.Equal(t, model.StateWithdrawn, getVIPStatus(t, mgr, withdrawVIPName).State)
+		assert.Equal(t, "any(http, dns, ping)", getVIPStatus(t, mgr, withdrawVIPName).CheckType)
+	})
+
+	t.Run("expression", func(t *testing.T) {
+		mgr := NewManager(multiCheckConfigs("web || (dns && ping)"), newTestMetrics(), &fakeBGPNotifier{})
+
+		mgr.OnHealthTransition(transition(withdrawVIPName, "dns", true))
+		assert.Equal(t, model.StateWithdrawn, getVIPStatus(t, mgr, withdrawVIPName).State)
+		mgr.OnHealthTransition(transition(withdrawVIPName, "ping", true))
+		assert.Equal(t, model.StateAnnounced, getVIPStatus(t, mgr, withdrawVIPName).State)
+		mgr.OnHealthTransition(transition(withdrawVIPName, "ping", false))
+		assert.Equal(t, model.StateWithdrawn, getVIPStatus(t, mgr, withdrawVIPName).State)
+		mgr.OnHealthTransition(transition(withdrawVIPName, "web", true))
+		st := getVIPStatus(t, mgr, withdrawVIPName)
+		assert.Equal(t, model.StateAnnounced, st.State)
+		assert.Equal(t, "web || (dns && ping)", st.CheckType)
+		assert.Equal(t, "web || (dns && ping)", st.ChecksPolicy)
+	})
+
+	t.Run("invalid expression falls back to all", func(t *testing.T) {
+		mgr := NewManager(multiCheckConfigs("nope &&"), newTestMetrics(), &fakeBGPNotifier{})
+		for _, c := range []string{"web", "dns"} {
+			mgr.OnHealthTransition(transition(withdrawVIPName, c, true))
+		}
+		assert.Equal(t, model.StateWithdrawn, getVIPStatus(t, mgr, withdrawVIPName).State)
+		mgr.OnHealthTransition(transition(withdrawVIPName, "ping", true))
+		assert.Equal(t, model.StateAnnounced, getVIPStatus(t, mgr, withdrawVIPName).State)
+	})
+
+	t.Run("unknown check name is ignored", func(t *testing.T) {
+		mgr := NewManager(multiCheckConfigs(""), newTestMetrics(), &fakeBGPNotifier{})
+		mgr.OnHealthTransition(transition(withdrawVIPName, "bogus", true))
+		assert.Equal(t, model.HealthUnknown, getVIPStatus(t, mgr, withdrawVIPName).Health)
+		require.NotPanics(t, func() { mgr.OnCheckResult(withdrawVIPName, "bogus", checks.Result{Success: true}) })
+	})
+
+	t.Run("per-check results, metrics and roll-up", func(t *testing.T) {
+		m := newTestMetrics()
+		mgr := NewManager(multiCheckConfigs(config.ChecksPolicyAny), m, &fakeBGPNotifier{})
+		mgr.OnCheckResult(withdrawVIPName, "web", checks.Result{Success: false, Detail: "503", Duration: time.Millisecond})
+		mgr.OnCheckResult(withdrawVIPName, "dns", checks.Result{Success: true, Detail: "NOERROR", Duration: time.Millisecond})
+
+		st := getVIPStatus(t, mgr, withdrawVIPName)
+		assert.True(t, st.LastCheckSuccess, "any: one success")
+		assert.Equal(t, "web: 503; dns: NOERROR", st.LastCheckDetail)
+		assert.Equal(t, "503", st.Checks[0].LastDetail)
+		assert.False(t, st.Checks[0].LastSuccess)
+		assert.True(t, st.Checks[1].LastSuccess)
+		assert.Equal(t, float64(0), testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName, withdrawPrefix, "web")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckLastResult.WithLabelValues(withdrawVIPName, withdrawPrefix, "dns")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, withdrawPrefix, "web", config.CheckTypeHTTP, "fail")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.CheckTotal.WithLabelValues(withdrawVIPName, withdrawPrefix, "dns", config.CheckTypeDNS, "success")))
+	})
+
+	t.Run("CombineChecks", func(t *testing.T) {
+		mgr := NewManager(multiCheckConfigs("web || (dns && ping)"), newTestMetrics(), nil)
+		ok, found := mgr.CombineChecks(withdrawVIPName, map[string]bool{"dns": true, "ping": true})
+		assert.True(t, found)
+		assert.True(t, ok)
+		ok, found = mgr.CombineChecks(withdrawVIPName, map[string]bool{"dns": true})
+		assert.True(t, found)
+		assert.False(t, ok)
+		_, found = mgr.CombineChecks("missing", nil)
+		assert.False(t, found)
 	})
 }

@@ -454,6 +454,90 @@ func TestValidate_CheckCommon(t *testing.T) {
 	})
 }
 
+func TestValidate_MultiCheck(t *testing.T) {
+	multi := func() *Config {
+		cfg := validConfig()
+		single := cfg.VIPs[0].Check
+		cfg.VIPs[0].Check = CheckConfig{}
+		cfg.VIPs[0].Checks = []CheckConfig{
+			single,
+			{Type: CheckTypeDNS, DNS: &DNSCheckConfig{Names: []string{"example.test."}, QueryType: "A"}},
+		}
+		return cfg
+	}
+
+	t.Run("checks list is valid", func(t *testing.T) {
+		assert.Empty(t, Validate(multi()))
+	})
+
+	t.Run("check and checks together", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].Check = CheckConfig{Type: CheckTypeTCP, TCP: &TCPCheckConfig{Port: 80}}
+		assertErrorContains(t, Validate(cfg), "vips[0].checks: cannot be combined with check")
+	})
+
+	t.Run("neither check nor checks", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check = CheckConfig{}
+		assertErrorContains(t, Validate(cfg), "vips[0].check: required")
+	})
+
+	t.Run("same type twice needs names", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].Checks[1] = cfg.VIPs[0].Checks[0]
+		assertErrorContains(t, Validate(cfg), "vips[0].checks[1].name: required")
+	})
+
+	t.Run("duplicate explicit names", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].Checks[0].Name = "a"
+		cfg.VIPs[0].Checks[1].Name = "a"
+		assertErrorContains(t, Validate(cfg), `vips[0].checks[1].name: duplicate check name "a"`)
+	})
+
+	t.Run("invalid and reserved names", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].Checks[0].Name = "web-primary"
+		cfg.VIPs[0].Checks[1].Name = "any"
+		errs := Validate(cfg)
+		assertErrorContains(t, errs, "vips[0].checks[0].name: must match")
+		assertErrorContains(t, errs, `vips[0].checks[1].name: "any" is reserved`)
+	})
+
+	t.Run("per-check interval and timeout errors carry the index", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].Checks[1].Interval = &Duration{Duration: time.Second}
+		cfg.VIPs[0].Checks[1].Timeout = &Duration{Duration: time.Second}
+		assertErrorContains(t, Validate(cfg), "vips[0].checks[1].timeout")
+	})
+
+	t.Run("policy all and any", func(t *testing.T) {
+		for _, p := range []string{ChecksPolicyAll, ChecksPolicyAny} {
+			cfg := multi()
+			cfg.VIPs[0].ChecksPolicy = p
+			assert.Empty(t, Validate(cfg), p)
+		}
+	})
+
+	t.Run("policy expression over names", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].ChecksPolicy = "http || dns"
+		assert.Empty(t, Validate(cfg))
+	})
+
+	t.Run("policy expression with unknown name", func(t *testing.T) {
+		cfg := multi()
+		cfg.VIPs[0].ChecksPolicy = "http || tcp"
+		assertErrorContains(t, Validate(cfg), "vips[0].checks_policy: unknown name tcp")
+	})
+
+	t.Run("policy expression with a single check", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].ChecksPolicy = "http"
+		assertErrorContains(t, Validate(cfg), "vips[0].checks_policy: an expression needs checks")
+	})
+}
+
 func TestValidate_HTTPCheck(t *testing.T) {
 	t.Run("nil http config when type is http", func(t *testing.T) {
 		cfg := validConfig()

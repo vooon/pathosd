@@ -122,6 +122,10 @@ tr:last-child td {
   border-bottom: 0;
 }
 
+.check {
+  cursor: help;
+}
+
 .tag {
   display: inline-block;
   padding: 2px 8px;

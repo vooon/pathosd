@@ -182,6 +182,34 @@ data:
       # HTTP check routed through the Squid forward proxy. Validates the proxy
       # is working: the check reaches the local httpbin (HTTP 201) via the
       # proxy. Scaling squid to 0 makes the check fail and withdraws the VIP.
+      # multi-vip: two checks combined by an expression. Stays announced
+      # while nginx OR coredns answers; withdrawn only when both are down.
+      - name: multi-vip
+        prefix: 10.100.9.1/32
+        checks_policy: "http || dns"
+        checks:
+          - type: http
+            interval: 2s
+            timeout: 1s
+            rise: 3
+            fall: 3
+            http:
+              url: /healthz
+              host: nginx.pathosd-e2e.svc.cluster.local
+              port: 80
+              response_codes: [200]
+          - type: dns
+            interval: 2s
+            timeout: 1s
+            rise: 3
+            fall: 3
+            dns:
+              names: ["example.test."]
+              resolver: coredns.pathosd-e2e.svc.cluster.local
+              port: 53
+              query_type: A
+        policy:
+          fail_action: withdraw
       - name: squid-vip
         prefix: 10.100.7.1/32
         check:

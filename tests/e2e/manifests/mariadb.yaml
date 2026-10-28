@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  namespace: pathosd-e2e
+  labels:
+    app: mariadb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: docker.io/library/mariadb:11.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              value: e2e-root
+            - name: MARIADB_USER
+              value: pathosd
+            - name: MARIADB_PASSWORD
+              value: e2e-pathosd
+            - name: MARIADB_DATABASE
+              value: e2e
+          ports:
+            - containerPort: 3306
+              name: mysql
+          readinessProbe:
+            exec:
+              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 30
+---
+# Headless service: DNS resolves directly to the pod IP, so scaling to 0
+# makes the connect fail immediately.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: pathosd-e2e
+  labels:
+    app: mariadb
+spec:
+  clusterIP: None
+  selector:
+    app: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306

@@ -39,6 +39,8 @@ const (
 	prependVIPPrefix = "10.100.8.1/32"
 	multiVIPPrefix   = "10.100.9.1/32"
 	listenVIPPrefix  = "10.100.10.1/32"
+	mysqlVIPPrefix   = "10.100.11.1/32"
+	pgsqlVIPPrefix   = "10.100.12.1/32"
 	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -110,6 +112,8 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=httpbin", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=mariadb", 180*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=postgres", 180*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -145,7 +149,88 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "squid-vip") == "announced" &&
 				vipStateFromStatus(status, "prepend-vip") == "announced" &&
 				vipStateFromStatus(status, "multi-vip") == "announced" &&
-				vipStateFromStatus(status, "listen-vip") == "announced"
+				vipStateFromStatus(status, "listen-vip") == "announced" &&
+				vipStateFromStatus(status, "mysql-vip") == "announced" &&
+				vipStateFromStatus(status, "pgsql-vip") == "announced"
+		})
+	})
+
+	// sql checks: the trigger response carries one entry per query.
+	t.Run("sql_vips_trigger_details", func(t *testing.T) {
+		type sqlResult struct {
+			Success bool   `json:"success"`
+			Detail  string `json:"detail"`
+			Details struct {
+				Queries []struct {
+					Name   string `json:"name"`
+					Rows   int    `json:"rows"`
+					Passed bool   `json:"passed"`
+				} `json:"queries"`
+			} `json:"details"`
+		}
+		trigger := func(vip string) sqlResult {
+			code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/"+vip+"/check", nil)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, code, string(body))
+			var payload struct {
+				Result sqlResult `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(body, &payload))
+			return payload.Result
+		}
+
+		my := trigger("mysql-vip")
+		assert.True(t, my.Success, my.Detail)
+		require.Len(t, my.Details.Queries, 3)
+		assert.Equal(t, []string{"q1", "writable", "version"}, []string{my.Details.Queries[0].Name, my.Details.Queries[1].Name, my.Details.Queries[2].Name})
+		for _, q := range my.Details.Queries {
+			assert.True(t, q.Passed, q.Name)
+			assert.Equal(t, 1, q.Rows, q.Name)
+		}
+
+		pg := trigger("pgsql-vip")
+		assert.True(t, pg.Success, pg.Detail)
+		require.Len(t, pg.Details.Queries, 1)
+		assert.Equal(t, "primary", pg.Details.Queries[0].Name)
+		assert.True(t, pg.Details.Queries[0].Passed)
+
+		routes, err := frrRoutesNoFail()
+		require.NoError(t, err)
+		_, ok := routes[mysqlVIPPrefix]
+		assert.True(t, ok, "FRR has mysql-vip route")
+		_, ok = routes[pgsqlVIPPrefix]
+		assert.True(t, ok, "FRR has pgsql-vip route")
+	})
+
+	t.Run("mariadb_down_mysql_vip_withdrawn", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "mariadb", 0)
+		waitForCondition(t, "mysql-vip withdrawn, pgsql-vip stays announced", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "mysql-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "pgsql-vip") == "announced"
+		})
+		waitForCondition(t, "FRR withdraws mysql-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, ok := routes[mysqlVIPPrefix]
+			return !ok
+		})
+	})
+
+	t.Run("mariadb_up_mysql_vip_recovers", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "mariadb", 1)
+		waitForPodReady(t, e2eNamespace, "app=mariadb", 180*time.Second)
+		waitForCondition(t, "mysql-vip announced again", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "mysql-vip") == "announced"
 		})
 	})
 

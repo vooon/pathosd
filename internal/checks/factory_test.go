@@ -41,6 +41,16 @@ func TestNewChecker(t *testing.T) {
 			wantType: "listen",
 		},
 		{
+			name:     "sql",
+			cfg:      &config.CheckConfig{Type: "sql", SQL: &config.SQLCheckConfig{Driver: "mysql", Host: "127.0.0.1", Port: 3306, User: "u"}},
+			wantType: "sql",
+		},
+		{
+			name:            "sql nil sub-config",
+			cfg:             &config.CheckConfig{Type: "sql"},
+			wantErrContains: "sql check config is nil",
+		},
+		{
 			name:            "listen nil sub-config",
 			cfg:             &config.CheckConfig{Type: "listen"},
 			wantErrContains: "listen check config is nil",

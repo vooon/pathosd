@@ -109,6 +109,18 @@ the first announcement. Look at `/status`:
   `allowPrivilegeEscalation: false`, which disables file capabilities.
 - `consecutive_ok` climbs but never reaches `rise`: a single failure resets
   it. Lower `rise` or fix the intermittent failure first.
+- `sql` check fails with `connect: ... Access denied` / `password
+  authentication failed`: the `%{DB_PASSWORD}` placeholder is expanded at
+  config load, so the variable must be in the daemon's environment (the
+  packaged unit reads `/etc/pathosd/pathosd.env`). With `driver: postgres`
+  and no `database`, the user name is used as the database name.
+- `sql` check fails with `result_jq is not true: null`: the query returned
+  no rows, or the column name differs (MySQL returns `@@read_only` as
+  `@@read_only` unless aliased with `AS`). Run the trigger endpoint and
+  look at `details.queries`, or run the same statement with the same user.
+- `sql` check fails with `tls: ...`: MySQL and PostgreSQL both need
+  `tls: true` before `tls_ca_cert` is used; a server that only allows TLS
+  logins reports the refusal as an authentication error, not a TLS one.
 - `listen` check reports `no socket bound` although the service runs: the
   check reads the socket table of pathosd's own network namespace. In a
   container with its own namespace mount the host's `/proc` at

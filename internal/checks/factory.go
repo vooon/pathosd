@@ -38,6 +38,11 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 			return nil, fmt.Errorf("listen check config is nil")
 		}
 		return NewListenChecker(cfg.Listen), nil
+	case config.CheckTypeSQL:
+		if cfg.SQL == nil {
+			return nil, fmt.Errorf("sql check config is nil")
+		}
+		return NewSQLChecker(cfg.SQL)
 	case config.CheckTypeGRPC:
 		if cfg.GRPC == nil {
 			return nil, fmt.Errorf("grpc check config is nil")

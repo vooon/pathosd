@@ -239,6 +239,53 @@ data:
               host: "%{POD_IPV4}"
         policy:
           fail_action: withdraw
+      # mysql-vip / pgsql-vip: the sql check with a plain query plus a
+      # result_jq condition. Passwords come from the pod environment.
+      - name: mysql-vip
+        prefix: 10.100.11.1/32
+        check:
+          type: sql
+          interval: 2s
+          timeout: 1s
+          rise: 2
+          fall: 2
+          detailed_metrics: true
+          sql:
+            driver: mysql
+            host: mariadb.pathosd-e2e.svc.cluster.local
+            user: pathosd
+            password: "%{E2E_DB_PASSWORD}"
+            database: e2e
+            queries:
+              - sql: SELECT 1
+              - name: writable
+                sql: SELECT @@read_only AS read_only
+                result_jq: ".[0].read_only == 0"
+              - name: version
+                sql: SELECT VERSION() AS version
+                result_jq: '.[0].version | test("MariaDB")'
+        policy:
+          fail_action: withdraw
+      - name: pgsql-vip
+        prefix: 10.100.12.1/32
+        check:
+          type: sql
+          interval: 2s
+          timeout: 1s
+          rise: 2
+          fall: 2
+          sql:
+            driver: postgres
+            host: postgres.pathosd-e2e.svc.cluster.local
+            user: pathosd
+            password: "%{E2E_DB_PASSWORD}"
+            database: e2e
+            queries:
+              - name: primary
+                sql: SELECT pg_is_in_recovery() AS in_recovery, current_setting('server_version_num')::int AS version_num
+                result_jq: ".[0].in_recovery == false and .[0].version_num >= 170000"
+        policy:
+          fail_action: withdraw
       - name: squid-vip
         prefix: 10.100.7.1/32
         check:
@@ -351,6 +398,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: E2E_DB_PASSWORD
+              value: e2e-pathosd
           ports:
             - containerPort: 59179
               name: http

@@ -849,6 +849,69 @@ func TestValidate_ListenCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_SQLCheck(t *testing.T) {
+	makeSQL := func() *Config {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeSQL
+		cfg.VIPs[0].Check.HTTP = nil
+		cfg.VIPs[0].Check.SQL = &SQLCheckConfig{Driver: SQLDriverMySQL, Host: "203.0.113.1", User: "pathosd", Queries: []SQLQueryConfig{
+			{SQL: "SELECT 1"},
+			{Name: "ro", SQL: "SELECT @@read_only AS ro", ResultJQ: ".[0].ro == 0"},
+		}}
+		return cfg
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		assert.Empty(t, Validate(makeSQL()))
+	})
+	t.Run("nil sql config", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Check.SQL = nil
+		assertErrorContains(t, Validate(cfg), ".sql: required")
+	})
+	t.Run("driver", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Check.SQL.Driver = ""
+		assertErrorContains(t, Validate(cfg), ".sql.driver: required")
+		cfg.VIPs[0].Check.SQL.Driver = "oracle"
+		assertErrorContains(t, Validate(cfg), ".sql.driver: must be mysql or postgres")
+	})
+	t.Run("user required", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Check.SQL.User = ""
+		assertErrorContains(t, Validate(cfg), ".sql.user: required")
+	})
+	t.Run("host required for non-/32 prefix", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Prefix = "203.0.113.0/24"
+		cfg.VIPs[0].Check.SQL.Host = ""
+		assertErrorContains(t, Validate(cfg), ".sql.host")
+	})
+	t.Run("tls options need tls", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Check.SQL.TLSInsecure = true
+		cfg.VIPs[0].Check.SQL.TLSCACert = "/ca.pem"
+		cfg.VIPs[0].Check.SQL.TLSServerName = "db"
+		errs := Validate(cfg)
+		assertErrorContains(t, errs, ".sql.tls_insecure: requires tls")
+		assertErrorContains(t, errs, ".sql.tls_ca_cert: requires tls")
+		assertErrorContains(t, errs, ".sql.tls_server_name: requires tls")
+		cfg.VIPs[0].Check.SQL.TLS = true
+		assertErrorContains(t, Validate(cfg), ".sql.tls_insecure: mutually exclusive with tls_ca_cert")
+	})
+	t.Run("queries", func(t *testing.T) {
+		cfg := makeSQL()
+		cfg.VIPs[0].Check.SQL.Queries[0].SQL = "  "
+		assertErrorContains(t, Validate(cfg), ".sql.queries[0].sql: required")
+		cfg = makeSQL()
+		cfg.VIPs[0].Check.SQL.Queries[1].ResultJQ = ".[0] =="
+		assertErrorContains(t, Validate(cfg), ".sql.queries[1].result_jq: invalid jq")
+		cfg = makeSQL()
+		cfg.VIPs[0].Check.SQL.Queries[1].Name = "q1"
+		assertErrorContains(t, Validate(cfg), `.sql.queries[1].name: duplicate query name "q1"`)
+	})
+}
+
 func TestValidate_TCPCheck(t *testing.T) {
 	makeTCPConfig := func() *Config {
 		cfg := validConfig()

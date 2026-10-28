@@ -176,6 +176,21 @@ type ListenDetails struct {
 	Sockets []string `json:"sockets"`
 }
 
+// SQLQueryDetails is one statement of a SQL check run.
+type SQLQueryDetails struct {
+	Name     string        `json:"name"`
+	Rows     int           `json:"rows"`
+	Duration time.Duration `json:"duration"`
+	Passed   bool          `json:"passed"`
+}
+
+// SQLDetails is reported by the sql checker; queries after a failing one are
+// not run and therefore absent.
+type SQLDetails struct {
+	Queries []SQLQueryDetails `json:"queries"`
+}
+
+func (*SQLDetails) checkDetails()    {}
 func (*ListenDetails) checkDetails() {}
 func (*PingDetails) checkDetails()   {}
 func (*HTTPDetails) checkDetails()   {}

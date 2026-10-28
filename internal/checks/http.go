@@ -20,6 +20,9 @@ import (
 	"github.com/vooon/pathosd/internal/config"
 )
 
+// maxBodyBytes caps how much of a response body a check reads or drains.
+const maxBodyBytes = 1 << 20
+
 type HTTPChecker struct {
 	cfg     config.HTTPCheckConfig
 	client  *http.Client
@@ -33,9 +36,16 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 		return nil, fmt.Errorf("tls_ca_cert cannot be set together with tls_insecure")
 	}
 
+	// Without keep_alive every check opens a fresh TCP (and TLS) connection so
+	// the full path, including certificate verification, is exercised each time.
+	// With keep_alive the connection is reused; Check drains the body to hand it
+	// back to the pool.
 	transport := &http.Transport{
-		DialContext:     (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
-		TLSClientConfig: &tls.Config{},
+		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		TLSClientConfig:     &tls.Config{},
+		DisableKeepAlives:   !cfg.KeepAlive,
+		MaxIdleConnsPerHost: 1,
+		IdleConnTimeout:     90 * time.Second,
 	}
 
 	// Forward proxy: route the request through the proxy, which resolves and
@@ -151,14 +161,20 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 		timedOut := ctx.Err() == context.DeadlineExceeded
 		return Result{Duration: dur, Err: err, Detail: err.Error(), TimedOut: timedOut}
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if c.cfg.KeepAlive {
+			// Drain what is left so the transport can reuse the connection.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBodyBytes))
+		}
+		_ = resp.Body.Close()
+	}()
 
 	if !slices.Contains(c.cfg.ResponseCodes, resp.StatusCode) {
 		return Result{Duration: dur, Detail: fmt.Sprintf("unexpected status %d (want %v)", resp.StatusCode, c.cfg.ResponseCodes)}
 	}
 
 	if c.cfg.ResponseText != "" || c.reBody != nil || c.jqQuery != nil {
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 		if err != nil {
 			return Result{Duration: dur, Err: err, Detail: "error reading body"}
 		}
@@ -180,7 +196,8 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 			if err := json.Unmarshal(body, &parsed); err != nil {
 				return Result{Duration: dur, Err: err, Detail: fmt.Sprintf("response is not valid JSON: %v", err)}
 			}
-			iter := c.jqQuery.Run(parsed)
+			// Bound jq evaluation by the check deadline as well.
+			iter := c.jqQuery.RunWithContext(ctx, parsed)
 			v, ok := iter.Next()
 			if !ok {
 				return Result{Duration: dur, Detail: "jq expression produced no output"}

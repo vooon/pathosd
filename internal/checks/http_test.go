@@ -476,6 +476,84 @@ func (s *HTTPCheckerSuite) TestContextTimeout() {
 	s.True(result.TimedOut)
 }
 
+// connCountingServer returns a TLS test server plus a counter of accepted
+// connections, to observe whether the checker reuses connections.
+func (s *HTTPCheckerSuite) connCountingServer() (*httptest.Server, *atomic.Int32) {
+	var conns atomic.Int32
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	ts.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	ts.StartTLS()
+	s.T().Cleanup(ts.Close)
+	return ts, &conns
+}
+
+func (s *HTTPCheckerSuite) TestKeepAlive_Disabled_NewConnectionPerCheck() {
+	ts, conns := s.connCountingServer()
+	c := s.checker(ts, &config.HTTPCheckConfig{
+		Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200},
+		TLSInsecure: true,
+	})
+
+	for range 3 {
+		s.True(c.Check(context.TODO()).Success)
+	}
+	s.Equal(int32(3), conns.Load(), "each check must open its own connection")
+}
+
+func (s *HTTPCheckerSuite) TestKeepAlive_Enabled_ReusesConnection() {
+	ts, conns := s.connCountingServer()
+	c := s.checker(ts, &config.HTTPCheckConfig{
+		Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200},
+		TLSInsecure: true, KeepAlive: true,
+		// Body matcher reads the body; the drain must still hand the
+		// connection back to the pool.
+		ResponseJQ: ".ok",
+	})
+
+	for range 3 {
+		s.True(c.Check(context.TODO()).Success)
+	}
+	s.Equal(int32(1), conns.Load(), "checks must reuse the keep-alive connection")
+}
+
+func (s *HTTPCheckerSuite) TestKeepAlive_Enabled_NoBodyMatcher_ReusesConnection() {
+	ts, conns := s.connCountingServer()
+	c := s.checker(ts, &config.HTTPCheckConfig{
+		Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200},
+		TLSInsecure: true, KeepAlive: true,
+	})
+
+	for range 3 {
+		s.True(c.Check(context.TODO()).Success)
+	}
+	s.Equal(int32(1), conns.Load(), "unread body must be drained so the connection is reused")
+}
+
+func (s *HTTPCheckerSuite) TestResponseJQ_HonorsContextDeadline() {
+	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `1`)
+	})
+	c := s.checker(ts, &config.HTTPCheckConfig{
+		Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200},
+		// Unbounded generator: only the context can stop it.
+		ResponseJQ: "[range(infinite)] | length > 0",
+	})
+
+	ctx, cancel := context.WithTimeout(context.TODO(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	result := c.Check(ctx)
+	s.False(result.Success)
+	s.Less(time.Since(start), 5*time.Second, "jq evaluation must stop at the check deadline")
+}
+
 // TestHTTPCheckerSuite is the entry point that runs all suite methods.
 func TestHTTPCheckerSuite(t *testing.T) {
 	suite.Run(t, new(HTTPCheckerSuite))

@@ -54,6 +54,8 @@ type Metrics struct {
 	SQLQueryRows       *prometheus.GaugeVec
 	SQLQueryDuration   *prometheus.GaugeVec
 	SQLQueryPassed     *prometheus.GaugeVec
+	KafkaBrokers       *prometheus.GaugeVec
+	KafkaLeaderless    *prometheus.GaugeVec
 }
 
 const (
@@ -220,6 +222,14 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_sql_query_passed",
 			Help: "1 when the query succeeded and its result_jq held in the last sql check, else 0 (check.detailed_metrics only).",
 		}, []string{"vip", "nlri", "check", "query"}),
+		KafkaBrokers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_kafka_brokers",
+			Help: "Brokers listed in the metadata of the last kafka check (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check"}),
+		KafkaLeaderless: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_kafka_partitions_without_leader",
+			Help: "Partitions of the configured topic without a leader in the last kafka check (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check"}),
 	}
 
 	reg.MustRegister(
@@ -244,6 +254,8 @@ func New(checkBuckets []float64) *Metrics {
 		m.SQLQueryRows,
 		m.SQLQueryDuration,
 		m.SQLQueryPassed,
+		m.KafkaBrokers,
+		m.KafkaLeaderless,
 		pver.NewCollector("pathosd"),
 	)
 
@@ -273,6 +285,9 @@ func (m *Metrics) ObserveCheckDetails(vip, nlri, check string, details model.Che
 		m.GRPCStatusCode.WithLabelValues(vip, nlri, check).Set(float64(d.StatusCode))
 	case *model.ListenDetails:
 		m.ListenSockets.WithLabelValues(vip, nlri, check).Set(float64(len(d.Sockets)))
+	case *model.KafkaDetails:
+		m.KafkaBrokers.WithLabelValues(vip, nlri, check).Set(float64(d.Brokers))
+		m.KafkaLeaderless.WithLabelValues(vip, nlri, check).Set(float64(d.PartitionsWithoutLeader))
 	case *model.SQLDetails:
 		for _, q := range d.Queries {
 			m.SQLQueryRows.WithLabelValues(vip, nlri, check, q.Name).Set(float64(q.Rows))

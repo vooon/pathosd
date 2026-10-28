@@ -27,6 +27,7 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `ipv6-target.yaml`
 - `mariadb.yaml`
 - `postgres.yaml`
+- `kafka.yaml`
 - `pathosd.yaml`
 
 Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`Pod`, `Service`) for that component.
@@ -45,6 +46,7 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 - `httpbin`: local HTTP target (go-httpbin) reached through the Squid proxy
 - `mariadb-primary` / `mariadb-replica`: MariaDB with binlog replication, each pod with a pathosd sidecar (ASN 65100) announcing `mysql-rw` / `mysql-ro`
 - `postgres-primary` / `postgres-replica`: PostgreSQL with a streaming standby, each pod with a pathosd sidecar announcing `pg-rw` / `pg-ro`
+- `kafka`: single-node KRaft broker with PLAINTEXT (9092) and SASL_PLAINTEXT/PLAIN (9094) listeners for `kafka-vip`, `kafka-topic-vip`, `kafka-sasl-vip`
 
 All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 VIP routes are carried over IPv4-transport MP-BGP (no host IPv6 required).
 
@@ -115,6 +117,12 @@ The `sql` check is exercised the way it is meant to be deployed: pathosd runs ne
 
 Replication uses the images' own mechanisms: the MariaDB replica starts with `MARIADB_MASTER_HOST` and the primary creates the replication user and a `REPLICA MONITOR` grant for the check user via `docker-entrypoint-initdb.d`; the PostgreSQL replica runs `pg_basebackup -R` in an init container after the primary's init script opens `pg_hba.conf` for replication. Headless Services expose each pod's database port and sidecar API (59179) so the test can trigger checks on a specific pod.
 
+### Kafka (`kafka.yaml`)
+
+- Image: `apache/kafka:3.9.1` in KRaft mode (broker + controller in one node), 256 MB heap
+- Listeners: `PLAINTEXT://:9092` and `SASL_PLAINTEXT://:9094` with the PLAIN mechanism; the JAAS file (user `pathosd`) comes from a ConfigMap via `KAFKA_OPTS=-Djava.security.auth.login.config=...`
+- `auto.create.topics.enable=false`: topic `e2e` only exists once the test creates it with `kafka-topics.sh`
+
 ### pathosd (`pathosd.yaml`)
 
 - Image: `pathosd:e2e`
@@ -139,6 +147,9 @@ Configured VIPs:
 - `grpc-vip` (`10.100.6.1/32`): gRPC standard health protocol against etcd:2379, `fail_action: withdraw`
 - `ipv6-vip` (`2001:db8:100::1/128`): TCP check against `ipv6-target:8080`, `fail_action: withdraw`; announced via IPv6 unicast (over IPv4 transport) to the `bird` peer
 - `squid-vip` (`10.100.7.1/32`): HTTP check routed through the Squid proxy to the local httpbin `/status/201` expecting `201`, `fail_action: withdraw`
+- `kafka-vip` (`10.100.13.1/32`): Kafka broker metadata over PLAINTEXT, `fail_action: withdraw`
+- `kafka-topic-vip` (`10.100.13.2/32`): same plus `topic: e2e` (must exist with a leader per partition), starts withdrawn
+- `kafka-sasl-vip` (`10.100.13.3/32`): Kafka over SASL_PLAINTEXT with PLAIN credentials from `%{E2E_KAFKA_PASSWORD}`
 
 ## Test Implementation
 
@@ -194,6 +205,10 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
     - scale the replica to 0: `*-ro` keeps only the primary path; scale back: the new replica rejoins
     - MariaDB `SET GLOBAL read_only=1` on the primary: `mysql-rw` withdrawn, `mysql-ro` unchanged; `read_only=0` restores it
     - PostgreSQL primary scaled to 0: `pg-rw` withdrawn, `pg-ro` served by the standby; scaled back: the fresh primary announces `pg-rw` again
+22. Kafka:
+    - `kafka-vip` and `kafka-sasl-vip` announced; `kafka-topic-vip` withdrawn, trigger reports `topic "e2e"` missing with the broker count
+    - create topic `e2e` (2 partitions): `kafka-topic-vip` announced, trigger details show 2 partitions with leaders and the cluster ID, FRR has the route
+    - scale kafka to 0: all three withdrawn and gone from FRR; scale back: plain and SASL VIPs return, `kafka-topic-vip` stays withdrawn (fresh storage, no topic)
 
 ### FRR vs BIRD assertions
 
@@ -210,7 +225,7 @@ Workflow: `.github/workflows/e2e.yaml`
 4. Apply all manifests.
 5. Wait for `frr`, `bird`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods (the test itself waits for the database pods).
 6. Run `go test -tags=e2e -v -timeout=12m -count=1 ./tests/e2e/...`.
-7. On failure, dump pod status, pathosd logs, database pod status and sidecar logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
+7. On failure, dump pod status, pathosd logs, database pod status and sidecar logs, kafka logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
 
 ## Local Commands
 

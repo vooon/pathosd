@@ -141,6 +141,12 @@ func TestObserveCheckDetails(t *testing.T) {
 		assert.Equal(t, float64(2), testutil.ToFloat64(m.ListenSockets.WithLabelValues(vip, nlri, "listen")))
 	})
 
+	t.Run("kafka", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, "kafka", &model.KafkaDetails{Brokers: 3, Topic: "t", Partitions: 6, PartitionsWithoutLeader: 2})
+		assert.Equal(t, float64(3), testutil.ToFloat64(m.KafkaBrokers.WithLabelValues(vip, nlri, "kafka")))
+		assert.Equal(t, float64(2), testutil.ToFloat64(m.KafkaLeaderless.WithLabelValues(vip, nlri, "kafka")))
+	})
+
 	t.Run("sql", func(t *testing.T) {
 		m.ObserveCheckDetails(vip, nlri, "sql", &model.SQLDetails{Queries: []model.SQLQueryDetails{
 			{Name: "q1", Rows: 1, Duration: 20 * time.Millisecond, Passed: true},

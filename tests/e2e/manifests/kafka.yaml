@@ -1,0 +1,111 @@
+# Single-node Kafka (KRaft) with a PLAINTEXT listener on 9092 and a
+# SASL_PLAINTEXT (PLAIN) listener on 9094. No topic exists at start: the
+# e2e test creates "e2e" to turn kafka-topic-vip from withdrawn to announced.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-jaas
+  namespace: pathosd-e2e
+data:
+  jaas.conf: |
+    KafkaServer {
+      org.apache.kafka.common.security.plain.PlainLoginModule required
+      username="admin"
+      password="admin-secret"
+      user_admin="admin-secret"
+      user_pathosd="e2e-kafka";
+    };
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: pathosd-e2e
+  labels:
+    app: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: docker.io/apache/kafka:3.9.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLUSTER_ID
+              value: 4L6g3nShT-eMCtK--X86sw
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka.pathosd-e2e.svc.cluster.local:9092,SASL_PLAINTEXT://kafka.pathosd-e2e.svc.cluster.local:9094
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: PLAINTEXT
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@localhost:9093
+            - name: KAFKA_SASL_ENABLED_MECHANISMS
+              value: PLAIN
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xmx256m -Xms128m"
+            - name: KAFKA_OPTS
+              value: -Djava.security.auth.login.config=/etc/kafka/jaas/jaas.conf
+          ports:
+            - containerPort: 9092
+              name: plaintext
+            - containerPort: 9094
+              name: sasl
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 40
+          volumeMounts:
+            - name: jaas
+              mountPath: /etc/kafka/jaas
+              readOnly: true
+      volumes:
+        - name: jaas
+          configMap:
+            name: kafka-jaas
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: pathosd-e2e
+  labels:
+    app: kafka
+spec:
+  clusterIP: None
+  selector:
+    app: kafka
+  ports:
+    - name: plaintext
+      port: 9092
+      targetPort: 9092
+    - name: sasl
+      port: 9094
+      targetPort: 9094

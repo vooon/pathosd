@@ -849,6 +849,54 @@ func TestValidate_ListenCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_KafkaCheck(t *testing.T) {
+	makeKafka := func() *Config {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeKafka
+		cfg.VIPs[0].Check.HTTP = nil
+		cfg.VIPs[0].Check.Kafka = &KafkaCheckConfig{Host: "203.0.113.1", Port: 9092, SASL: &KafkaSASLConfig{Mechanism: KafkaSASLScramSHA512, User: "u", Password: "p"}}
+		return cfg
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		assert.Empty(t, Validate(makeKafka()))
+		cfg := makeKafka()
+		cfg.VIPs[0].Check.Kafka.SASL = nil
+		assert.Empty(t, Validate(cfg), "sasl is optional")
+	})
+	t.Run("nil kafka config", func(t *testing.T) {
+		cfg := makeKafka()
+		cfg.VIPs[0].Check.Kafka = nil
+		assertErrorContains(t, Validate(cfg), ".kafka: required")
+	})
+	t.Run("host required for non-/32 prefix", func(t *testing.T) {
+		cfg := makeKafka()
+		cfg.VIPs[0].Prefix = "203.0.113.0/24"
+		cfg.VIPs[0].Check.Kafka.Host = ""
+		assertErrorContains(t, Validate(cfg), ".kafka.host")
+	})
+	t.Run("sasl fields", func(t *testing.T) {
+		cfg := makeKafka()
+		cfg.VIPs[0].Check.Kafka.SASL = &KafkaSASLConfig{}
+		errs := Validate(cfg)
+		assertErrorContains(t, errs, ".kafka.sasl.mechanism: required")
+		assertErrorContains(t, errs, ".kafka.sasl.user: required")
+		assertErrorContains(t, errs, ".kafka.sasl.password: required")
+		cfg.VIPs[0].Check.Kafka.SASL.Mechanism = "gssapi"
+		assertErrorContains(t, Validate(cfg), ".kafka.sasl.mechanism: must be plain, scram-sha-256 or scram-sha-512")
+	})
+	t.Run("tls options need tls", func(t *testing.T) {
+		cfg := makeKafka()
+		cfg.VIPs[0].Check.Kafka.TLSInsecure = true
+		cfg.VIPs[0].Check.Kafka.TLSCACert = "/ca.pem"
+		errs := Validate(cfg)
+		assertErrorContains(t, errs, ".kafka.tls_insecure: requires tls")
+		assertErrorContains(t, errs, ".kafka.tls_ca_cert: requires tls")
+		cfg.VIPs[0].Check.Kafka.TLS = true
+		assertErrorContains(t, Validate(cfg), ".kafka.tls_insecure: mutually exclusive with tls_ca_cert")
+	})
+}
+
 func TestValidate_SQLCheck(t *testing.T) {
 	makeSQL := func() *Config {
 		cfg := validConfig()

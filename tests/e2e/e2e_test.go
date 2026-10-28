@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,8 +40,10 @@ const (
 	prependVIPPrefix = "10.100.8.1/32"
 	multiVIPPrefix   = "10.100.9.1/32"
 	listenVIPPrefix  = "10.100.10.1/32"
-	mysqlVIPPrefix   = "10.100.11.1/32"
-	pgsqlVIPPrefix   = "10.100.12.1/32"
+	mysqlRWPrefix    = "10.100.11.1/32"
+	mysqlROPrefix    = "10.100.11.2/32"
+	pgRWPrefix       = "10.100.12.1/32"
+	pgROPrefix       = "10.100.12.2/32"
 	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -112,8 +115,8 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=ipv6-target", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=httpbin", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
-		waitForPodReady(t, e2eNamespace, "app=mariadb", 180*time.Second)
-		waitForPodReady(t, e2eNamespace, "app=postgres", 180*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=mariadb", 240*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=postgres", 240*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -149,14 +152,34 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "squid-vip") == "announced" &&
 				vipStateFromStatus(status, "prepend-vip") == "announced" &&
 				vipStateFromStatus(status, "multi-vip") == "announced" &&
-				vipStateFromStatus(status, "listen-vip") == "announced" &&
-				vipStateFromStatus(status, "mysql-vip") == "announced" &&
-				vipStateFromStatus(status, "pgsql-vip") == "announced"
+				vipStateFromStatus(status, "listen-vip") == "announced"
 		})
 	})
 
-	// sql checks: the trigger response carries one entry per query.
-	t.Run("sql_vips_trigger_details", func(t *testing.T) {
+	// SQL primary/replica routing. Each database pod runs pathosd as a
+	// sidecar with one shared config per engine: the read-write VIP is
+	// announced only where the server accepts writes, the read-only VIP from
+	// every pod that answers queries. FRR therefore has one path for *-rw
+	// (the primary's pod IP) and two for *-ro.
+	sqlEngines := []struct {
+		app, rw, ro, rwVIP, rwQuery string
+	}{
+		{"mariadb", mysqlRWPrefix, mysqlROPrefix, "mysql-rw", "writable"},
+		{"postgres", pgRWPrefix, pgROPrefix, "pg-rw", "primary"},
+	}
+
+	t.Run("sql_rw_from_primary_ro_from_both", func(t *testing.T) {
+		for _, db := range sqlEngines {
+			primary := podIP(t, "app="+db.app+",role=primary")
+			replica := podIP(t, "app="+db.app+",role=replica")
+			waitForFRRNextHops(t, db.app+" rw", db.rw, []string{primary})
+			waitForFRRNextHops(t, db.app+" ro", db.ro, []string{primary, replica})
+		}
+	})
+
+	// The same rw check passes on the primary and fails on the replica; the
+	// trigger response shows the per-query outcome on each sidecar.
+	t.Run("sql_trigger_details_primary_vs_replica", func(t *testing.T) {
 		type sqlResult struct {
 			Success bool   `json:"success"`
 			Detail  string `json:"detail"`
@@ -168,8 +191,8 @@ func TestE2E(t *testing.T) {
 				} `json:"queries"`
 			} `json:"details"`
 		}
-		trigger := func(vip string) sqlResult {
-			code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/"+vip+"/check", nil)
+		trigger := func(baseURL, vip string) sqlResult {
+			code, body, err := apiRequestAbsoluteNoFail(baseURL, http.MethodPost, "/api/v1/vips/"+vip+"/check", nil)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, code, string(body))
 			var payload struct {
@@ -178,60 +201,71 @@ func TestE2E(t *testing.T) {
 			require.NoError(t, json.Unmarshal(body, &payload))
 			return payload.Result
 		}
+		for _, db := range sqlEngines {
+			primaryAPI := startPortForward(t, e2eNamespace, db.app+"-primary", 59179)
+			replicaAPI := startPortForward(t, e2eNamespace, db.app+"-replica", 59179)
 
-		my := trigger("mysql-vip")
-		assert.True(t, my.Success, my.Detail)
-		require.Len(t, my.Details.Queries, 3)
-		assert.Equal(t, []string{"q1", "writable", "version"}, []string{my.Details.Queries[0].Name, my.Details.Queries[1].Name, my.Details.Queries[2].Name})
-		for _, q := range my.Details.Queries {
-			assert.True(t, q.Passed, q.Name)
-			assert.Equal(t, 1, q.Rows, q.Name)
+			onPrimary := trigger(primaryAPI, db.rwVIP)
+			assert.True(t, onPrimary.Success, "%s primary: %s", db.app, onPrimary.Detail)
+			require.Len(t, onPrimary.Details.Queries, 1)
+			assert.Equal(t, db.rwQuery, onPrimary.Details.Queries[0].Name)
+			assert.True(t, onPrimary.Details.Queries[0].Passed)
+			assert.Equal(t, 1, onPrimary.Details.Queries[0].Rows)
+
+			onReplica := trigger(replicaAPI, db.rwVIP)
+			assert.False(t, onReplica.Success, "%s replica must not pass the rw check", db.app)
+			assert.Contains(t, onReplica.Detail, "query "+db.rwQuery+": result_jq is not true: false")
+			require.Len(t, onReplica.Details.Queries, 1)
+			assert.False(t, onReplica.Details.Queries[0].Passed)
 		}
-
-		pg := trigger("pgsql-vip")
-		assert.True(t, pg.Success, pg.Detail)
-		require.Len(t, pg.Details.Queries, 1)
-		assert.Equal(t, "primary", pg.Details.Queries[0].Name)
-		assert.True(t, pg.Details.Queries[0].Passed)
-
-		routes, err := frrRoutesNoFail()
-		require.NoError(t, err)
-		_, ok := routes[mysqlVIPPrefix]
-		assert.True(t, ok, "FRR has mysql-vip route")
-		_, ok = routes[pgsqlVIPPrefix]
-		assert.True(t, ok, "FRR has pgsql-vip route")
 	})
 
-	t.Run("mariadb_down_mysql_vip_withdrawn", func(t *testing.T) {
-		scaleDeploy(t, e2eNamespace, "mariadb", 0)
-		waitForCondition(t, "mysql-vip withdrawn, pgsql-vip stays announced", 30*time.Second, 1*time.Second, func() bool {
-			status, err := getPathosdStatusNoFail()
-			if err != nil {
-				return false
-			}
-			return vipStateFromStatus(status, "mysql-vip") == "withdrawn" &&
-				vipStateFromStatus(status, "pgsql-vip") == "announced"
-		})
-		waitForCondition(t, "FRR withdraws mysql-vip route", 30*time.Second, 1*time.Second, func() bool {
-			routes, err := frrRoutesNoFail()
-			if err != nil {
-				return false
-			}
-			_, ok := routes[mysqlVIPPrefix]
-			return !ok
-		})
+	t.Run("sql_replica_down_ro_single_path", func(t *testing.T) {
+		for _, db := range sqlEngines {
+			primary := podIP(t, "app="+db.app+",role=primary")
+			scaleDeploy(t, e2eNamespace, db.app+"-replica", 0)
+			waitForFRRNextHops(t, db.app+" ro without replica", db.ro, []string{primary})
+			waitForFRRNextHops(t, db.app+" rw unaffected", db.rw, []string{primary})
+
+			scaleDeploy(t, e2eNamespace, db.app+"-replica", 1)
+			waitForPodReady(t, e2eNamespace, "app="+db.app+",role=replica", 240*time.Second)
+			replica := podIP(t, "app="+db.app+",role=replica")
+			waitForFRRNextHops(t, db.app+" ro with new replica", db.ro, []string{primary, replica})
+			waitForFRRNextHops(t, db.app+" rw still primary only", db.rw, []string{primary})
+		}
 	})
 
-	t.Run("mariadb_up_mysql_vip_recovers", func(t *testing.T) {
-		scaleDeploy(t, e2eNamespace, "mariadb", 1)
-		waitForPodReady(t, e2eNamespace, "app=mariadb", 180*time.Second)
-		waitForCondition(t, "mysql-vip announced again", 60*time.Second, 1*time.Second, func() bool {
-			status, err := getPathosdStatusNoFail()
-			if err != nil {
-				return false
-			}
-			return vipStateFromStatus(status, "mysql-vip") == "announced"
-		})
+	// A failover tool demotes the MariaDB primary by flipping read_only; the
+	// server keeps serving reads, so only the rw VIP moves.
+	t.Run("mariadb_primary_read_only_withdraws_rw", func(t *testing.T) {
+		primary := podIP(t, "app=mariadb,role=primary")
+		replica := podIP(t, "app=mariadb,role=replica")
+		mariadbPrimarySQL := func(stmt string) {
+			kubectl(t, "-n", e2eNamespace, "exec", "deploy/mariadb-primary", "-c", "mariadb", "--",
+				"mariadb", "-uroot", "-pe2e-root", "-e", stmt)
+		}
+		mariadbPrimarySQL("SET GLOBAL read_only=1")
+		waitForFRRNextHops(t, "mysql-rw withdrawn", mysqlRWPrefix, nil)
+		waitForFRRNextHops(t, "mysql-ro keeps both", mysqlROPrefix, []string{primary, replica})
+
+		mariadbPrimarySQL("SET GLOBAL read_only=0")
+		waitForFRRNextHops(t, "mysql-rw back on the primary", mysqlRWPrefix, []string{primary})
+	})
+
+	// The PostgreSQL primary disappears: the rw VIP is withdrawn while the
+	// standby keeps serving reads. The restarted primary is a fresh cluster,
+	// which the standby's caught-up condition tolerates.
+	t.Run("postgres_primary_down_withdraws_rw", func(t *testing.T) {
+		replica := podIP(t, "app=postgres,role=replica")
+		scaleDeploy(t, e2eNamespace, "postgres-primary", 0)
+		waitForFRRNextHops(t, "pg-rw withdrawn", pgRWPrefix, nil)
+		waitForFRRNextHops(t, "pg-ro served by the standby", pgROPrefix, []string{replica})
+
+		scaleDeploy(t, e2eNamespace, "postgres-primary", 1)
+		waitForPodReady(t, e2eNamespace, "app=postgres,role=primary", 240*time.Second)
+		primary := podIP(t, "app=postgres,role=primary")
+		waitForFRRNextHops(t, "pg-rw back on the new primary", pgRWPrefix, []string{primary})
+		waitForFRRNextHops(t, "pg-ro from both again", pgROPrefix, []string{primary, replica})
 	})
 
 	// listen-vip: the tcp listen check finds pathosd's own API socket, the
@@ -941,6 +975,19 @@ func waitForPodReady(t *testing.T, namespace, labelSelector string, timeout time
 }
 
 // waitForCondition polls fn every interval until it returns true or timeout expires.
+func waitForConditionNoFail(timeout, interval time.Duration, fn func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if fn() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(interval)
+	}
+}
+
 func waitForCondition(t *testing.T, description string, timeout, interval time.Duration, fn func() bool) {
 	t.Helper()
 
@@ -1163,6 +1210,79 @@ func frrRoutesNoFail() (map[string][]map[string]interface{}, error) {
 	}
 
 	return payload.Routes, nil
+}
+
+// podIP returns the IP of the single running, non-terminating pod matching
+// the selector, waiting for the set to settle after a scale operation.
+func podIP(t *testing.T, labelSelector string) string {
+	t.Helper()
+	var ip string
+	waitForCondition(t, "one running pod for "+labelSelector, 120*time.Second, 1*time.Second, func() bool {
+		raw, err := kubectlNoFail("-n", e2eNamespace, "get", "pods", "-l", labelSelector, "-o", "json")
+		if err != nil {
+			return false
+		}
+		var payload struct {
+			Items []struct {
+				Metadata struct {
+					DeletionTimestamp *string `json:"deletionTimestamp"`
+				} `json:"metadata"`
+				Status struct {
+					Phase string `json:"phase"`
+					PodIP string `json:"podIP"`
+				} `json:"status"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return false
+		}
+		var ips []string
+		for _, p := range payload.Items {
+			if p.Metadata.DeletionTimestamp == nil && p.Status.Phase == "Running" && p.Status.PodIP != "" {
+				ips = append(ips, p.Status.PodIP)
+			}
+		}
+		if len(ips) != 1 {
+			return false
+		}
+		ip = ips[0]
+		return true
+	})
+	return ip
+}
+
+// frrNextHops lists the next-hop IPs of every path FRR holds for prefix.
+func frrNextHops(routes map[string][]map[string]interface{}, prefix string) []string {
+	var hops []string
+	for _, path := range routes[prefix] {
+		nexthops, _ := path["nexthops"].([]interface{})
+		for _, nh := range nexthops {
+			m, _ := nh.(map[string]interface{})
+			if ip, ok := m["ip"].(string); ok {
+				hops = append(hops, ip)
+			}
+		}
+	}
+	sort.Strings(hops)
+	return hops
+}
+
+// waitForFRRNextHops waits until FRR's paths for prefix have exactly the
+// given next hops (nil: no route at all).
+func waitForFRRNextHops(t *testing.T, description, prefix string, want []string) {
+	t.Helper()
+	want = append([]string(nil), want...)
+	sort.Strings(want)
+	var last []string
+	ok := waitForConditionNoFail(90*time.Second, 2*time.Second, func() bool {
+		routes, err := frrRoutesNoFail()
+		if err != nil {
+			return false
+		}
+		last = frrNextHops(routes, prefix)
+		return slices.Equal(last, want)
+	})
+	require.Truef(t, ok, "%s: FRR next hops for %s = %v, want %v", description, prefix, last, want)
 }
 
 func frrPrefixPath(t *testing.T, prefix string) map[string]interface{} {

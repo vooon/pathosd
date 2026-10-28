@@ -58,6 +58,12 @@ jobs:
           kubectl -n pathosd-e2e get pods -o wide
           echo "=== pathosd logs ==="
           kubectl -n pathosd-e2e logs -l app=pathosd --tail=100 || true
+          echo "=== database pods ==="
+          kubectl -n pathosd-e2e get pods -l 'app in (mariadb,postgres)' -o wide || true
+          for d in mariadb-primary mariadb-replica postgres-primary postgres-replica; do
+            echo "=== $d pathosd sidecar logs ==="
+            kubectl -n pathosd-e2e logs deploy/$d -c pathosd --tail=60 || true
+          done
           echo "=== FRR logs ==="
           kubectl -n pathosd-e2e logs frr --tail=50 || true
           echo "=== FRR BGP summary ==="

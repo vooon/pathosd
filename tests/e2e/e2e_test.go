@@ -37,6 +37,7 @@ const (
 	ipv6VIPPrefix    = "2001:db8:100::1/128"
 	squidVIPPrefix   = "10.100.7.1/32"
 	prependVIPPrefix = "10.100.8.1/32"
+	multiVIPPrefix   = "10.100.9.1/32"
 	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -69,6 +70,12 @@ type VIPStatus struct {
 	ConsecutiveOK   int    `json:"consecutive_ok"`
 	ConsecutiveFail int    `json:"consecutive_fail"`
 	CheckType       string `json:"check_type"`
+	ChecksPolicy    string `json:"checks_policy"`
+	Checks          []struct {
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		HealthName string `json:"health_name"`
+	} `json:"checks"`
 	// Prepend reporting (feat: announce policy).
 	ASPathPrependBase int      `json:"as_path_prepend_base"`
 	ASPathPrepend     int      `json:"as_path_prepend"`
@@ -135,8 +142,38 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "grpc-vip") == "announced" &&
 				vipStateFromStatus(status, "ipv6-vip") == "announced" &&
 				vipStateFromStatus(status, "squid-vip") == "announced" &&
-				vipStateFromStatus(status, "prepend-vip") == "announced"
+				vipStateFromStatus(status, "prepend-vip") == "announced" &&
+				vipStateFromStatus(status, "multi-vip") == "announced"
 		})
+	})
+
+	// multi-vip has an http check (nginx) and a dns check (coredns) combined
+	// by the expression "http || dns"; /status must expose both.
+	t.Run("multi_vip_status_lists_checks", func(t *testing.T) {
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		vip := vipFromStatus(t, status, "multi-vip")
+		assert.Equal(t, "http || dns", vip.ChecksPolicy)
+		assert.Equal(t, "http || dns", vip.CheckType)
+		require.Len(t, vip.Checks, 2)
+		assert.Equal(t, "http", vip.Checks[0].Name)
+		assert.Equal(t, "dns", vip.Checks[1].Name)
+		assert.Equal(t, "healthy", vip.Checks[0].HealthName)
+		assert.Equal(t, "healthy", vip.Checks[1].HealthName)
+
+		// Trigger runs both checks and reports them by name.
+		code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/multi-vip/check", nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, code, string(body))
+		var payload struct {
+			Result  struct{ Success bool }            `json:"result"`
+			Results map[string]struct{ Success bool } `json:"results"`
+		}
+		require.NoError(t, json.Unmarshal(body, &payload))
+		assert.True(t, payload.Result.Success)
+		assert.Len(t, payload.Results, 2)
+		assert.True(t, payload.Results["http"].Success)
+		assert.True(t, payload.Results["dns"].Success)
 	})
 
 	t.Run("frr_receives_routes", func(t *testing.T) {
@@ -373,6 +410,17 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "dns-vip") == "announced" &&
 				vipStateFromStatus(status, "udp-vip") == "announced"
 		})
+
+		// "http || dns": the http check is unhealthy but dns keeps multi-vip up.
+		waitForCondition(t, "multi-vip http check unhealthy, VIP still announced", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			vip := vipFromStatus(t, status, "multi-vip")
+			return vip.StateName == "announced" && len(vip.Checks) == 2 &&
+				vip.Checks[0].HealthName == "unhealthy" && vip.Checks[1].HealthName == "healthy"
+		})
 	})
 
 	t.Run("frr_prepend_vip_pessimized_sums_prepends", func(t *testing.T) {
@@ -483,7 +531,47 @@ func TestE2E(t *testing.T) {
 			return vipStateFromStatus(status, "dns-vip") == "withdrawn" &&
 				vipStateFromStatus(status, "web-vip") == "announced" &&
 				vipStateFromStatus(status, "tcp-vip") == "announced" &&
-				vipStateFromStatus(status, "udp-vip") == "announced"
+				vipStateFromStatus(status, "udp-vip") == "announced" &&
+				vipStateFromStatus(status, "multi-vip") == "announced"
+		})
+	})
+
+	// With coredns still down, taking nginx down too fails both checks of
+	// multi-vip, so "http || dns" withdraws it; nginx back announces it again
+	// while dns is still unhealthy.
+	t.Run("multi_vip_withdrawn_only_when_both_checks_fail", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "nginx", 0)
+
+		waitForCondition(t, "multi-vip withdrawn with nginx and coredns down", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "multi-vip") == "withdrawn"
+		})
+
+		waitForCondition(t, "FRR withdraws multi-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, ok := routes[multiVIPPrefix]
+			return !ok
+		})
+
+		scaleDeploy(t, e2eNamespace, "nginx", 1)
+		waitForPodReady(t, e2eNamespace, "app=nginx", 120*time.Second)
+
+		waitForCondition(t, "multi-vip announced again via http only", 45*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			vip := vipFromStatus(t, status, "multi-vip")
+			return vip.StateName == "announced" && len(vip.Checks) == 2 &&
+				vip.Checks[0].HealthName == "healthy" && vip.Checks[1].HealthName == "unhealthy" &&
+				vipStateFromStatus(status, "web-vip") == "announced" &&
+				vipStateFromStatus(status, "tcp-vip") == "announced"
 		})
 	})
 

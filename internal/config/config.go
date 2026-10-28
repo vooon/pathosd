@@ -271,8 +271,17 @@ type VIPConfig struct {
 	Name string `yaml:"name" json:"name" toml:"name" jsonschema:"required"`
 	// IP prefix to announce (e.g. 10.0.0.1/32 or 2001:db8::1/128).
 	Prefix string `yaml:"prefix" json:"prefix" toml:"prefix" jsonschema:"required"`
-	// Health check configuration for this VIP.
-	Check CheckConfig `yaml:"check" json:"check" toml:"check" jsonschema:"required"`
+	// Health check for this VIP. Exactly one of check or checks is required.
+	Check CheckConfig `yaml:"check,omitempty" json:"check,omitempty" toml:"check,omitempty" jsonschema:"oneof_required=single_check"`
+	// Several health checks for this VIP, combined by checks_policy. Each entry is a full
+	// check definition with its own interval, timeout, rise and fall. Exactly one of check
+	// or checks is required.
+	Checks []CheckConfig `yaml:"checks,omitempty" json:"checks,omitempty" toml:"checks,omitempty" jsonschema:"oneof_required=multiple_checks,minItems=1"`
+	// How the health of several checks combines into the VIP health: "all" (every check
+	// must be healthy), "any" (one healthy check suffices) or a boolean expression over
+	// the check names such as "web || (dns && ping)" (expr-lang syntax: && || ! and parentheses).
+	// Default: all.
+	ChecksPolicy string `yaml:"checks_policy,omitempty" json:"checks_policy,omitempty" toml:"checks_policy,omitempty" jsonschema:"default=all,example=all,example=any,example=web || (dns && ping)"`
 	// Policy controlling how BGP announcements react to check failures.
 	Policy PolicyConfig `yaml:"policy" json:"policy" toml:"policy" jsonschema:"required"`
 	// Fail the health check while the VIP address is not configured on a local interface,
@@ -284,6 +293,10 @@ type VIPConfig struct {
 
 // CheckConfig defines health check type, scheduling, and type-specific parameters.
 type CheckConfig struct {
+	// Name of this check in logs, metrics (check label), /status and checks_policy
+	// expressions. Letters, digits and underscores, not starting with a digit. Defaults to
+	// the check type; required when a VIP has several checks of the same type.
+	Name string `yaml:"name,omitempty" json:"name,omitempty" toml:"name,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$"`
 	// Health check backend type.
 	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
 	// Export check-type-specific metrics for this VIP (ping RTT histogram and packet loss,
@@ -476,4 +489,33 @@ type LowerPriorityConfig struct {
 	ASPathPrepend *int `yaml:"as_path_prepend" json:"as_path_prepend" toml:"as_path_prepend" jsonschema:"minimum=1,maximum=16,default=6"`
 	// BGP communities to attach to pessimized route announcements (e.g. "65535:666").
 	Communities []string `yaml:"communities" json:"communities" toml:"communities"`
+}
+
+// CheckList returns the VIP's checks in config order: the checks list when
+// set, otherwise the single check. Pointers refer into the config.
+func (v *VIPConfig) CheckList() []*CheckConfig {
+	if len(v.Checks) > 0 {
+		out := make([]*CheckConfig, len(v.Checks))
+		for i := range v.Checks {
+			out[i] = &v.Checks[i]
+		}
+		return out
+	}
+	return []*CheckConfig{&v.Check}
+}
+
+// EffectiveChecksPolicy returns checks_policy with its default applied.
+func (v *VIPConfig) EffectiveChecksPolicy() string {
+	if v.ChecksPolicy == "" {
+		return ChecksPolicyAll
+	}
+	return v.ChecksPolicy
+}
+
+// EffectiveName returns the check name, defaulting to the check type.
+func (c *CheckConfig) EffectiveName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Type
 }

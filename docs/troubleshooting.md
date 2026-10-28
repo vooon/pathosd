@@ -16,20 +16,22 @@ curl -s 127.0.0.1:59179/status | jq .                  # peers, VIPs, last check
 
 The same information is available without `curl` or `jq`: open
 `http://127.0.0.1:59179/` in a browser. The landing page lists every VIP
-with its state, health, prepend count, check type and last check detail,
-every peer with its session state, and has a **Trigger check** button per
-VIP. Reload the page to refresh it.
+with its state, health, prepend count, every check with its own health and
+last detail, every peer with its session state, and has a **Trigger check**
+button per VIP. Reload the page to refresh it.
 
 `/status` is the single most useful call. Per VIP it shows `state_name`
 (withdrawn / announced / pessimized), `health_name`, `consecutive_ok` /
 `consecutive_fail` against `rise` / `fall`, `last_check_success` with
 `last_check_detail` (the check's own error text), `last_transition_reason`,
-and `bgp_pending`.
+and `bgp_pending`. A VIP with several checks lists them under `checks`, each
+with its own `health_name`, counters and `last_detail`; the VIP-level fields
+are the roll-up (`check_type` shows the policy, e.g. `all(http, dns)`).
 
 Run with `--debug` (or `logging.level: debug`) to see every check result as
 `check passed` / `check failed` with its detail. At the default `info` level
-only transitions (`VIP state transition`, `VIP healthy`, `VIP unhealthy`) and
-peer events (`BGP peer state change`) are logged.
+only transitions (`VIP state transition`, `check healthy`, `check unhealthy`)
+and peer events (`BGP peer state change`) are logged.
 
 ## The daemon does not start
 
@@ -107,6 +109,10 @@ the first announcement. Look at `/status`:
   `allowPrivilegeEscalation: false`, which disables file capabilities.
 - `consecutive_ok` climbs but never reaches `rise`: a single failure resets
   it. Lower `rise` or fix the intermittent failure first.
+- Several checks: `health_name: healthy` on some entries of `checks` but the
+  VIP stays unhealthy means `checks_policy` (default `all`) is not satisfied.
+  The log line `check transition without VIP health change` names the check
+  and the policy. A check that has never reported counts as unhealthy.
 - Need an answer faster than `interval`: `POST /api/v1/vips/<name>/check`
   runs the check now and returns the full result, including details.
 
@@ -180,7 +186,10 @@ lines every few seconds.
   scraper's host.
 - `pathosd_ping_rtt_seconds`, `pathosd_http_response_status`,
   `pathosd_dns_rcode` and friends are empty: they need
-  `check.detailed_metrics: true` per VIP.
+  `detailed_metrics: true` on the check.
+- A query that groups `pathosd_check_*` by `vip` returns several series per
+  VIP: the `check` label (check name) was added with multi-check support;
+  `sum by (vip)` or filter on `check`.
 - The Grafana dashboard's `instance` variable is empty: it is populated
   from `pathosd_vip_state`, so no data means no scrape.
 - OTel exporter errors in the log: verify the scheme (`grpc://` vs

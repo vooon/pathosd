@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -21,11 +22,12 @@ import (
 )
 
 type ServerDeps struct {
-	Config     *config.Config
-	Metrics    *metrics.Metrics
-	BGP        *bgp.Manager
-	Policy     *policy.Manager
-	Schedulers map[string]*checks.Scheduler
+	Config  *config.Config
+	Metrics *metrics.Metrics
+	BGP     *bgp.Manager
+	Policy  *policy.Manager
+	// Schedulers holds one scheduler per check, keyed by VIP name.
+	Schedulers map[string][]*checks.Scheduler
 }
 
 type landingPageData struct {
@@ -61,7 +63,7 @@ func NewServer(deps ServerDeps) *http.Server {
 	mux.HandleFunc("GET /readyz", handleReadyz(deps.BGP, deps.Config))
 	mux.HandleFunc("GET /status", handleStatus(deps))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{}))
-	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Schedulers))
+	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Policy, deps.Schedulers))
 	api := deps.Config.API
 	return &http.Server{
 		Addr:              api.Listen,
@@ -145,33 +147,92 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 }
 
 // vipStatuses returns policy VIP statuses enriched with scheduler counters.
+// vipStatuses returns policy VIP statuses enriched with scheduler counters:
+// per check, and at VIP level the lowest consecutive_ok / highest
+// consecutive_fail across the VIP's checks.
 func vipStatuses(deps ServerDeps) []model.VIPStatus {
 	statuses := deps.Policy.GetVIPStatuses()
 	for i := range statuses {
-		if sched, ok := deps.Schedulers[statuses[i].Name]; ok {
-			statuses[i].ConsecutiveOK = sched.ConsecutiveOK()
-			statuses[i].ConsecutiveFail = sched.ConsecutiveFail()
+		st := &statuses[i]
+		byName := make(map[string]*checks.Scheduler)
+		for _, sched := range deps.Schedulers[st.Name] {
+			byName[sched.CheckName()] = sched
+		}
+		first := true
+		for j := range st.Checks {
+			sched, ok := byName[st.Checks[j].Name]
+			if !ok {
+				continue
+			}
+			okN, failN := sched.ConsecutiveOK(), sched.ConsecutiveFail()
+			st.Checks[j].ConsecutiveOK = okN
+			st.Checks[j].ConsecutiveFail = failN
+			if first || okN < st.ConsecutiveOK {
+				st.ConsecutiveOK = okN
+			}
+			if first || failN > st.ConsecutiveFail {
+				st.ConsecutiveFail = failN
+			}
+			first = false
 		}
 	}
 	return statuses
 }
 
-func handleTriggerCheck(schedulers map[string]*checks.Scheduler) http.HandlerFunc {
+// handleTriggerCheck runs every check of the VIP once (or only ?check=<name>)
+// and returns the per-check results plus a combined result that follows the
+// VIP's checks_policy. With a single check "result" is that check's result.
+func handleTriggerCheck(pol *policy.Manager, schedulers map[string][]*checks.Scheduler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		sched, ok := schedulers[name]
-		if !ok {
+		scheds, ok := schedulers[name]
+		if !ok || len(scheds) == 0 {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "VIP not found: " + name})
 			return
 		}
-		slog.Info("ad-hoc check triggered", "vip", name, "remote_addr", r.RemoteAddr)
-		result, err := sched.TriggerCheck(r.Context())
-		if err != nil {
-			slog.Error("ad-hoc check failed", "vip", name, "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
+		if only := r.URL.Query().Get("check"); only != "" {
+			var selected []*checks.Scheduler
+			for _, s := range scheds {
+				if s.CheckName() == only {
+					selected = append(selected, s)
+				}
+			}
+			if len(selected) == 0 {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "check not found: " + only})
+				return
+			}
+			scheds = selected
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"vip": name, "result": result})
+		slog.Info("ad-hoc check triggered", "vip", name, "remote_addr", r.RemoteAddr)
+		results := make(map[string]checks.Result, len(scheds))
+		healthy := make(map[string]bool, len(scheds))
+		var combined checks.Result
+		var details []string
+		for i, sched := range scheds {
+			result, err := sched.TriggerCheck(r.Context())
+			if err != nil {
+				slog.Error("ad-hoc check failed", "vip", name, "check", sched.CheckName(), "error", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			results[sched.CheckName()] = result
+			healthy[sched.CheckName()] = result.Success
+			if i == 0 {
+				combined = result
+			} else {
+				combined.Duration += result.Duration
+			}
+			if result.Detail != "" {
+				details = append(details, sched.CheckName()+": "+result.Detail)
+			}
+		}
+		if len(schedulers[name]) > 1 {
+			// Partial runs (?check=) still combine through the policy; the
+			// checks not run count as failed.
+			combined = checks.Result{Duration: combined.Duration, Detail: strings.Join(details, "; ")}
+			combined.Success, _ = pol.CombineChecks(name, healthy)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"vip": name, "result": combined, "results": results})
 	}
 }
 

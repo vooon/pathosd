@@ -86,8 +86,8 @@ func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 		Metrics: m,
 		BGP:     bgpMgr,
 		Policy:  pol,
-		Schedulers: map[string]*checks.Scheduler{
-			"vip-1": sched,
+		Schedulers: map[string][]*checks.Scheduler{
+			"vip-1": {sched},
 		},
 	})
 }
@@ -198,4 +198,156 @@ func TestNewServer_TriggerCheck(t *testing.T) {
 		assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
 		assert.True(t, strings.Contains(rr.Body.String(), "VIP not found"))
 	})
+}
+
+// newMultiCheckServer builds a server with one VIP that has two checks
+// ("a" and "b") combined by policy; each check is backed by its own fake.
+func newMultiCheckServer(t *testing.T, checksPolicy string, a, b checks.Checker) *http.Server {
+	t.Helper()
+	cfg := &config.Config{
+		Router: config.RouterConfig{ASN: 65001, RouterID: "127.0.0.1", LocalAddress: "127.0.0.1"},
+		API:    config.APIConfig{Listen: ":0"},
+		BGP:    config.BGPConfig{ListenPort: 11795},
+		VIPs: []config.VIPConfig{{
+			Name:         "multi",
+			Prefix:       "10.10.2.1/32",
+			ChecksPolicy: checksPolicy,
+			Checks: []config.CheckConfig{
+				{Name: "a", Type: config.CheckTypeHTTP},
+				{Name: "b", Type: config.CheckTypeTCP},
+			},
+			Policy: config.PolicyConfig{FailAction: "withdraw"},
+		}},
+	}
+	m := metrics.New([]float64{0.1, 0.5, 1.0})
+	pol := policy.NewManager(cfg.VIPs, m, nil)
+	bgpMgr := bgp.NewManager(cfg, m)
+	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	require.NoError(t, bgpMgr.Start(startCtx))
+	startCancel()
+	t.Cleanup(func() { bgpMgr.Stop(context.Background()) })
+
+	mk := func(name string, c checks.Checker) *checks.Scheduler {
+		s := checks.NewScheduler(checks.SchedulerConfig{
+			VIPName: "multi", CheckName: name, Checker: c,
+			Interval: time.Second, Timeout: time.Second, Rise: 1, Fall: 1,
+		})
+		s.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
+		return s
+	}
+	return NewServer(ServerDeps{
+		Config: cfg, Metrics: m, BGP: bgpMgr, Policy: pol,
+		Schedulers: map[string][]*checks.Scheduler{"multi": {mk("a", a), mk("b", b)}},
+	})
+}
+
+func TestNewServer_TriggerCheck_MultiCheck(t *testing.T) {
+	okChecker := func() *mockChecker {
+		c := &mockChecker{}
+		c.On("Check", mock.Anything).Return(checks.Result{Success: true, Detail: "ok"})
+		return c
+	}
+	failChecker := func() *mockChecker {
+		c := &mockChecker{}
+		c.On("Check", mock.Anything).Return(checks.Result{Success: false, Detail: "boom"})
+		return c
+	}
+	decode := func(t *testing.T, rr *httptest.ResponseRecorder) (map[string]any, map[string]any) {
+		t.Helper()
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &payload))
+		result, ok := payload["result"].(map[string]any)
+		require.True(t, ok)
+		results, ok := payload["results"].(map[string]any)
+		require.True(t, ok)
+		return result, results
+	}
+
+	t.Run("all: one failure fails the combined result", func(t *testing.T) {
+		srv := newMultiCheckServer(t, "", okChecker(), failChecker())
+		rr := performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check")
+		require.Equal(t, http.StatusOK, rr.Code)
+		result, results := decode(t, rr)
+		assert.Equal(t, false, result["success"])
+		assert.Equal(t, "a: ok; b: boom", result["detail"])
+		assert.Len(t, results, 2)
+		assert.Equal(t, true, results["a"].(map[string]any)["success"])
+		assert.Equal(t, "boom", results["b"].(map[string]any)["detail"])
+	})
+
+	t.Run("any: one success passes", func(t *testing.T) {
+		srv := newMultiCheckServer(t, config.ChecksPolicyAny, okChecker(), failChecker())
+		rr := performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check")
+		require.Equal(t, http.StatusOK, rr.Code)
+		result, _ := decode(t, rr)
+		assert.Equal(t, true, result["success"])
+	})
+
+	t.Run("expression", func(t *testing.T) {
+		srv := newMultiCheckServer(t, "b && !a", failChecker(), okChecker())
+		rr := performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check")
+		require.Equal(t, http.StatusOK, rr.Code)
+		result, _ := decode(t, rr)
+		assert.Equal(t, true, result["success"])
+	})
+
+	t.Run("single check via query runs only that one", func(t *testing.T) {
+		a, b := okChecker(), failChecker()
+		srv := newMultiCheckServer(t, config.ChecksPolicyAny, a, b)
+		rr := performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check?check=a")
+		require.Equal(t, http.StatusOK, rr.Code)
+		result, results := decode(t, rr)
+		assert.Len(t, results, 1)
+		assert.Equal(t, true, result["success"])
+		b.AssertNotCalled(t, "Check", mock.Anything)
+
+		rr = performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check?check=zzz")
+		require.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Contains(t, rr.Body.String(), "check not found")
+	})
+
+	t.Run("status carries per-check counters and the roll-up", func(t *testing.T) {
+		srv := newMultiCheckServer(t, "", okChecker(), failChecker())
+		performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check")
+		rr := performRequest(t, srv, http.MethodGet, "/status")
+		require.Equal(t, http.StatusOK, rr.Code)
+		var payload struct {
+			VIPs []struct {
+				ConsecutiveOK   int    `json:"consecutive_ok"`
+				ConsecutiveFail int    `json:"consecutive_fail"`
+				CheckType       string `json:"check_type"`
+				Checks          []struct {
+					Name            string `json:"name"`
+					ConsecutiveOK   int    `json:"consecutive_ok"`
+					ConsecutiveFail int    `json:"consecutive_fail"`
+				} `json:"checks"`
+			} `json:"vips"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &payload))
+		require.Len(t, payload.VIPs, 1)
+		v := payload.VIPs[0]
+		assert.Equal(t, "all(http, tcp)", v.CheckType)
+		require.Len(t, v.Checks, 2)
+		assert.Equal(t, 1, v.Checks[0].ConsecutiveOK)
+		assert.Equal(t, 1, v.Checks[1].ConsecutiveFail)
+		assert.Equal(t, 0, v.ConsecutiveOK, "min over checks")
+		assert.Equal(t, 1, v.ConsecutiveFail, "max over checks")
+	})
+}
+
+func TestNewServer_Landing_MultiCheck(t *testing.T) {
+	a, b := &mockChecker{}, &mockChecker{}
+	a.On("Check", mock.Anything).Return(checks.Result{Success: true, Detail: "ok"})
+	b.On("Check", mock.Anything).Return(checks.Result{Success: false, Detail: "boom"})
+	srv := newMultiCheckServer(t, config.ChecksPolicyAny, a, b)
+	performRequest(t, srv, http.MethodPost, "/api/v1/vips/multi/check")
+
+	rr := performRequest(t, srv, http.MethodGet, "/")
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "any of:")
+	assert.Contains(t, body, "<strong>a:</strong> ok")
+	assert.Contains(t, body, "<strong>b:</strong> boom")
+	assert.Contains(t, body, `class="tag tag-healthy">healthy</span> a`)
+	assert.Contains(t, body, `class="tag tag-unknown">unknown</span> b`, "never-healthy check stays unknown until a transition")
 }

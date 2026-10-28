@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,4 +277,70 @@ vips:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expanding environment placeholders")
 	assert.Contains(t, err.Error(), "PATHOSD_TEST_ROUTER_ID_MISSING")
+}
+
+const multiCheckYAML = `
+schema: v1
+router:
+  asn: 65001
+  router_id: 10.0.0.1
+api:
+  listen: ":8080"
+bgp:
+  neighbors:
+    - name: spine-1
+      address: 10.0.0.254
+      peer_asn: 65000
+vips:
+  - name: web-vip
+    prefix: 10.10.1.1/32
+    checks_policy: "web || (dns && tcp)"
+    checks:
+      - name: web
+        type: http
+        interval: 5s
+        timeout: 2s
+        http:
+          url: /healthz
+      - type: dns
+        dns:
+          names: ["example.test."]
+      - type: tcp
+        tcp:
+          port: 80
+    policy:
+      fail_action: withdraw
+`
+
+func TestParse_MultiCheckYAML(t *testing.T) {
+	cfg, err := Parse([]byte(multiCheckYAML), "yaml")
+	require.NoError(t, err)
+	ApplyDefaults(cfg)
+	require.Empty(t, Validate(cfg))
+
+	v := cfg.VIPs[0]
+	require.Len(t, v.Checks, 3)
+	assert.Empty(t, v.Check.Type, "single check stays unset")
+	assert.Equal(t, "web || (dns && tcp)", v.ChecksPolicy)
+	names := make([]string, 0, 3)
+	for _, c := range v.CheckList() {
+		names = append(names, c.EffectiveName())
+	}
+	assert.Equal(t, []string{"web", "dns", "tcp"}, names)
+	// Per-check defaults: explicit interval kept, others defaulted.
+	assert.Equal(t, 5*time.Second, v.Checks[0].Interval.Duration)
+	assert.Equal(t, time.Second, v.Checks[1].Interval.Duration)
+	assert.Equal(t, "10.10.1.1", v.Checks[1].DNS.Resolver)
+	assert.Equal(t, "10.10.1.1", v.Checks[2].TCP.Host)
+	assert.Equal(t, "A", v.Checks[1].DNS.QueryType)
+}
+
+func TestParse_SingleCheckDefaultsPolicy(t *testing.T) {
+	cfg, err := Parse([]byte(minimalYAML), "yaml")
+	require.NoError(t, err)
+	ApplyDefaults(cfg)
+	assert.Equal(t, ChecksPolicyAll, cfg.VIPs[0].ChecksPolicy)
+	assert.Equal(t, ChecksPolicyAll, cfg.VIPs[0].EffectiveChecksPolicy())
+	require.Len(t, cfg.VIPs[0].CheckList(), 1)
+	assert.Equal(t, "http", cfg.VIPs[0].CheckList()[0].EffectiveName())
 }

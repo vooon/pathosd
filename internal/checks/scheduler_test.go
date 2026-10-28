@@ -158,7 +158,7 @@ func TestScheduler_OnCheckResultCallback(t *testing.T) {
 		Timeout:  1 * time.Second,
 		Rise:     1,
 		Fall:     1,
-		OnCheckResult: func(_ string, r Result) {
+		OnCheckResult: func(_, _ string, r Result) {
 			mu.Lock()
 			defer mu.Unlock()
 			results = append(results, r)
@@ -244,4 +244,18 @@ func TestScheduler_TriggerCheck_CallerCancelDoesNotFailCheck(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Success)
 	assert.Equal(t, 0, s.ConsecutiveFail())
+}
+
+func TestScheduler_CheckName(t *testing.T) {
+	fake := &fakeChecker{results: []Result{successResult()}}
+	s := makeScheduler(fake, 1, 1)
+	assert.Equal(t, fake.Type(), s.CheckName(), "defaults to the checker type")
+
+	var got HealthTransition
+	s.SetCallbacks(func(ht HealthTransition) { got = ht }, nil)
+	s.runCheck(context.TODO())
+	assert.Equal(t, fake.Type(), got.CheckName)
+
+	named := NewScheduler(SchedulerConfig{VIPName: "v", CheckName: "primary", Checker: fake, Interval: time.Millisecond, Timeout: time.Second, Rise: 1, Fall: 1})
+	assert.Equal(t, "primary", named.CheckName())
 }

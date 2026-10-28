@@ -58,7 +58,15 @@ func ApplyDefaults(cfg *Config) {
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
 
-		applyCheckDefaults(&v.Check, v.Prefix)
+		if len(v.Checks) == 0 && v.Check.Type == "" {
+			continue // validation reports the missing check
+		}
+		for _, c := range v.CheckList() {
+			applyCheckDefaults(c, v.Prefix)
+		}
+		if v.ChecksPolicy == "" {
+			v.ChecksPolicy = ChecksPolicyAll
+		}
 		applyPolicyDefaults(&v.Policy)
 	}
 

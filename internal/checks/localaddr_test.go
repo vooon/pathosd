@@ -23,13 +23,13 @@ func TestLocalAddressGuard(t *testing.T) {
 		{Interface: "dummy-vip", Addr: netip.MustParseAddr("10.9.0.1")},
 		{Interface: "dummy-vip", Addr: netip.MustParseAddr("2001:db8::1")},
 	}
-	newGuard := func(t *testing.T, prefix, iface string, inner Checker) (*LocalAddressGuard, *[]bool) {
+	newGuard := func(t *testing.T, prefix, iface string, inner Checker) (Checker, *[]bool) {
 		t.Helper()
 		var states []bool
-		g, err := NewLocalAddressGuard("vip", prefix, iface, inner, func(a bool) { states = append(states, a) })
+		g, err := NewLocalAddressGuard("vip", prefix, iface, func(a bool) { states = append(states, a) })
 		require.NoError(t, err)
 		g.list = func() ([]LocalAddress, error) { return addrs, nil }
-		return g, &states
+		return g.Wrap(inner), &states
 	}
 
 	t.Run("present on any interface runs inner check", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestLocalAddressGuard(t *testing.T) {
 	})
 
 	t.Run("invalid prefix", func(t *testing.T) {
-		_, err := NewLocalAddressGuard("vip", "nope", "", &stubChecker{}, nil)
+		_, err := NewLocalAddressGuard("vip", "nope", "", nil)
 		assert.Error(t, err)
 	})
 }
@@ -100,10 +100,10 @@ func TestListLocalAddresses_Loopback(t *testing.T) {
 	assert.True(t, found, "127.0.0.1 should be configured on the loopback interface")
 
 	// The real lister through the guard: loopback is present, a TEST-NET address is not.
-	g, err := NewLocalAddressGuard("vip", "127.0.0.1/32", "", &stubChecker{}, nil)
+	g, err := NewLocalAddressGuard("vip", "127.0.0.1/32", "", nil)
 	require.NoError(t, err)
-	assert.True(t, g.Check(context.Background()).Success)
-	g, err = NewLocalAddressGuard("vip", "203.0.113.7/32", "", &stubChecker{}, nil)
+	assert.True(t, g.Wrap(&stubChecker{}).Check(context.Background()).Success)
+	g, err = NewLocalAddressGuard("vip", "203.0.113.7/32", "", nil)
 	require.NoError(t, err)
-	assert.False(t, g.Check(context.Background()).Success)
+	assert.False(t, g.Wrap(&stubChecker{}).Check(context.Background()).Success)
 }

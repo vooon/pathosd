@@ -18,6 +18,7 @@ import (
 type HealthTransition struct {
 	Ctx         context.Context // trace context; may be nil when called synthetically
 	VIPName     string
+	CheckName   string // which of the VIP's checks crossed the threshold
 	Healthy     bool
 	Reason      string
 	CheckResult Result
@@ -25,13 +26,14 @@ type HealthTransition struct {
 
 type Scheduler struct {
 	vipName       string
+	checkName     string
 	checker       Checker
 	interval      time.Duration
 	timeout       time.Duration
 	rise          int
 	fall          int
 	onTransition  func(HealthTransition)
-	onCheckResult func(vipName string, result Result)
+	onCheckResult func(vipName, checkName string, result Result)
 	tracer        trace.Tracer
 
 	// runMu serializes checks (ticker and ad-hoc triggers) so that state
@@ -46,19 +48,26 @@ type Scheduler struct {
 }
 
 type SchedulerConfig struct {
-	VIPName       string
+	VIPName string
+	// CheckName identifies the check within the VIP; defaults to the checker type.
+	CheckName     string
 	Checker       Checker
 	Interval      time.Duration
 	Timeout       time.Duration
 	Rise          int
 	Fall          int
 	OnTransition  func(HealthTransition)
-	OnCheckResult func(vipName string, result Result)
+	OnCheckResult func(vipName, checkName string, result Result)
 }
 
 func NewScheduler(cfg SchedulerConfig) *Scheduler {
+	name := cfg.CheckName
+	if name == "" && cfg.Checker != nil {
+		name = cfg.Checker.Type()
+	}
 	return &Scheduler{
 		vipName:       cfg.VIPName,
+		checkName:     name,
 		checker:       cfg.Checker,
 		interval:      cfg.Interval,
 		timeout:       cfg.Timeout,
@@ -97,7 +106,7 @@ func (s *Scheduler) TriggerCheck(ctx context.Context) (Result, error) {
 	return s.runCheck(context.WithoutCancel(ctx)), nil
 }
 
-func (s *Scheduler) SetCallbacks(onTransition func(HealthTransition), onCheckResult func(string, Result)) {
+func (s *Scheduler) SetCallbacks(onTransition func(HealthTransition), onCheckResult func(vipName, checkName string, result Result)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onTransition = onTransition
@@ -105,6 +114,9 @@ func (s *Scheduler) SetCallbacks(onTransition func(HealthTransition), onCheckRes
 }
 
 func (s *Scheduler) VIPName() string { return s.vipName }
+
+// CheckName returns the name of the check this scheduler runs.
+func (s *Scheduler) CheckName() string { return s.checkName }
 
 func (s *Scheduler) IsHealthy() bool {
 	s.mu.Lock()
@@ -137,6 +149,7 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 	spanCtx, span := s.tracer.Start(parentCtx, "health_check",
 		trace.WithAttributes(
 			attribute.String("vip.name", s.vipName),
+			attribute.String("check.name", s.checkName),
 			attribute.String("check.type", s.checker.Type()),
 		),
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -159,9 +172,9 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 	}
 
 	if result.Success {
-		slog.Debug("check passed", "vip", s.vipName, "duration", result.Duration, "detail", result.Detail)
+		slog.Debug("check passed", "vip", s.vipName, "check", s.checkName, "duration", result.Duration, "detail", result.Detail)
 	} else {
-		slog.Debug("check failed", "vip", s.vipName, "duration", result.Duration, "detail", result.Detail)
+		slog.Debug("check failed", "vip", s.vipName, "check", s.checkName, "duration", result.Duration, "detail", result.Detail)
 	}
 
 	s.mu.Lock()
@@ -177,10 +190,11 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 		}
 		if !s.healthy && s.consecutiveOK >= s.rise {
 			s.healthy = true
-			slog.Info("VIP healthy", "vip", s.vipName, "consecutive_ok", s.consecutiveOK, "rise", s.rise)
+			slog.Info("check healthy", "vip", s.vipName, "check", s.checkName, "consecutive_ok", s.consecutiveOK, "rise", s.rise)
 			transition = &HealthTransition{
 				Ctx:         spanCtx,
 				VIPName:     s.vipName,
+				CheckName:   s.checkName,
 				Healthy:     true,
 				Reason:      "rise threshold reached",
 				CheckResult: result,
@@ -193,10 +207,11 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 		}
 		if s.healthy && s.consecutiveFail >= s.fall {
 			s.healthy = false
-			slog.Warn("VIP unhealthy", "vip", s.vipName, "consecutive_fail", s.consecutiveFail, "fall", s.fall, "detail", result.Detail)
+			slog.Warn("check unhealthy", "vip", s.vipName, "check", s.checkName, "consecutive_fail", s.consecutiveFail, "fall", s.fall, "detail", result.Detail)
 			transition = &HealthTransition{
 				Ctx:         spanCtx,
 				VIPName:     s.vipName,
+				CheckName:   s.checkName,
 				Healthy:     false,
 				Reason:      "fall threshold reached",
 				CheckResult: result,
@@ -210,7 +225,7 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 	// Fire callbacks outside the lock so that callbacks calling scheduler
 	// methods (IsHealthy, LastResult, etc.) do not deadlock.
 	if onCheckResult != nil {
-		onCheckResult(s.vipName, result)
+		onCheckResult(s.vipName, s.checkName, result)
 	}
 
 	if transition != nil && onTransition != nil {

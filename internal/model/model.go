@@ -72,8 +72,14 @@ type VIPStatus struct {
 	LastCheckTime        time.Time    `json:"last_check_time"`
 	LastTransitionTime   time.Time    `json:"last_transition_time"`
 	LastTransitionReason string       `json:"last_transition_reason"`
-	CheckType            string       `json:"check_type"`
-	BGPPending           bool         `json:"bgp_pending"`
+	// CheckType is the single check's type, or for a VIP with several
+	// checks "all(http, dns)", "any(...)" or the policy expression.
+	CheckType string `json:"check_type"`
+	// ChecksPolicy is how the checks combine: "all", "any" or an expression.
+	ChecksPolicy string `json:"checks_policy"`
+	// Checks lists every check of the VIP in config order.
+	Checks     []CheckStatus `json:"checks"`
+	BGPPending bool          `json:"bgp_pending"`
 	// ASPathPrependBase is policy.announce.as_path_prepend: the prepend this
 	// node applies to every announcement of the VIP (its standby rank).
 	ASPathPrependBase int `json:"as_path_prepend_base"`
@@ -83,6 +89,19 @@ type VIPStatus struct {
 	// Communities currently attached to the route (announce block, merged
 	// with lower_priority while pessimized).
 	Communities []string `json:"communities,omitempty"`
+}
+
+// CheckStatus is the observable state of one check of a VIP.
+type CheckStatus struct {
+	Name            string       `json:"name"`
+	Type            string       `json:"type"`
+	Health          HealthStatus `json:"health"`
+	HealthName      string       `json:"health_name"`
+	ConsecutiveOK   int          `json:"consecutive_ok"`
+	ConsecutiveFail int          `json:"consecutive_fail"`
+	LastSuccess     bool         `json:"last_success"`
+	LastDetail      string       `json:"last_detail"`
+	LastTime        time.Time    `json:"last_time"`
 }
 
 // PeerStatus is the observable state for one BGP neighbor.

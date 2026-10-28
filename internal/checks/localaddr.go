@@ -48,12 +48,12 @@ func ListLocalAddresses() ([]LocalAddress, error) {
 	return out, nil
 }
 
-// LocalAddressGuard wraps a Checker and reports failure while the VIP address
-// is not configured on a local interface (optionally a specific one), so the
-// route is never announced for an address this host cannot serve. The inner
-// check only runs once the address is present.
+// LocalAddressGuard reports failure while the VIP address is not configured
+// on a local interface (optionally a specific one), so the route is never
+// announced for an address this host cannot serve. One guard serves all
+// checks of a VIP: Wrap returns a Checker that runs the inner check only once
+// the address is present, and state-change logging happens once per VIP.
 type LocalAddressGuard struct {
-	inner   Checker
 	vipName string
 	prefix  string
 	addr    netip.Addr
@@ -69,13 +69,12 @@ type LocalAddressGuard struct {
 // NewLocalAddressGuard builds a guard for the VIP prefix. iface may be empty
 // to accept any interface. onState is called whenever the assigned state is
 // observed to change (and on the first observation); it may be nil.
-func NewLocalAddressGuard(vipName, prefix, iface string, inner Checker, onState func(assigned bool)) (*LocalAddressGuard, error) {
+func NewLocalAddressGuard(vipName, prefix, iface string, onState func(assigned bool)) (*LocalAddressGuard, error) {
 	p, err := netip.ParsePrefix(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("invalid prefix %q: %w", prefix, err)
 	}
 	return &LocalAddressGuard{
-		inner:   inner,
 		vipName: vipName,
 		prefix:  prefix,
 		addr:    p.Addr().Unmap(),
@@ -85,10 +84,29 @@ func NewLocalAddressGuard(vipName, prefix, iface string, inner Checker, onState 
 	}, nil
 }
 
-func (g *LocalAddressGuard) Type() string { return g.inner.Type() }
+// Wrap returns a Checker that verifies the VIP address is present before
+// running inner.
+func (g *LocalAddressGuard) Wrap(inner Checker) Checker {
+	return &guardedChecker{guard: g, inner: inner}
+}
 
-// Check verifies the VIP address is present, then runs the wrapped check.
-func (g *LocalAddressGuard) Check(ctx context.Context) Result {
+type guardedChecker struct {
+	guard *LocalAddressGuard
+	inner Checker
+}
+
+func (c *guardedChecker) Type() string { return c.inner.Type() }
+
+func (c *guardedChecker) Check(ctx context.Context) Result {
+	if r, ok := c.guard.check(); !ok {
+		return r
+	}
+	return c.inner.Check(ctx)
+}
+
+// check returns (failure result, false) while the address is missing, or
+// (zero, true) when the inner check may run.
+func (g *LocalAddressGuard) check() (Result, bool) {
 	start := time.Now()
 	addrs, err := g.list()
 	if err != nil {
@@ -97,7 +115,7 @@ func (g *LocalAddressGuard) Check(ctx context.Context) Result {
 			Detail:   "listing local addresses: " + err.Error(),
 			Duration: time.Since(start),
 			Err:      err,
-		}
+		}, false
 	}
 	assigned := false
 	for _, a := range addrs {
@@ -114,9 +132,9 @@ func (g *LocalAddressGuard) Check(ctx context.Context) Result {
 			Detail:   detail,
 			Duration: time.Since(start),
 			Err:      errors.New(detail),
-		}
+		}, false
 	}
-	return g.inner.Check(ctx)
+	return Result{}, true
 }
 
 func (g *LocalAddressGuard) missingDetail() string {

@@ -121,8 +121,10 @@ func provideMetrics(cfg *config.Config) *metrics.Metrics {
 	// Compute histogram buckets from the maximum check timeout across all VIPs.
 	var maxTimeout time.Duration
 	for i := range cfg.VIPs {
-		if t := cfg.VIPs[i].Check.Timeout.Duration; t > maxTimeout {
-			maxTimeout = t
+		for _, c := range cfg.VIPs[i].CheckList() {
+			if c.Timeout != nil && c.Timeout.Duration > maxTimeout {
+				maxTimeout = c.Timeout.Duration
+			}
 		}
 	}
 	buckets := metrics.GenerateCheckBuckets(maxTimeout)
@@ -139,20 +141,18 @@ func provideBGPManager(cfg *config.Config, m *metrics.Metrics) (*bgp.Manager, er
 
 type SchedulersResult struct {
 	fx.Out
-	Schedulers map[string]*checks.Scheduler
+	// Schedulers holds one scheduler per check, keyed by VIP name in config order.
+	Schedulers map[string][]*checks.Scheduler
 }
 
 func provideSchedulers(cfg *config.Config, m *metrics.Metrics) (SchedulersResult, error) {
-	scheds := make(map[string]*checks.Scheduler, len(cfg.VIPs))
+	scheds := make(map[string][]*checks.Scheduler, len(cfg.VIPs))
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
-		checker, err := checks.NewChecker(&v.Check)
-		if err != nil {
-			return SchedulersResult{}, fmt.Errorf("creating checker for VIP %q: %w", v.Name, err)
-		}
+		var guard *checks.LocalAddressGuard
 		if v.RequireLocalAddress {
 			gauge := m.VIPLocalAddress.WithLabelValues(v.Name, v.Prefix)
-			checker, err = checks.NewLocalAddressGuard(v.Name, v.Prefix, v.LocalInterface, checker, func(assigned bool) {
+			g, err := checks.NewLocalAddressGuard(v.Name, v.Prefix, v.LocalInterface, func(assigned bool) {
 				if assigned {
 					gauge.Set(1)
 				} else {
@@ -162,26 +162,41 @@ func provideSchedulers(cfg *config.Config, m *metrics.Metrics) (SchedulersResult
 			if err != nil {
 				return SchedulersResult{}, fmt.Errorf("creating local address guard for VIP %q: %w", v.Name, err)
 			}
+			guard = g
 		}
-		interval := v.Check.Interval.Duration
-		timeout := v.Check.Timeout.Duration
-		rise := 1
-		if v.Check.Rise != nil {
-			rise = *v.Check.Rise
+		for _, c := range v.CheckList() {
+			checker, err := checks.NewChecker(c)
+			if err != nil {
+				return SchedulersResult{}, fmt.Errorf("creating checker %q for VIP %q: %w", c.EffectiveName(), v.Name, err)
+			}
+			if guard != nil {
+				checker = guard.Wrap(checker)
+			}
+			interval, timeout := time.Second, 100*time.Millisecond
+			if c.Interval != nil {
+				interval = c.Interval.Duration
+			}
+			if c.Timeout != nil {
+				timeout = c.Timeout.Duration
+			}
+			rise := 1
+			if c.Rise != nil {
+				rise = *c.Rise
+			}
+			fall := 3
+			if c.Fall != nil {
+				fall = *c.Fall
+			}
+			scheds[v.Name] = append(scheds[v.Name], checks.NewScheduler(checks.SchedulerConfig{
+				VIPName:   v.Name,
+				CheckName: c.EffectiveName(),
+				Checker:   checker,
+				Interval:  interval,
+				Timeout:   timeout,
+				Rise:      rise,
+				Fall:      fall,
+			}))
 		}
-		fall := 3
-		if v.Check.Fall != nil {
-			fall = *v.Check.Fall
-		}
-		sched := checks.NewScheduler(checks.SchedulerConfig{
-			VIPName:  v.Name,
-			Checker:  checker,
-			Interval: interval,
-			Timeout:  timeout,
-			Rise:     rise,
-			Fall:     fall,
-		})
-		scheds[v.Name] = sched
 	}
 	return SchedulersResult{Schedulers: scheds}, nil
 }
@@ -190,7 +205,7 @@ func providePolicyManager(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Ma
 	return policy.NewManager(cfg.VIPs, m, bgpMgr)
 }
 
-func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string]*checks.Scheduler) *http.Server {
+func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string][]*checks.Scheduler) *http.Server {
 	return httpapi.NewServer(httpapi.ServerDeps{
 		Config:     cfg,
 		Metrics:    m,
@@ -272,7 +287,7 @@ func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metric
 	})
 }
 
-func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Scheduler, pol *policy.Manager) {
+func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string][]*checks.Scheduler, pol *policy.Manager) {
 	var (
 		schedCancels []context.CancelFunc
 		schedWG      sync.WaitGroup
@@ -281,12 +296,14 @@ func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string]*checks.Sche
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			schedCancels = make([]context.CancelFunc, 0, len(scheds))
-			for _, sched := range scheds {
-				sched.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
-				schedCtx, cancel := context.WithCancel(context.Background())
-				schedCancels = append(schedCancels, cancel)
-				schedWG.Go(func() { sched.Run(schedCtx) })
-				slog.Info("scheduler started", "vip", sched.VIPName())
+			for _, vipScheds := range scheds {
+				for _, sched := range vipScheds {
+					sched.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
+					schedCtx, cancel := context.WithCancel(context.Background())
+					schedCancels = append(schedCancels, cancel)
+					schedWG.Go(func() { sched.Run(schedCtx) })
+					slog.Info("scheduler started", "vip", sched.VIPName(), "check", sched.CheckName())
+				}
 			}
 			return nil
 		},

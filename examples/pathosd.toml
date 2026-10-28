@@ -102,6 +102,41 @@ prefix = "10.10.1.1/32"
   fail_action = "withdraw"
 
 # HTTP health check — path-only with JQ response match
+# Several checks on one VIP. Each check has its own interval/timeout/rise/fall;
+# checks_policy combines their health: all (default), any, or a boolean
+# expression over the check names (expr-lang syntax). Names default to the
+# type and must be unique within the VIP.
+[[vips]]
+name = "web-multi"
+prefix = "10.10.1.9/32"
+checks_policy = "web || (dns && ping)"
+
+  [[vips.checks]]
+  name = "web"
+  type = "http"
+  interval = "2s"
+  timeout = "500ms"
+
+    [vips.checks.http]
+    url = "https://web.example.com/healthz"
+
+  [[vips.checks]]
+  type = "dns"
+  interval = "10s"
+  timeout = "2s"
+
+    [vips.checks.dns]
+    names = ["web.example.com."]
+
+  [[vips.checks]]
+  type = "ping"
+
+    [vips.checks.ping]
+    privileged = false
+
+  [vips.policy]
+  fail_action = "withdraw"
+
 [[vips]]
 name = "api-backend"
 prefix = "10.10.1.2/32"

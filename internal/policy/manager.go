@@ -163,6 +163,10 @@ func (m *Manager) OnCheckResult(vipName string, result checks.Result) {
 	if result.TimedOut {
 		m.metrics.CheckTimeoutExceeded.WithLabelValues(vipName, cfg.Prefix).Inc()
 	}
+
+	if cfg.Check.DetailedMetrics {
+		m.metrics.ObserveCheckDetails(vipName, cfg.Prefix, result.Details)
+	}
 }
 
 func (m *Manager) GetVIPStatuses() []model.VIPStatus {

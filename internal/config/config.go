@@ -278,6 +278,10 @@ type VIPConfig struct {
 type CheckConfig struct {
 	// Health check backend type.
 	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
+	// Export check-type-specific metrics for this VIP (ping RTT histogram and packet loss,
+	// HTTP status code and TLS certificate expiry, DNS rcode and answer count per name,
+	// gRPC status code). Off by default to keep the metric set small.
+	DetailedMetrics bool `yaml:"detailed_metrics" json:"detailed_metrics" toml:"detailed_metrics" jsonschema:"default=false"`
 	// Interval between consecutive health checks. Default: 1s.
 	Interval *Duration `yaml:"interval" json:"interval" toml:"interval" jsonschema:"default=1s"`
 	// Maximum time to wait for a check to complete; must be less than interval. Default: 100ms.

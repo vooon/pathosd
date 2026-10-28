@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // startGRPCHealthServer starts a gRPC server with the standard health service
@@ -104,6 +105,11 @@ func TestGRPCChecker_Health_Serving(t *testing.T) {
 	assert.True(t, result.Success, "SERVING should pass; detail: %s", result.Detail)
 	assert.Contains(t, result.Detail, "SERVING")
 	assert.NotZero(t, result.Duration)
+
+	details, ok := result.Details.(*model.GRPCDetails)
+	require.True(t, ok)
+	assert.Equal(t, uint32(codes.OK), details.StatusCode)
+	assert.Equal(t, "SERVING", details.ServingStatus)
 }
 
 func TestGRPCChecker_Health_NotServing(t *testing.T) {

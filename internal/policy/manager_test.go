@@ -705,3 +705,28 @@ func TestManager_GetVIPStatusesSorted(t *testing.T) {
 	assert.Equal(t, pessimizeVIPName, statuses[0].Name)
 	assert.Equal(t, withdrawVIPName, statuses[1].Name)
 }
+
+func TestManager_OnCheckResult_DetailedMetricsGate(t *testing.T) {
+	details := &model.HTTPDetails{StatusCode: 418}
+	result := checks.Result{Success: false, Detail: "teapot", Details: details}
+
+	t.Run("off by default", func(t *testing.T) {
+		m := newTestMetrics()
+		mgr := NewManager(testVIPConfigs(), m, nil)
+		mgr.OnCheckResult(withdrawVIPName, result)
+		assert.Equal(t, 0, testutil.CollectAndCount(m.HTTPResponseStatus))
+	})
+
+	t.Run("exported when detailed_metrics is enabled", func(t *testing.T) {
+		m := newTestMetrics()
+		cfgs := testVIPConfigs()
+		for i := range cfgs {
+			if cfgs[i].Name == withdrawVIPName {
+				cfgs[i].Check.DetailedMetrics = true
+			}
+		}
+		mgr := NewManager(cfgs, m, nil)
+		mgr.OnCheckResult(withdrawVIPName, result)
+		assert.Equal(t, float64(418), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(withdrawVIPName, withdrawPrefix)))
+	})
+}

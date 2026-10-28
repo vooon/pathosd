@@ -105,3 +105,53 @@ type DaemonStatus struct {
 	Peers     []PeerStatus `json:"peers"`
 	VIPs      []VIPStatus  `json:"vips"`
 }
+
+// CheckDetails carries check-type-specific observations alongside a check
+// Result. They are exported as metrics only when check.detailed_metrics is
+// enabled for the VIP; otherwise they are only visible in the ad-hoc check
+// response.
+type CheckDetails interface {
+	checkDetails()
+}
+
+// PingDetails is reported by the ping checker.
+type PingDetails struct {
+	// Round-trip time of every echo reply received in this run.
+	RTTs []time.Duration `json:"rtts"`
+	// Fraction of probes lost, 0..1.
+	PacketLoss  float64 `json:"packet_loss"`
+	PacketsSent int     `json:"packets_sent"`
+	PacketsRecv int     `json:"packets_recv"`
+}
+
+// HTTPDetails is reported by the http checker once a response was received.
+type HTTPDetails struct {
+	StatusCode int `json:"status_code"`
+	// NotAfter of the leaf certificate presented by the server; zero for plain HTTP.
+	TLSCertNotAfter time.Time `json:"tls_cert_not_after,omitzero"`
+}
+
+// DNSNameDetails is one queried name within DNSDetails.
+type DNSNameDetails struct {
+	Name    string `json:"name"`
+	Rcode   int    `json:"rcode"`
+	Answers int    `json:"answers"`
+}
+
+// DNSDetails is reported by the dns checker for every name that got a reply.
+type DNSDetails struct {
+	Names []DNSNameDetails `json:"names"`
+}
+
+// GRPCDetails is reported by the grpc checker.
+type GRPCDetails struct {
+	// gRPC status code of the call (0 = OK).
+	StatusCode uint32 `json:"status_code"`
+	// Serving status from the standard health protocol; empty for custom methods.
+	ServingStatus string `json:"serving_status,omitempty"`
+}
+
+func (*PingDetails) checkDetails() {}
+func (*HTTPDetails) checkDetails() {}
+func (*DNSDetails) checkDetails()  {}
+func (*GRPCDetails) checkDetails() {}

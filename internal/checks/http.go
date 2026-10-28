@@ -18,6 +18,7 @@ import (
 
 	"github.com/itchyny/gojq"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // maxBodyBytes caps how much of a response body a check reads or drains.
@@ -169,6 +170,17 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 		_ = resp.Body.Close()
 	}()
 
+	details := &model.HTTPDetails{StatusCode: resp.StatusCode}
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		details.TLSCertNotAfter = resp.TLS.PeerCertificates[0].NotAfter
+	}
+	result := c.evaluateResponse(ctx, resp, dur)
+	result.Details = details
+	return result
+}
+
+// evaluateResponse applies the status code and body matchers to a response.
+func (c *HTTPChecker) evaluateResponse(ctx context.Context, resp *http.Response, dur time.Duration) Result {
 	if !slices.Contains(c.cfg.ResponseCodes, resp.StatusCode) {
 		return Result{Duration: dur, Detail: fmt.Sprintf("unexpected status %d (want %v)", resp.StatusCode, c.cfg.ResponseCodes)}
 	}

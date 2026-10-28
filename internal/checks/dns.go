@@ -9,6 +9,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 type DNSChecker struct {
@@ -31,6 +32,7 @@ func (c *DNSChecker) Check(ctx context.Context) Result {
 	server := net.JoinHostPort(c.cfg.Resolver, fmt.Sprintf("%d", c.cfg.Port))
 	qtype := dns.StringToType[c.cfg.QueryType]
 
+	details := &model.DNSDetails{Names: make([]model.DNSNameDetails, 0, len(c.cfg.Names))}
 	for _, name := range c.cfg.Names {
 		msg := new(dns.Msg)
 		msg.SetQuestion(dns.Fqdn(name), qtype)
@@ -40,15 +42,16 @@ func (c *DNSChecker) Check(ctx context.Context) Result {
 		dur := time.Since(start)
 		if err != nil {
 			timedOut := ctx.Err() == context.DeadlineExceeded
-			return Result{Duration: dur, Err: err, Detail: fmt.Sprintf("query %s: %v", name, err), TimedOut: timedOut}
+			return Result{Duration: dur, Err: err, Detail: fmt.Sprintf("query %s: %v", name, err), TimedOut: timedOut, Details: details}
 		}
+		details.Names = append(details.Names, model.DNSNameDetails{Name: name, Rcode: resp.Rcode, Answers: len(resp.Answer)})
 		if resp.Rcode != dns.RcodeSuccess {
-			return Result{Duration: dur, Detail: fmt.Sprintf("query %s: %s", name, dns.RcodeToString[resp.Rcode])}
+			return Result{Duration: dur, Detail: fmt.Sprintf("query %s: %s", name, dns.RcodeToString[resp.Rcode]), Details: details}
 		}
 		if len(resp.Answer) == 0 {
-			return Result{Duration: dur, Detail: fmt.Sprintf("query %s: no answers", name)}
+			return Result{Duration: dur, Detail: fmt.Sprintf("query %s: no answers", name), Details: details}
 		}
 	}
 
-	return Result{Success: true, Duration: time.Since(start), Detail: fmt.Sprintf("DNS OK: %s", strings.Join(c.cfg.Names, ", "))}
+	return Result{Success: true, Duration: time.Since(start), Detail: fmt.Sprintf("DNS OK: %s", strings.Join(c.cfg.Names, ", ")), Details: details}
 }

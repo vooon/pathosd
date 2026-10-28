@@ -7,6 +7,7 @@ import (
 
 	probing "github.com/prometheus-community/pro-bing"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 type PingChecker struct {
@@ -41,10 +42,16 @@ func (c *PingChecker) Check(ctx context.Context) Result {
 		}
 		stats := pinger.Statistics()
 		lossRatio := stats.PacketLoss / 100.0
-		if lossRatio > c.cfg.MaxLossRatio {
-			return Result{Duration: dur, Detail: fmt.Sprintf("loss %.1f%% > max %.1f%%", stats.PacketLoss, c.cfg.MaxLossRatio*100)}
+		details := &model.PingDetails{
+			RTTs:        stats.Rtts,
+			PacketLoss:  lossRatio,
+			PacketsSent: stats.PacketsSent,
+			PacketsRecv: stats.PacketsRecv,
 		}
-		return Result{Success: true, Duration: dur, Detail: fmt.Sprintf("ping OK %d/%d loss=%.1f%%", stats.PacketsRecv, stats.PacketsSent, stats.PacketLoss)}
+		if lossRatio > c.cfg.MaxLossRatio {
+			return Result{Duration: dur, Detail: fmt.Sprintf("loss %.1f%% > max %.1f%%", stats.PacketLoss, c.cfg.MaxLossRatio*100), Details: details}
+		}
+		return Result{Success: true, Duration: dur, Detail: fmt.Sprintf("ping OK %d/%d loss=%.1f%%", stats.PacketsRecv, stats.PacketsSent, stats.PacketLoss), Details: details}
 	}
 }
 

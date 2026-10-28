@@ -62,11 +62,24 @@ func NewServer(deps ServerDeps) *http.Server {
 	mux.HandleFunc("GET /status", handleStatus(deps))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Schedulers))
+	api := deps.Config.API
 	return &http.Server{
-		Addr:              deps.Config.API.Listen,
+		Addr:              api.Listen,
 		Handler:           otelhttp.NewHandler(mux, "pathosd.http"),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: durationOr(api.ReadHeaderTimeout, 10*time.Second),
+		ReadTimeout:       durationOr(api.ReadTimeout, 30*time.Second),
+		WriteTimeout:      durationOr(api.WriteTimeout, 60*time.Second),
+		IdleTimeout:       durationOr(api.IdleTimeout, 120*time.Second),
 	}
+}
+
+// durationOr returns d when set (config defaults normally fill it in) and
+// fallback otherwise, so NewServer stays safe on a Config built by hand.
+func durationOr(d *config.Duration, fallback time.Duration) time.Duration {
+	if d == nil {
+		return fallback
+	}
+	return d.Duration
 }
 
 func handleHealthz() http.HandlerFunc {
@@ -151,6 +164,7 @@ func handleTriggerCheck(schedulers map[string]*checks.Scheduler) http.HandlerFun
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "VIP not found: " + name})
 			return
 		}
+		slog.Info("ad-hoc check triggered", "vip", name, "remote_addr", r.RemoteAddr)
 		result, err := sched.TriggerCheck(r.Context())
 		if err != nil {
 			slog.Error("ad-hoc check failed", "vip", name, "error", err)

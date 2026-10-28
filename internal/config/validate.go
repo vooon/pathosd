@@ -56,6 +56,19 @@ func Validate(cfg *Config) []error {
 	if cfg.API.Listen == "" {
 		add("api.listen", "required")
 	}
+	for _, tmo := range []struct {
+		path string
+		d    *Duration
+	}{
+		{"api.read_header_timeout", cfg.API.ReadHeaderTimeout},
+		{"api.read_timeout", cfg.API.ReadTimeout},
+		{"api.write_timeout", cfg.API.WriteTimeout},
+		{"api.idle_timeout", cfg.API.IdleTimeout},
+	} {
+		if tmo.d != nil && tmo.d.Duration < 0 {
+			add(tmo.path, fmt.Sprintf("must be >= 0 (0 disables), got %s", tmo.d.Duration))
+		}
+	}
 
 	// Logging
 	switch cfg.Logging.Level {

@@ -15,6 +15,18 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.API.Listen == "" {
 		cfg.API.Listen = ":59179"
 	}
+	if cfg.API.ReadHeaderTimeout == nil {
+		cfg.API.ReadHeaderTimeout = &Duration{Duration: 10 * time.Second}
+	}
+	if cfg.API.ReadTimeout == nil {
+		cfg.API.ReadTimeout = &Duration{Duration: 30 * time.Second}
+	}
+	if cfg.API.WriteTimeout == nil {
+		cfg.API.WriteTimeout = &Duration{Duration: 60 * time.Second}
+	}
+	if cfg.API.IdleTimeout == nil {
+		cfg.API.IdleTimeout = &Duration{Duration: 120 * time.Second}
+	}
 
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"

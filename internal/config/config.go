@@ -362,8 +362,8 @@ type CheckConfig struct {
 
 // HTTPCheckConfig defines an HTTP health check.
 type HTTPCheckConfig struct {
-	// URL to check. Can be a full URL (https://example.com/healthz) or a path (/healthz). When a full URL is given, proto and Host header are derived from it.
-	URL string `yaml:"url" json:"url" toml:"url" jsonschema:"required"`
+	// URL to check. Can be a full URL (https://example.com/healthz) or a path (/healthz). When a full URL is given, proto and Host header are derived from it. Default: /.
+	URL string `yaml:"url" json:"url" toml:"url" jsonschema:"default=/"`
 	// Protocol override. Derived from full URL if not set. Default: http.
 	Proto string `yaml:"proto" json:"proto" toml:"proto" jsonschema:"enum=http,enum=https"`
 	// Host to connect to and send in the Host header. Defaults to VIP prefix IP for /32 or /128 prefixes.
@@ -423,8 +423,9 @@ type UDPCheckConfig struct {
 	Host string `yaml:"host" json:"host" toml:"host"`
 	// UDP port to probe. Required.
 	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"required,minimum=1,maximum=65535"`
-	// Payload to send with the probe datagram. Default: single null byte.
-	Payload []byte `yaml:"payload" json:"payload" toml:"payload"`
+	// Payload to send with the probe datagram, as a string (YAML/TOML escapes such as
+	// "\x00" or "\u0000" work). Default: a single null byte.
+	Payload string `yaml:"payload" json:"payload" toml:"payload"`
 }
 
 // ListenCheckConfig defines a check that passes when a socket on this host is

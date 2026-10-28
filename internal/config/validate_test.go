@@ -551,6 +551,20 @@ func TestValidate_HTTPCheck(t *testing.T) {
 		assertErrorContains(t, Validate(cfg), ".proto")
 	})
 
+	t.Run("HEAD cannot match a body", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.HTTP.Method = "HEAD"
+		cfg.VIPs[0].Check.HTTP.ResponseText = "ok"
+		cfg.VIPs[0].Check.HTTP.ResponseRegex = "ok"
+		cfg.VIPs[0].Check.HTTP.ResponseJQ = ".ok"
+		errs := Validate(cfg)
+		assertErrorContains(t, errs, ".response_text: cannot be used with method HEAD")
+		assertErrorContains(t, errs, ".response_regex: cannot be used with method HEAD")
+		assertErrorContains(t, errs, ".response_jq: cannot be used with method HEAD")
+		cfg.VIPs[0].Check.HTTP.ResponseText, cfg.VIPs[0].Check.HTTP.ResponseRegex, cfg.VIPs[0].Check.HTTP.ResponseJQ = "", "", ""
+		assert.Empty(t, Validate(cfg), "HEAD with status codes only is fine")
+	})
+
 	t.Run("invalid method POST", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.VIPs[0].Check.HTTP.Method = "POST"

@@ -357,7 +357,8 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "URL to check. Can be a full URL (https://example.com/healthz) or a path (/healthz). When a full URL is given, proto and Host header are derived from it."
+          "description": "URL to check. Can be a full URL (https://example.com/healthz) or a path (/healthz). When a full URL is given, proto and Host header are derived from it. Default: /.",
+          "default": "/"
         },
         "proto": {
           "type": "string",
@@ -434,9 +435,6 @@
       },
       "additionalProperties": false,
       "type": "object",
-      "required": [
-        "url"
-      ],
       "description": "HTTPCheckConfig defines an HTTP health check."
     },
     "KafkaCheckConfig": {
@@ -996,8 +994,7 @@
         },
         "payload": {
           "type": "string",
-          "contentEncoding": "base64",
-          "description": "Payload to send with the probe datagram. Default: single null byte."
+          "description": "Payload to send with the probe datagram, as a string (YAML/TOML escapes such as\n\"\\x00\" or \"\\u0000\" work). Default: a single null byte."
         }
       },
       "additionalProperties": false,

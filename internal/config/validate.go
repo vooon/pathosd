@@ -575,7 +575,18 @@ func validateHTTPCheck(prefix string, h *HTTPCheckConfig, vipPrefix string) []er
 	}
 
 	switch h.Method {
-	case "GET", "HEAD":
+	case "GET":
+	case "HEAD":
+		// A HEAD response has no body, so a body matcher could never pass.
+		if h.ResponseText != "" {
+			add(prefix+".response_text", "cannot be used with method HEAD (no response body)")
+		}
+		if h.ResponseRegex != "" {
+			add(prefix+".response_regex", "cannot be used with method HEAD (no response body)")
+		}
+		if h.ResponseJQ != "" {
+			add(prefix+".response_jq", "cannot be used with method HEAD (no response body)")
+		}
 	default:
 		add(prefix+".method", fmt.Sprintf("must be GET or HEAD, got %q", h.Method))
 	}

@@ -301,7 +301,7 @@ prefix = "10.10.5.1/32"
 
     [vips.check.udp]
     port = 514
-    # payload = "\x00"   # probe payload; default is a single null byte
+    # payload = "<191>pathosd probe"   # probe payload; default is a single null byte ("\u0000")
     # host = "10.10.5.1" # explicit host override
 
   [vips.policy]

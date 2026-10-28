@@ -773,13 +773,13 @@ func TestApplyDefaults_UDPCheck(t *testing.T) {
 	t.Run("Payload defaults to single null byte", func(t *testing.T) {
 		cfg := makeUDP(UDPCheckConfig{Port: 514}, "203.0.113.1/32")
 		ApplyDefaults(cfg)
-		assert.Equal(t, []byte{0x00}, cfg.VIPs[0].Check.UDP.Payload)
+		assert.Equal(t, "\x00", cfg.VIPs[0].Check.UDP.Payload)
 	})
 
 	t.Run("Payload preserved", func(t *testing.T) {
-		cfg := makeUDP(UDPCheckConfig{Port: 514, Payload: []byte{0x01, 0x02}}, "203.0.113.1/32")
+		cfg := makeUDP(UDPCheckConfig{Port: 514, Payload: "\x01\x02"}, "203.0.113.1/32")
 		ApplyDefaults(cfg)
-		assert.Equal(t, []byte{0x01, 0x02}, cfg.VIPs[0].Check.UDP.Payload)
+		assert.Equal(t, "\x01\x02", cfg.VIPs[0].Check.UDP.Payload)
 	})
 
 	t.Run("nil UDP gets initialized", func(t *testing.T) {

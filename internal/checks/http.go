@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/common/version"
 	"io"
 	"net"
 	"net/http"
@@ -23,6 +24,15 @@ import (
 
 // maxBodyBytes caps how much of a response body a check reads or drains.
 const maxBodyBytes = 1 << 20
+
+// userAgent is the default User-Agent sent by the HTTP check.
+func userAgent() string {
+	v := version.Version
+	if v == "" {
+		v = "dev"
+	}
+	return "pathosd/" + v
+}
 
 type HTTPChecker struct {
 	cfg     config.HTTPCheckConfig
@@ -152,6 +162,9 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 	if err != nil {
 		return Result{Duration: time.Since(start), Err: err, Detail: err.Error()}
 	}
+	// Identify the probe to the backend; some front-ends reject or log
+	// clients without a User-Agent. An explicit header wins.
+	req.Header.Set("User-Agent", userAgent())
 	for k, v := range c.cfg.Headers {
 		req.Header.Set(k, v)
 	}

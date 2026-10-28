@@ -81,6 +81,8 @@ passive = false
 [[vips]]
 name = "web-frontend"
 prefix = "10.10.1.1/32"
+# require_local_address = true   # fail the check while 10.10.1.1 is not configured on this host
+# local_interface = "dummy-vip"  # ... on this interface specifically
 
   [vips.check]
   type = "http"

@@ -272,6 +272,11 @@ type VIPConfig struct {
 	Check CheckConfig `yaml:"check" json:"check" toml:"check" jsonschema:"required"`
 	// Policy controlling how BGP announcements react to check failures.
 	Policy PolicyConfig `yaml:"policy" json:"policy" toml:"policy" jsonschema:"required"`
+	// Fail the health check while the VIP address is not configured on a local interface,
+	// so a route is never announced for an address this host cannot serve. Default: false.
+	RequireLocalAddress bool `yaml:"require_local_address" json:"require_local_address" toml:"require_local_address" jsonschema:"default=false"`
+	// Interface the VIP address must be on for require_local_address (e.g. dummy-vip). Any interface when empty.
+	LocalInterface string `yaml:"local_interface" json:"local_interface" toml:"local_interface"`
 }
 
 // CheckConfig defines health check type, scheduling, and type-specific parameters.

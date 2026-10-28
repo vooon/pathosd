@@ -25,6 +25,9 @@ type Metrics struct {
 	// VIP priority: AS-path prepend count currently applied (base while
 	// announced, base + lower_priority while pessimized)
 	VIPPriority *prometheus.GaugeVec
+	// VIPLocalAddress is 1 while the VIP address is configured on a local
+	// interface; only populated for VIPs with require_local_address.
+	VIPLocalAddress *prometheus.GaugeVec
 
 	// Route state: per-peer per-VIP (1=advertised, 0=withdrawn)
 	RouteState *prometheus.GaugeVec
@@ -137,6 +140,11 @@ func New(checkBuckets []float64) *Metrics {
 			Help: "AS-path prepend count applied to the VIP route: announce.as_path_prepend while announced, plus lower_priority.as_path_prepend while pessimized (0 = full priority).",
 		}, []string{"vip", "nlri"}),
 
+		VIPLocalAddress: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_vip_local_address_assigned",
+			Help: "1 when the VIP address is configured on a local interface, 0 when missing (VIPs with require_local_address only).",
+		}, []string{"vip", "nlri"}),
+
 		RouteState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "pathosd_route_state",
 			Help: "Per-peer per-VIP route state (1=advertised, 0=withdrawn).",
@@ -199,6 +207,7 @@ func New(checkBuckets []float64) *Metrics {
 		m.VIPTransitions,
 		m.VIPLastTransition,
 		m.VIPPriority,
+		m.VIPLocalAddress,
 		m.RouteState,
 		m.CheckTotal,
 		m.CheckDuration,

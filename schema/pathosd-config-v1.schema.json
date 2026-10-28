@@ -771,6 +771,15 @@
         "policy": {
           "$ref": "#/$defs/PolicyConfig",
           "description": "Policy controlling how BGP announcements react to check failures."
+        },
+        "require_local_address": {
+          "type": "boolean",
+          "description": "Fail the health check while the VIP address is not configured on a local interface,\nso a route is never announced for an address this host cannot serve. Default: false.",
+          "default": false
+        },
+        "local_interface": {
+          "type": "string",
+          "description": "Interface the VIP address must be on for require_local_address (e.g. dummy-vip). Any interface when empty."
         }
       },
       "additionalProperties": false,

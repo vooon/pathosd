@@ -31,7 +31,7 @@ High-availability services need a single, stable IP that fails over with the ser
 - **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
 - **Optional GoBGP gRPC API**: enable for `gobgp` CLI inspection/debugging
 - **YAML and TOML config** with JSON Schema validation and environment placeholders
-- **Packaging**: static Linux binaries (amd64/arm64), multi-arch container image, Debian package with a hardened systemd unit
+- **Packaging**: static Linux binaries (amd64/arm64), multi-arch non-root container image, Debian package with a hardened systemd unit
 
 ## Running
 
@@ -61,16 +61,21 @@ The host must also own the VIP addresses. [contrib/systemd/dummy-vip](contrib/sy
 
 ### Container
 
+The image runs as the unprivileged user `pathosd` (uid 100). The binary carries file capabilities for `CAP_NET_BIND_SERVICE` (BGP port 179) and `CAP_NET_RAW` (raw ICMP for `check.ping.privileged: true`), which the daemon raises at startup. Both are in Docker's default capability set, so the plain form works:
+
 ```bash
 docker run -d \
   --name pathosd \
-  --cap-add NET_RAW \
   --network host \
   -v /etc/pathosd:/etc/pathosd:ro \
   ghcr.io/vooon/pathosd run --config /etc/pathosd/pathosd.yaml
 ```
 
-> `NET_RAW` is required for ICMP ping checks when `check.ping.privileged=true` (raw ICMP mode). The default `privileged=false` uses unprivileged UDP ping.
+- The config directory must be readable by uid 100 (`chmod 0644` the files, or mount it with `-v ...:ro` from a world-readable path).
+- With `--cap-drop ALL`, add `NET_BIND_SERVICE` back unless `bgp.listen_port: -1` (pathosd dials every peer and never listens), and `NET_RAW` only for privileged ping. A capability the container lacks is simply not raised; the daemon then fails with a clear `bind: permission denied` or `socket: operation not permitted` instead of refusing to start.
+- Podman drops `NET_RAW` by default: add `--cap-add NET_RAW` for privileged ping.
+- Unprivileged ping (`privileged: false`, the default) uses ICMP datagram sockets, which need the container user's gid inside `net.ipv4.ping_group_range`. Container runtimes set that sysctl to `0 0` or leave it at the host value. With a private network namespace pass `--sysctl net.ipv4.ping_group_range="0 2147483647"`; with `--network host` the host's sysctl applies, and it cannot be set per container. In containers, `privileged: true` plus `NET_RAW` is the simpler choice.
+- Kubernetes: `allowPrivilegeEscalation: false` makes the kernel ignore file capabilities. Either leave it unset and keep `NET_BIND_SERVICE` / `NET_RAW` in `capabilities.add`, or run the container as root (`runAsUser: 0`) with those capabilities added.
 
 ## Configuration
 

@@ -96,8 +96,14 @@ the first announcement. Look at `/status`:
   ping sockets, which the kernel only allows for GIDs inside
   `net.ipv4.ping_group_range` (default `1 0`, nobody). Either widen the
   range to include the `pathosd` group or set `privileged: true`, which
-  needs `CAP_NET_RAW` (granted by the packaged unit; `--cap-add NET_RAW`
-  in containers).
+  needs `CAP_NET_RAW` (granted by the packaged unit and carried as a file
+  capability in the container image, where Podman additionally needs
+  `--cap-add NET_RAW`). Inside a container the sysctl is usually `0 0`,
+  so `socket: permission denied` there means: use privileged ping or pass
+  `--sysctl net.ipv4.ping_group_range="0 2147483647"`.
+- `bind: permission denied` on port 179 in a container: the runtime dropped
+  `NET_BIND_SERVICE` (`--cap-drop ALL`), or Kubernetes runs the pod with
+  `allowPrivilegeEscalation: false`, which disables file capabilities.
 - `consecutive_ok` climbs but never reaches `rise`: a single failure resets
   it. Lower `rise` or fix the intermittent failure first.
 - Need an answer faster than `interval`: `POST /api/v1/vips/<name>/check`

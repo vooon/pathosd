@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -390,7 +391,7 @@ func TestRegisterPeerWatcherLifecycle(t *testing.T) {
 
 	lc := &hookCollector{}
 	m := metrics.New(metrics.GenerateCheckBuckets(time.Second))
-	registerPeerWatcherLifecycle(lc, cfg, m, mgr)
+	registerPeerWatcherLifecycle(lc, cfg, m, mgr, &statusReporter{bgp: mgr})
 
 	require.Len(t, lc.hooks, 1)
 	hook := lc.hooks[0]
@@ -498,4 +499,50 @@ func TestRun_ReturnsErrorOnStartFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "starting daemon:")
 	assert.Contains(t, err.Error(), "starting HTTP API listener")
+}
+
+func TestRegisterSystemdLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notify.sock")
+	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	t.Setenv("NOTIFY_SOCKET", path)
+	recv := func() string {
+		require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+		buf := make([]byte, 512)
+		n, err := conn.Read(buf)
+		require.NoError(t, err)
+		return string(buf[:n])
+	}
+
+	cfg := &config.Config{
+		Router: config.RouterConfig{ASN: 65000, RouterID: "127.0.0.1", LocalAddress: "127.0.0.1"},
+		BGP:    config.BGPConfig{ListenPort: -1},
+		VIPs: []config.VIPConfig{{
+			Name: "v", Prefix: "10.0.0.1/32",
+			Check:  config.CheckConfig{Type: config.CheckTypeTCP, TCP: &config.TCPCheckConfig{Host: "127.0.0.1", Port: 1}},
+			Policy: config.PolicyConfig{FailAction: "withdraw"},
+		}},
+	}
+	m := metrics.New(metrics.GenerateCheckBuckets(time.Second))
+	mgr := bgp.NewManager(cfg, m)
+	require.NoError(t, mgr.Start(context.Background()))
+	t.Cleanup(func() { mgr.Stop(context.Background()) })
+	pol := policy.NewManager(cfg.VIPs, m, nil)
+	status := provideStatusReporter(pol, mgr)
+
+	lc := &hookCollector{}
+	registerSystemdLifecycle(lc, pol, status)
+	require.Len(t, lc.hooks, 1)
+
+	require.NoError(t, lc.hooks[0].OnStart(context.Background()))
+	assert.Equal(t, "STATUS=VIPs: 0 announced, 0 pessimized, 1 withdrawn; peers: 0/0 established", recv())
+	assert.Equal(t, "READY=1", recv())
+
+	// A VIP transition pushes a fresh status line.
+	pol.OnHealthTransition(checks.HealthTransition{VIPName: "v", Healthy: true, Reason: "test"})
+	assert.Equal(t, "STATUS=VIPs: 1 announced, 0 pessimized, 0 withdrawn; peers: 0/0 established", recv())
+
+	require.NoError(t, lc.hooks[0].OnStop(context.Background()))
+	assert.Equal(t, "STOPPING=1", recv())
 }

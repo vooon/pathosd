@@ -8,6 +8,9 @@ Wants=network-online.target
 After=systemd-networkd-wait-online@dummy-vip.service
 
 [Service]
+# pathosd sends READY=1 once BGP and the HTTP API are up, STATUS= with a
+# VIP/peer summary on every state change, and STOPPING=1 on shutdown.
+Type=notify
 User=pathosd
 Group=pathosd
 

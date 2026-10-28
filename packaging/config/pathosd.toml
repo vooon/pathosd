@@ -24,6 +24,7 @@ listen = "127.0.0.1:59179"
 [logging]
 level = "info"
 format = "text"
+# timestamps = true  # default: off under journald (it stamps records itself), on elsewhere
 
 [bgp]
 listen_address = "0.0.0.0"

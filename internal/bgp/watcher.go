@@ -11,7 +11,9 @@ import (
 	"github.com/vooon/pathosd/internal/metrics"
 )
 
-func WatchPeerState(ctx context.Context, s *server.BgpServer, m *metrics.Metrics, neighbors map[string]string) {
+// WatchPeerState logs peer session state changes until ctx is done. onChange,
+// when non-nil, is called after each change.
+func WatchPeerState(ctx context.Context, s *server.BgpServer, m *metrics.Metrics, neighbors map[string]string, onChange func()) {
 	err := s.WatchEvent(
 		ctx,
 		server.WatchEventMessageCallbacks{
@@ -31,6 +33,9 @@ func WatchPeerState(ctx context.Context, s *server.BgpServer, m *metrics.Metrics
 					state = "unknown"
 				}
 				slog.Info("BGP peer state change", "name", name, "address", addr, "state", state)
+				if onChange != nil {
+					onChange()
+				}
 			},
 		},
 		server.WatchPeer(),

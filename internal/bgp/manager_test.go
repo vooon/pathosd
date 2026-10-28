@@ -392,6 +392,20 @@ func TestManagerBuildPeer(t *testing.T) {
 		}
 	}
 
+	t.Run("auth_password is passed through as TCP MD5 key", func(t *testing.T) {
+		m := newManager("127.0.0.1")
+		peer, err := m.buildPeer(config.NeighborConfig{
+			Name: "frr", Address: "127.0.0.2", PeerASN: 65002, Port: 179,
+			AuthPassword: "s3cret",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "s3cret", peer.Conf.AuthPassword)
+
+		peer, err = m.buildPeer(config.NeighborConfig{Name: "frr", Address: "127.0.0.2", PeerASN: 65002, Port: 179})
+		require.NoError(t, err)
+		assert.Empty(t, peer.Conf.AuthPassword)
+	})
+
 	t.Run("passive peer keeps passive mode and local bind fallback", func(t *testing.T) {
 		m := newManager("127.0.0.1")
 		peer, err := m.buildPeer(config.NeighborConfig{
@@ -799,4 +813,72 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
 		return slices.Contains(samples, 0)
 	}, 8*time.Second, 100*time.Millisecond)
+}
+
+// md5PeerPair starts a passive receiver and an active sender on loopback with
+// the given TCP MD5 passwords and returns both managers.
+func md5PeerPair(t *testing.T, senderPassword, receiverPassword string) (sender, receiver *Manager) {
+	t.Helper()
+	senderPort := reserveTCPPort(t)
+	receiverPort := reserveTCPPort(t)
+
+	receiverCfg := &config.Config{
+		Router: config.RouterConfig{ASN: 65000, RouterID: "127.0.0.2"},
+		BGP: config.BGPConfig{
+			ListenPort: receiverPort,
+			Neighbors: []config.NeighborConfig{{
+				Name: "sender", Address: "127.0.0.1", PeerASN: 65000,
+				Port: uint16(senderPort), Passive: true, AuthPassword: receiverPassword,
+			}},
+		},
+	}
+	senderCfg := &config.Config{
+		Router: config.RouterConfig{ASN: 65000, RouterID: "127.0.0.1"},
+		BGP: config.BGPConfig{
+			ListenPort: senderPort,
+			Neighbors: []config.NeighborConfig{{
+				Name: "receiver", Address: "127.0.0.1", PeerASN: 65000,
+				Port: uint16(receiverPort), AuthPassword: senderPassword,
+			}},
+		},
+	}
+
+	receiver = NewManager(receiverCfg, nil)
+	require.NoError(t, receiver.Start(context.Background()))
+	t.Cleanup(func() { receiver.Stop(context.Background()) })
+	require.NoError(t, receiver.AddPeers(context.Background()))
+
+	sender = NewManager(senderCfg, nil)
+	require.NoError(t, sender.Start(context.Background()))
+	t.Cleanup(func() { sender.Stop(context.Background()) })
+	require.NoError(t, sender.AddPeers(context.Background()))
+	return sender, receiver
+}
+
+func peerEstablished(m *Manager, addr string) bool {
+	for _, peer := range m.GetPeerStates(context.Background()) {
+		if peer.Address == addr && peer.SessionState == "established" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestManagerIntegrationTCPMD5 exercises TCP_MD5SIG end to end on loopback:
+// matching keys establish, a mismatch never does (the kernel drops unsigned
+// or wrongly signed segments, so the session cannot even complete the TCP
+// handshake).
+func TestManagerIntegrationTCPMD5(t *testing.T) {
+	t.Run("matching passwords establish", func(t *testing.T) {
+		sender, receiver := md5PeerPair(t, "pathosd-md5-test", "pathosd-md5-test")
+		waitForPeerEstablished(t, sender, "127.0.0.1")
+		waitForPeerEstablished(t, receiver, "127.0.0.1")
+	})
+
+	t.Run("mismatched passwords never establish", func(t *testing.T) {
+		sender, receiver := md5PeerPair(t, "pathosd-md5-test", "something-else")
+		require.Never(t, func() bool {
+			return peerEstablished(sender, "127.0.0.1") || peerEstablished(receiver, "127.0.0.1")
+		}, 3*time.Second, 200*time.Millisecond)
+	})
 }

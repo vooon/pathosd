@@ -19,6 +19,7 @@ data:
      no bgp ebgp-requires-policy
      neighbor pathosd peer-group
      neighbor pathosd remote-as external
+     neighbor pathosd password pathosd-e2e-md5
      bgp listen range 10.42.0.0/16 peer-group pathosd
      address-family ipv4 unicast
       neighbor pathosd activate

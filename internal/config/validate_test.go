@@ -319,6 +319,18 @@ func TestValidate_Neighbors(t *testing.T) {
 		assertErrorContains(t, Validate(cfg), ".multihop_ttl")
 	})
 
+	t.Run("auth_password longer than 80 bytes is invalid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].AuthPassword = strings.Repeat("x", 81)
+		assertErrorContains(t, Validate(cfg), ".auth_password")
+	})
+
+	t.Run("auth_password of 80 bytes is valid", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.BGP.Neighbors[0].AuthPassword = strings.Repeat("x", 80)
+		assert.Empty(t, Validate(cfg))
+	})
+
 	t.Run("multihop_ttl set without enable_multihop is invalid", func(t *testing.T) {
 		cfg := validConfig()
 		cfg.BGP.Neighbors[0].MultihopTTL = 5

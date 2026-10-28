@@ -29,6 +29,8 @@ data:
           peer_asn: 65200
           required: true
           port: 179
+          # TCP MD5 (RFC 2385); FRR carries the same password on the peer-group.
+          auth_password: pathosd-e2e-md5
           # BFD enabled for fast-failure detection.
           # NOTE: GoBGP 4.5 stores BFD config in the API but does not yet
           # implement the BFD state machine, so no BFD packets are sent.

@@ -67,6 +67,8 @@ required = true
 port = 179
 local_address = "127.0.0.1"
 passive = false
+# TCP MD5 session signature (RFC 2385); must match the peer's password.
+# auth_password = "shared-secret"   # better: an env placeholder, see README "Environment Placeholders"
 
 # BFD for rapid failure detection (requires a BFD daemon, e.g. FRR bfdd).
 # [bgp.neighbors.bfd]

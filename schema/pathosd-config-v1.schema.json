@@ -517,6 +517,11 @@
         "bfd": {
           "$ref": "#/$defs/BFDConfig",
           "description": "BFD configuration for this peer. Requires a BFD daemon (e.g. FRR) running on the host."
+        },
+        "auth_password": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "TCP MD5 signature password (RFC 2385) shared with this peer. The kernel signs and\nverifies every segment of the session, so a mismatch or a third host cannot open,\nhijack or reset it. Keep the secret out of the file with a %{ENV_VAR} placeholder.\nLinux limits the key to 80 bytes. Note: the embedded GoBGP gRPC API returns it in\npeer configuration, so keep that API on a local socket."
         }
       },
       "additionalProperties": false,

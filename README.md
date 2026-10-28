@@ -80,6 +80,30 @@ bgp:
 - `%%{VAR_NAME}`: escapes the pattern and keeps it as literal `%{VAR_NAME}`.
 - If any referenced variable is missing, startup fails with a clear error listing missing names.
 
+### BGP Session Authentication (TCP MD5)
+
+BGP has no TLS. The deployed protections are TCP MD5 signatures (RFC 2385),
+its successor TCP-AO (RFC 5925, not yet supported by GoBGP) and GTSM/TTL
+security (RFC 5082). pathosd supports TCP MD5 per neighbor via
+`auth_password`: the kernel signs and verifies every segment, so a host that
+does not know the key cannot open, hijack or reset the session.
+
+```yaml
+bgp:
+  neighbors:
+    - name: frr
+      address: 10.0.0.2
+      peer_asn: 65000
+      auth_password: "%{PATHOSD_BGP_MD5}"   # keep the secret in the environment
+```
+
+The same key goes on the peer: `neighbor 10.0.0.1 password ...` in FRR, or
+`password "...";` inside the `protocol bgp` block in BIRD. Keys are at most
+80 bytes (Linux `TCP_MD5SIG_MAXKEYLEN`). Setting the socket option needs no
+capability. Note that the embedded GoBGP gRPC API (`bgp.gobgp_api`) returns the
+password as part of the peer configuration, so keep that API on a local
+address or unix socket.
+
 ### Key Config Rules
 
 - `check.timeout` must be strictly less than `check.interval` (defaults: `interval: 1s`, `timeout: 100ms`)

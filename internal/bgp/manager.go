@@ -107,7 +107,7 @@ func (m *Manager) AddPeers(ctx context.Context) error {
 		if err := m.server.AddPeer(ctx, &api.AddPeerRequest{Peer: peer}); err != nil {
 			return fmt.Errorf("adding peer %s (%s): %w", n.Name, n.Address, err)
 		}
-		slog.Info("BGP peer added", "name", n.Name, "address", n.Address, "peer_asn", n.PeerASN)
+		slog.Info("BGP peer added", "name", n.Name, "address", n.Address, "peer_asn", n.PeerASN, "tcp_md5", n.AuthPassword != "")
 	}
 	return nil
 }
@@ -158,6 +158,9 @@ func (m *Manager) buildPeer(n config.NeighborConfig) (*api.Peer, error) {
 			NeighborAddress: n.Address,
 			PeerAsn:         n.PeerASN,
 			Description:     n.Name,
+			// TCP MD5: GoBGP sets TCP_MD5SIG on the listener and on the
+			// outgoing socket for this peer address.
+			AuthPassword: n.AuthPassword,
 		},
 		Transport: &api.Transport{
 			LocalAddress: localAddress,

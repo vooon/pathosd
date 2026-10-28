@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// maxTCPMD5KeyLen is the Linux TCP_MD5SIG_MAXKEYLEN.
+const maxTCPMD5KeyLen = 80
+
 // Validate checks the config for structural and semantic correctness.
 // Returns a slice of errors — empty means valid.
 func Validate(cfg *Config) []error {
@@ -135,6 +138,10 @@ func Validate(cfg *Config) []error {
 
 		if n.PeerASN == 0 {
 			add(prefix+".peer_asn", "required and must be > 0")
+		}
+
+		if len(n.AuthPassword) > maxTCPMD5KeyLen {
+			add(prefix+".auth_password", fmt.Sprintf("must be at most %d bytes (TCP MD5 key limit), got %d", maxTCPMD5KeyLen, len(n.AuthPassword)))
 		}
 
 		if !n.EnableMultihop && n.MultihopTTL != 0 {

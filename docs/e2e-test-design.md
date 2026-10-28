@@ -25,6 +25,8 @@ All E2E manifests are in `tests/e2e/manifests/`, with one file per component:
 - `syslog.yaml`
 - `etcd.yaml`
 - `ipv6-target.yaml`
+- `mariadb.yaml`
+- `postgres.yaml`
 - `pathosd.yaml`
 
 Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`Pod`, `Service`) for that component.
@@ -41,6 +43,8 @@ Each file can include multiple Kubernetes resources (`ConfigMap`, `Deployment`/`
 - `ipv6-target`: TCP health target for `ipv6-vip`
 - `squid`: forward HTTP proxy used by `squid-vip`
 - `httpbin`: local HTTP target (go-httpbin) reached through the Squid proxy
+- `mariadb-primary` / `mariadb-replica`: MariaDB with binlog replication, each pod with a pathosd sidecar (ASN 65100) announcing `mysql-rw` / `mysql-ro`
+- `postgres-primary` / `postgres-replica`: PostgreSQL with a streaming standby, each pod with a pathosd sidecar announcing `pg-rw` / `pg-ro`
 
 All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 VIP routes are carried over IPv4-transport MP-BGP (no host IPv6 required).
 
@@ -101,6 +105,15 @@ All components run in namespace `pathosd-e2e` on an IPv4 k3d/k3s cluster. IPv6 V
 
 - Local `mccutchen/go-httpbin:2.25.0` target so the Squid proxy test has no external dependency
 - `squid-vip` fetches `http://httpbin.../status/201` through Squid and expects HTTP 201
+
+### MariaDB and PostgreSQL (`mariadb.yaml`, `postgres.yaml`)
+
+The `sql` check is exercised the way it is meant to be deployed: pathosd runs next to the database and peers with FRR itself. Each engine has a primary and a replica Deployment; both pods carry a `pathosd` sidecar with the same ConfigMap, so what a pod announces follows only from its server's state:
+
+- `mysql-rw` (`10.100.11.1/32`) / `pg-rw` (`10.100.12.1/32`): passes only where writes are accepted (`SELECT @@read_only` is `0`; `pg_is_in_recovery()` is `false`) → FRR holds one path, the primary's pod IP
+- `mysql-ro` (`10.100.11.2/32`) / `pg-ro` (`10.100.12.2/32`): passes wherever queries are answered and replication applies (`SHOW REPLICA STATUS` has the SQL thread running or no row on the primary; PostgreSQL replay LSN equals the received LSN) → FRR holds two paths
+
+Replication uses the images' own mechanisms: the MariaDB replica starts with `MARIADB_MASTER_HOST` and the primary creates the replication user and a `REPLICA MONITOR` grant for the check user via `docker-entrypoint-initdb.d`; the PostgreSQL replica runs `pg_basebackup -R` in an init container after the primary's init script opens `pg_hba.conf` for replication. Headless Services expose each pod's database port and sidecar API (59179) so the test can trigger checks on a specific pod.
 
 ### pathosd (`pathosd.yaml`)
 
@@ -175,6 +188,12 @@ Main test file: `tests/e2e/e2e_test.go` (`//go:build e2e`).
     - scale squid to 0; assert `squid-vip` withdrawn and FRR route removed
     - scale squid to 1; assert recovery to `announced`
 20. Assert `/metrics` and ad-hoc trigger API behavior.
+21. SQL primary/replica routing (sidecar pathosd instances, asserted via FRR next hops):
+    - `*-rw` has exactly the primary pod IP as next hop, `*-ro` has primary and replica
+    - trigger on each sidecar: the rw check passes on the primary and fails on the replica with `result_jq is not true: false`
+    - scale the replica to 0: `*-ro` keeps only the primary path; scale back: the new replica rejoins
+    - MariaDB `SET GLOBAL read_only=1` on the primary: `mysql-rw` withdrawn, `mysql-ro` unchanged; `read_only=0` restores it
+    - PostgreSQL primary scaled to 0: `pg-rw` withdrawn, `pg-ro` served by the standby; scaled back: the fresh primary announces `pg-rw` again
 
 ### FRR vs BIRD assertions
 
@@ -189,9 +208,9 @@ Workflow: `.github/workflows/e2e.yaml`
 2. Create an IPv4 k3d/k3s cluster.
 3. Apply namespace first and wait for it to become `Active`.
 4. Apply all manifests.
-5. Wait for `frr`, `bird`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods.
-6. Run `go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...`.
-7. On failure, dump pod status, pathosd logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
+5. Wait for `frr`, `bird`, `squid`, `nginx`, `coredns`, `etcd`, `pathosd` pods (the test itself waits for the database pods).
+6. Run `go test -tags=e2e -v -timeout=12m -count=1 ./tests/e2e/...`.
+7. On failure, dump pod status, pathosd logs, database pod status and sidecar logs, FRR logs + summary, bird logs + `birdc show protocols all`, and squid logs.
 
 ## Local Commands
 

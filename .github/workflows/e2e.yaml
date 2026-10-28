@@ -11,7 +11,7 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,7 +49,7 @@ jobs:
           kubectl -n pathosd-e2e wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
       - name: Run e2e tests
-        run: go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...
+        run: go test -tags=e2e -v -timeout=12m -count=1 ./tests/e2e/...
 
       - name: Debug on failure
         if: failure()

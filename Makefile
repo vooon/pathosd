@@ -70,7 +70,7 @@ e2e-deploy:
 	kubectl -n $(E2E_NAMESPACE) wait --for=condition=ready pod -l app=pathosd --timeout=120s
 
 e2e-test:
-	go test -tags=e2e -v -timeout=5m -count=1 ./tests/e2e/...
+	go test -tags=e2e -v -timeout=12m -count=1 ./tests/e2e/...
 
 e2e-clean:
 	k3d cluster delete $(E2E_CLUSTER)

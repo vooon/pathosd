@@ -1,0 +1,276 @@
+version: 2
+project_name: pathosd
+release:
+  gitlab:
+    owner: vooon
+    name: pathosd
+  name_template: '{{.Tag}}'
+builds:
+  - id: pathosd
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v1
+    go386:
+      - sse2
+    goarm:
+      - "6"
+    goarm64:
+      - v8.0
+    gomips:
+      - hardfloat
+    goppc64:
+      - power8
+    goriscv64:
+      - rva20u64
+    targets:
+      - linux_amd64_v1
+      - linux_arm64_v8.0
+    dir: .
+    main: ./cmd/pathosd
+    binary: pathosd
+    builder: go
+    tool: go
+    command: build
+    ldflags:
+      - -s -w
+      - -X github.com/prometheus/common/version.Version={{.Version}}
+      - -X github.com/prometheus/common/version.Revision={{.Commit}}
+      - -X github.com/prometheus/common/version.BuildDate={{.Date}}
+      - -X github.com/prometheus/common/version.Branch={{.Tag}}
+    env:
+      - CGO_ENABLED=0
+archives:
+  - id: default
+    builds_info:
+      mode: 493
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats:
+      - tar.gz
+    files:
+      - src: license*
+      - src: LICENSE*
+      - src: readme*
+      - src: README*
+      - src: changelog*
+      - src: CHANGELOG*
+nfpms:
+  - file_name_template: '{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
+    package_name: pathosd
+    scripts:
+      preinstall: packaging/scripts/preinstall.sh
+      postinstall: packaging/scripts/postinstall.sh
+      preremove: packaging/scripts/preremove.sh
+      postremove: packaging/scripts/postremove.sh
+    rpm:
+      summary: Health-aware BGP VIP announcer
+      group: System Environment/Daemons
+    overrides:
+      deb:
+        dependencies:
+          - systemd
+        contents:
+          - src: packaging/systemd/pathosd.service
+            dst: /lib/systemd/system/pathosd.service
+          - src: packaging/sysusers.d/pathosd.conf
+            dst: /usr/lib/sysusers.d/pathosd.conf
+          - src: packaging/tmpfiles.d/pathosd.conf
+            dst: /usr/lib/tmpfiles.d/pathosd.conf
+          - dst: /etc/pathosd
+            type: dir
+            file_info:
+              owner: root
+              group: pathosd
+              mode: 488
+          - src: packaging/config/pathosd.toml
+            dst: /etc/pathosd/pathosd.toml
+            type: config|noreplace
+      rpm:
+        dependencies:
+          - systemd
+        contents:
+          - src: packaging/systemd/pathosd.service
+            dst: /usr/lib/systemd/system/pathosd.service
+          - src: packaging/sysusers.d/pathosd.conf
+            dst: /usr/lib/sysusers.d/pathosd.conf
+          - src: packaging/tmpfiles.d/pathosd.conf
+            dst: /usr/lib/tmpfiles.d/pathosd.conf
+          - dst: /etc/pathosd
+            type: dir
+            file_info:
+              owner: root
+              group: pathosd
+              mode: 488
+          - src: packaging/config/pathosd.toml
+            dst: /etc/pathosd/pathosd.toml
+            type: config|noreplace
+    id: pathosd-packages
+    formats:
+      - deb
+      - rpm
+    section: net
+    priority: optional
+    vendor: vooon
+    homepage: https://github.com/vooon/pathosd
+    maintainer: pathosd contributors <pathosd@users.noreply.github.com>
+    description: |-
+      Health-aware BGP VIP announcer.
+      Announces VIPs via BGP (embedded GoBGP) based on configurable
+      health check results (HTTP, DNS, TCP, UDP, gRPC, SQL, Kafka, ICMP ping).
+    license: Apache 2.0
+    bindir: /usr/bin
+    libdirs:
+      header: /usr/include
+      carchive: /usr/lib
+      cshared: /usr/lib
+snapshot:
+  version_template: '{{ .Version }}-SNAPSHOT-{{ .ShortCommit }}'
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+docker_digest:
+  name_template: digests.txt
+changelog:
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+  sort: asc
+  format: '{{ .SHA }} {{ .Message }}'
+dist: dist
+env_files:
+  github_token: ~/.config/goreleaser/github_token
+  gitlab_token: ~/.config/goreleaser/gitlab_token
+  gitea_token: ~/.config/goreleaser/gitea_token
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+source:
+  name_template: '{{ .ProjectName }}-{{ .Version }}'
+  format: tar.gz
+gomod:
+  gobinary: go
+announce:
+  twitter:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+  mastodon:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    server: ""
+  reddit:
+    title_template: '{{ .ProjectName }} {{ .Tag }} is out!'
+    url_template: '{{ .ReleaseURL }}'
+  slack:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    username: GoReleaser
+  discord:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    author: GoReleaser
+    color: "3888754"
+    icon_url: https://goreleaser.com/static/avatar.png
+  teams:
+    title_template: '{{ .ProjectName }} {{ .Tag }} is out!'
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    color: '#2D313E'
+    icon_url: https://goreleaser.com/static/avatar.png
+  smtp:
+    subject_template: '{{ .ProjectName }} {{ .Tag }} is out!'
+    body_template: 'You can view details from: {{ .ReleaseURL }}'
+  mattermost:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    title_template: '{{ .ProjectName }} {{ .Tag }} is out!'
+    username: GoReleaser
+  linkedin:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+  telegram:
+    message_template: '{{ mdv2escape .ProjectName }} {{ mdv2escape .Tag }} is out{{ mdv2escape "!" }} Check it out at {{ mdv2escape .ReleaseURL }}'
+    parse_mode: MarkdownV2
+  webhook:
+    message_template: '{ "message": "{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}"}'
+    content_type: application/json; charset=utf-8
+    expected_status_codes:
+      - 200
+      - 201
+      - 202
+      - 204
+  opencollective:
+    title_template: '{{ .Tag }}'
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out!<br/>Check it out at <a href="{{ .ReleaseURL }}">{{ .ReleaseURL }}</a>'
+  bluesky:
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+  discourse:
+    title_template: '{{ .ProjectName }} {{ .Tag }} is out!'
+    message_template: '{{ .ProjectName }} {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    username: system
+git:
+  tag_sort: -version:refname
+mcp:
+  name: ""
+  title: ""
+  auth:
+    type: none
+github_urls:
+  download: https://github.com
+gitlab_urls:
+  download: https://gitlab.com
+dockers:
+  - goos: linux
+    goarch: amd64
+    goarm: "6"
+    goamd64: v1
+    dockerfile: Dockerfile
+    image_templates:
+      - ghcr.io/vooon/pathosd:{{ .Version }}-amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.created={{ .Date }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+    use: buildx
+    retry:
+      attempts: 10
+      delay: 10s
+      max_delay: 5m0s
+  - goos: linux
+    goarch: arm64
+    goarm: "6"
+    goamd64: v1
+    dockerfile: Dockerfile
+    image_templates:
+      - ghcr.io/vooon/pathosd:{{ .Version }}-arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.title={{ .ProjectName }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.created={{ .Date }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+    use: buildx
+    retry:
+      attempts: 10
+      delay: 10s
+      max_delay: 5m0s
+docker_manifests:
+  - name_template: ghcr.io/vooon/pathosd:{{ .Version }}
+    image_templates:
+      - ghcr.io/vooon/pathosd:{{ .Version }}-amd64
+      - ghcr.io/vooon/pathosd:{{ .Version }}-arm64
+    use: docker
+    retry:
+      attempts: 10
+      delay: 10s
+      max_delay: 5m0s
+  - name_template: ghcr.io/vooon/pathosd:latest
+    image_templates:
+      - ghcr.io/vooon/pathosd:{{ .Version }}-amd64
+      - ghcr.io/vooon/pathosd:{{ .Version }}-arm64
+    use: docker
+    retry:
+      attempts: 10
+      delay: 10s
+      max_delay: 5m0s

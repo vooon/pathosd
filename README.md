@@ -48,14 +48,15 @@ Force debug logging regardless of config:
 pathosd run --debug --config /etc/pathosd/pathosd.yaml
 ```
 
-### Debian package
+### Debian and RPM packages
 
-Releases include a `.deb` that installs `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`.
+Releases include a `.deb` (Debian/Ubuntu) and an `.rpm` (EL9, EL10 and compatible: Rocky, Alma, RHEL, Fedora) for amd64 and arm64. Both install `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`. Upgrades restart a running service and leave a stopped one alone; the service is never enabled by the package.
 
 The unit is `Type=notify`: `systemctl start` returns once the BGP server and HTTP API are up, and `systemctl status pathosd` shows a live summary line such as `VIPs: 2 announced, 0 pessimized, 1 withdrawn; peers: 2/2 established`, refreshed on every VIP or peer transition. Under journald pathosd omits its own log timestamps, since the journal records them; `logging.timestamps` overrides the detection either way.
 
 ```bash
-sudo apt install ./pathosd_<version>_amd64.deb
+sudo apt install ./pathosd_<version>_linux_amd64.deb      # Debian / Ubuntu
+sudo dnf install ./pathosd_<version>_linux_amd64.rpm      # EL9 / EL10 / Fedora
 sudoedit /etc/pathosd/pathosd.toml
 sudo systemctl enable --now pathosd
 ```

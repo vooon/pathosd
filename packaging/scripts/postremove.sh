@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Reload systemd after the package files have been removed.
+# Reload systemd after the package files have been removed (or replaced).
 if command -v systemctl > /dev/null 2>&1; then
     systemctl daemon-reload || true
 fi

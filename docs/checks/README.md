@@ -37,10 +37,10 @@ vips:
 ```
 
 - `timeout` bounds one probe including connect, TLS and authentication. Set it to what a healthy backend needs under load, not to the interval.
-- `rise`/`fall` are HAProxy semantics: strictly consecutive results, a success resets the failure counter and vice versa. See [Rise/Fall](https://github.com/vooon/pathosd#risefall) and the [reaction time table](https://github.com/vooon/pathosd#reaction-time).
+- `rise`/`fall` are HAProxy semantics: strictly consecutive results, a success resets the failure counter and vice versa. See [Rise/Fall](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md#risefall) and the [reaction time table](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md#reaction-time).
 - `host` (or `resolver`/`dst_ip`) defaults to the VIP address when the prefix is a single host (`/32` or `/128`). For wider prefixes it is required.
-- Several checks per VIP go under `checks:` with `checks_policy: all | any | <expression>`; see [Multiple Checks per VIP](https://github.com/vooon/pathosd#multiple-checks-per-vip).
-- Secrets go through [environment placeholders](https://github.com/vooon/pathosd#environment-placeholders) such as `%{DB_PASSWORD}`; the daemon refuses to start when a placeholder is unset, and no checker ever logs a credential.
+- Several checks per VIP go under `checks:` with `checks_policy: all | any | <expression>`; see [Multiple Checks per VIP](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md#multiple-checks-per-vip).
+- Secrets go through [environment placeholders](https://github.com/vooon/pathosd/blob/main/docs/configuration.md#environment-placeholders) such as `%{DB_PASSWORD}`; the daemon refuses to start when a placeholder is unset, and no checker ever logs a credential.
 
 ## Picking a check
 

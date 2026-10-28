@@ -165,7 +165,17 @@ type RouterConfig struct {
 // APIConfig configures the HTTP API server.
 type APIConfig struct {
 	// Listen address for the HTTP API (e.g. ":59179" or "127.0.0.1:59179"). Default: :59179.
+	// The API has no authentication; prefer a loopback or host-local address.
 	Listen string `yaml:"listen" json:"listen" toml:"listen" jsonschema:"required"`
+	// Maximum time to read a request's headers. 0 disables. Default: 10s.
+	ReadHeaderTimeout *Duration `yaml:"read_header_timeout" json:"read_header_timeout" toml:"read_header_timeout" jsonschema:"default=10s"`
+	// Maximum time to read a whole request (headers and body). 0 disables. Default: 30s.
+	ReadTimeout *Duration `yaml:"read_timeout" json:"read_timeout" toml:"read_timeout" jsonschema:"default=30s"`
+	// Maximum time to write a response, counted from the end of header read. Must cover
+	// the slowest ad-hoc check (check.timeout) and the /metrics scrape. 0 disables. Default: 60s.
+	WriteTimeout *Duration `yaml:"write_timeout" json:"write_timeout" toml:"write_timeout" jsonschema:"default=60s"`
+	// Maximum time an idle keep-alive connection stays open. 0 disables. Default: 120s.
+	IdleTimeout *Duration `yaml:"idle_timeout" json:"idle_timeout" toml:"idle_timeout" jsonschema:"default=120s"`
 }
 
 // LoggingConfig controls structured logging output.
@@ -321,6 +331,11 @@ type HTTPCheckConfig struct {
 	Proxy string `yaml:"proxy" json:"proxy" toml:"proxy"`
 	// Additional HTTP headers to send with the check request.
 	Headers map[string]string `yaml:"headers" json:"headers" toml:"headers"`
+	// Reuse the TCP/TLS connection across checks (HTTP keep-alive). Off by default so
+	// every check exercises a full connect and TLS handshake, including certificate
+	// verification. Enable for fast intervals where handshake cost matters; note the
+	// certificate is then only re-verified when the idle connection is dropped.
+	KeepAlive bool `yaml:"keep_alive" json:"keep_alive" toml:"keep_alive" jsonschema:"default=false"`
 }
 
 // TCPCheckConfig defines a TCP port reachability check.

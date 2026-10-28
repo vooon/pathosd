@@ -6,7 +6,31 @@
       "properties": {
         "listen": {
           "type": "string",
-          "description": "Listen address for the HTTP API (e.g. \":59179\" or \"127.0.0.1:59179\"). Default: :59179."
+          "description": "Listen address for the HTTP API (e.g. \":59179\" or \"127.0.0.1:59179\"). Default: :59179.\nThe API has no authentication; prefer a loopback or host-local address."
+        },
+        "read_header_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum time to read a request's headers. 0 disables. Default: 10s.",
+          "default": "10s"
+        },
+        "read_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum time to read a whole request (headers and body). 0 disables. Default: 30s.",
+          "default": "30s"
+        },
+        "write_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum time to write a response, counted from the end of header read. Must cover\nthe slowest ad-hoc check (check.timeout) and the /metrics scrape. 0 disables. Default: 60s.",
+          "default": "60s"
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]*)?(ns|us|µs|ms|s|m|h))+$",
+          "description": "Maximum time an idle keep-alive connection stays open. 0 disables. Default: 120s.",
+          "default": "120s"
         }
       },
       "additionalProperties": false,
@@ -376,6 +400,11 @@
           },
           "type": "object",
           "description": "Additional HTTP headers to send with the check request."
+        },
+        "keep_alive": {
+          "type": "boolean",
+          "description": "Reuse the TCP/TLS connection across checks (HTTP keep-alive). Off by default so\nevery check exercises a full connect and TLS handshake, including certificate\nverification. Enable for fast intervals where handshake cost matters; note the\ncertificate is then only re-verified when the idle connection is dropped.",
+          "default": false
         }
       },
       "additionalProperties": false,

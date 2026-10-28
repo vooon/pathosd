@@ -41,6 +41,26 @@ func TestApplyDefaults_API(t *testing.T) {
 		ApplyDefaults(cfg)
 		assert.Equal(t, "127.0.0.1:59179", cfg.API.Listen)
 	})
+
+	t.Run("server timeouts default", func(t *testing.T) {
+		cfg := &Config{}
+		ApplyDefaults(cfg)
+		assert.Equal(t, 10*time.Second, cfg.API.ReadHeaderTimeout.Duration)
+		assert.Equal(t, 30*time.Second, cfg.API.ReadTimeout.Duration)
+		assert.Equal(t, 60*time.Second, cfg.API.WriteTimeout.Duration)
+		assert.Equal(t, 120*time.Second, cfg.API.IdleTimeout.Duration)
+	})
+
+	t.Run("explicit timeouts preserved, zero disables", func(t *testing.T) {
+		cfg := &Config{API: APIConfig{
+			WriteTimeout: &Duration{Duration: 5 * time.Second},
+			IdleTimeout:  &Duration{},
+		}}
+		ApplyDefaults(cfg)
+		assert.Equal(t, 5*time.Second, cfg.API.WriteTimeout.Duration)
+		assert.Equal(t, time.Duration(0), cfg.API.IdleTimeout.Duration)
+		assert.Equal(t, 10*time.Second, cfg.API.ReadHeaderTimeout.Duration)
+	})
 }
 
 func TestApplyDefaults_Logging(t *testing.T) {

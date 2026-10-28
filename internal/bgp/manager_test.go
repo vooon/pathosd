@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -652,10 +653,8 @@ func hasCommunity(path *apiutil.Path, community uint32) bool {
 		if !ok {
 			continue
 		}
-		for _, c := range commAttr.Value {
-			if c == community {
-				return true
-			}
+		if slices.Contains(commAttr.Value, community) {
+			return true
 		}
 	}
 	return false
@@ -760,12 +759,7 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 
 	require.Eventually(t, func() bool {
 		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
-		for _, v := range samples {
-			if v == 1 {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(samples, 1)
 	}, 8*time.Second, 100*time.Millisecond)
 
 	require.NoError(t, sender.PessimizeVIP(context.Background(), prefix, model.RouteAttrs{ASPathPrepend: 3, Communities: []string{"65535:666"}}))
@@ -803,11 +797,6 @@ func TestManagerIntegrationIBGPTransitionsProduceAdjOutAndRouteStateMetrics(t *t
 
 	require.Eventually(t, func() bool {
 		samples := routeStateSamples(t, senderMetrics, prefix, "127.0.0.1")
-		for _, v := range samples {
-			if v == 0 {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(samples, 0)
 	}, 8*time.Second, 100*time.Millisecond)
 }

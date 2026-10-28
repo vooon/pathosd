@@ -322,7 +322,7 @@ func TestProvideSchedulers(t *testing.T) {
 
 		failMode.Store(true)
 
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			result, err = sched.TriggerCheck(context.Background())
 			require.NoError(t, err)
 			require.False(t, result.Success)

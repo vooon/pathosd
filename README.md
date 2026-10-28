@@ -218,6 +218,14 @@ curl -X POST http://127.0.0.1:59179/api/v1/vips/web-frontend/check
 
 The result feeds into the normal rise/fall state machine — it does not bypass hysteresis.
 
+### HTTP Check Connections
+
+By default every HTTP check opens a new TCP (and TLS) connection, so each run
+exercises the full path including certificate verification. Set
+`http.keep_alive: true` to reuse the connection across checks; this saves the
+handshake on fast intervals, but the certificate is then only re-verified when
+the idle connection is dropped (after 90s idle, or when the server closes it).
+
 ## HTTP Endpoints
 
 | Endpoint | Method | Description |
@@ -229,9 +237,31 @@ The result feeds into the normal rise/fall state machine — it does not bypass 
 | `/metrics` | GET | Prometheus metrics exposition |
 | `/api/v1/vips/{name}/check` | POST | Trigger ad-hoc health check |
 
-### Security Note
+### API Security
 
-The HTTP API has no authentication: it is meant to be bound to a loopback or dummy interface on the host (`api.listen`, default `:59179`) and scraped by Prometheus from there. The only mutating endpoint, the ad-hoc check trigger, is harmless: it runs the configured check once and feeds the result through the normal rise/fall hysteresis, so it cannot announce or withdraw a route on its own. If the API must be reachable from other hosts, put it behind a reverse proxy or firewall rule.
+The HTTP API has no authentication. Bind it to a loopback or host-local
+address (`api.listen`; the examples use `127.0.0.1:59179`, the built-in
+default `:59179` listens on every interface) and let Prometheus scrape it
+from there. If it must be reachable from other hosts, front it with a
+reverse proxy or a firewall rule.
+
+What an unauthenticated client can do:
+
+- **Read state**: `/status`, `/readyz` and `/metrics` expose peer addresses,
+  ASNs, VIP prefixes and the last check result of every VIP. Treat that as
+  internal topology information.
+- **Trigger a check**: `POST /api/v1/vips/{name}/check` runs the configured
+  check once. It cannot change the target, the request, or the route: the
+  result goes through the normal rise/fall hysteresis, and checks for one VIP
+  are serialized, so at most one ad-hoc check per VIP is in flight. The only
+  effect of hammering the endpoint is that `fall` (or `rise`) is reached as
+  fast as the backend answers instead of once per `interval`. Each trigger is
+  logged with the caller's address.
+
+The server applies `api.read_header_timeout`, `read_timeout`, `write_timeout`
+and `idle_timeout` (defaults 10s / 30s / 60s / 120s, `0` disables) so slow or
+idle clients cannot pin connections. `write_timeout` must exceed the longest
+`check.timeout` for the trigger endpoint to return a result.
 
 ## Readiness vs Liveness
 

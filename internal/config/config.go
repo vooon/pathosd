@@ -254,6 +254,12 @@ type NeighborConfig struct {
 	MultihopTTL uint32 `yaml:"multihop_ttl" json:"multihop_ttl" toml:"multihop_ttl" jsonschema:"minimum=0,maximum=255"`
 	// BFD configuration for this peer. Requires a BFD daemon (e.g. FRR) running on the host.
 	BFD *BFDConfig `yaml:"bfd,omitempty" json:"bfd,omitempty" toml:"bfd,omitempty"`
+	// TCP MD5 signature password (RFC 2385) shared with this peer. The kernel signs and
+	// verifies every segment of the session, so a mismatch or a third host cannot open,
+	// hijack or reset it. Keep the secret out of the file with a %{ENV_VAR} placeholder.
+	// Linux limits the key to 80 bytes. Note: the embedded GoBGP gRPC API returns it in
+	// peer configuration, so keep that API on a local socket.
+	AuthPassword string `yaml:"auth_password,omitempty" json:"auth_password,omitempty" toml:"auth_password,omitempty" jsonschema:"maxLength=80"`
 }
 
 // VIPConfig defines a Virtual IP with its health check and policy.

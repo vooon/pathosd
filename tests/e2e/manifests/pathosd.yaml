@@ -29,6 +29,8 @@ data:
           peer_asn: 65200
           required: true
           port: 179
+          # TCP MD5 (RFC 2385); FRR carries the same password on the peer-group.
+          auth_password: pathosd-e2e-md5
           # BFD enabled for fast-failure detection.
           # NOTE: GoBGP 4.5 stores BFD config in the API but does not yet
           # implement the BFD state machine, so no BFD packets are sent.
@@ -222,9 +224,12 @@ spec:
               set -eu
               peer_host="frr.pathosd-e2e.svc.cluster.local"
               i=0
+              # No TCP probe here: the FRR session is TCP-MD5 signed, so an
+              # unsigned SYN is dropped. The headless Service only resolves
+              # once the frr pod is Ready, which is the signal we need.
               while :; do
                 peer_ip="$(nslookup "${peer_host}" 2>/dev/null | awk '/^Address([[:space:]]+[0-9]+)?:/ {print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1 || true)"
-                if [ -n "${peer_ip}" ] && nc -z -w 1 "${peer_ip}" 179; then
+                if [ -n "${peer_ip}" ]; then
                   printf '%s\n' "${peer_ip}" > /work/frr-peer-ip
                   exit 0
                 fi

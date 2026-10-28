@@ -31,3 +31,6 @@ go.work.sum
 .idea/
 .vscode/
 .codex
+
+# GoReleaser output
+dist/

@@ -6,14 +6,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// Every ```yaml block in docs/checks/*.md that starts with "vips:" (or a
-// top-level key followed by vips) must be a loadable config fragment, so
-// the guides cannot drift from the validator.
+// Every ```yaml block in the docs that starts with "vips:" (or "paths:")
+// must be a loadable config fragment, and every block that starts with
+// "schema:" a complete config, so the guides cannot drift from the validator.
 func TestDocsCheckExamplesValidate(t *testing.T) {
 	t.Setenv("DB_PASSWORD", "example")
 	t.Setenv("KAFKA_PASSWORD", "example")
@@ -32,8 +33,12 @@ bgp:
       address: 192.0.2.2
       peer_asn: 65002
 `
-	files, err := filepath.Glob("../../docs/checks/*.md")
-	require.NoError(t, err)
+	var files []string
+	for _, pattern := range []string{"../../README.md", "../../docs/*.md", "../../docs/checks/*.md"} {
+		matches, err := filepath.Glob(pattern)
+		require.NoError(t, err)
+		files = append(files, matches...)
+	}
 	require.NotEmpty(t, files)
 
 	block := regexp.MustCompile("(?s)```yaml\n(.*?)```")
@@ -43,14 +48,19 @@ bgp:
 		require.NoError(t, err)
 		for i, m := range block.FindAllSubmatch(src, -1) {
 			body := m[1]
-			if !bytes.HasPrefix(body, []byte("vips:")) && !bytes.HasPrefix(body, []byte("paths:")) {
+			switch {
+			case bytes.HasPrefix(body, []byte("schema:")):
+				// complete config, no header needed
+			case bytes.HasPrefix(body, []byte("vips:")), bytes.HasPrefix(body, []byte("paths:")):
+				body = append([]byte(header), body...)
+			default:
 				continue
 			}
 			examples++
-			name := filepath.Base(f) + "#" + strconv.Itoa(i)
+			name := strings.TrimPrefix(f, "../../") + "#" + strconv.Itoa(i)
 			t.Run(name, func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "example.yaml")
-				require.NoError(t, os.WriteFile(path, append([]byte(header), body...), 0o600))
+				require.NoError(t, os.WriteFile(path, body, 0o600))
 				cfg, err := Load(path)
 				require.NoError(t, err, "example %d in %s:\n%s", i, f, body)
 				require.Empty(t, Validate(cfg), "example %d in %s", i, f)

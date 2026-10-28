@@ -242,6 +242,10 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 		}
 	}
 
+	if v.LocalInterface != "" && !v.RequireLocalAddress {
+		add(prefix+".local_interface", "requires require_local_address: true")
+	}
+
 	// Check interval / timeout relationship
 	if v.Check.Interval != nil && v.Check.Timeout != nil {
 		if v.Check.Timeout.Duration >= v.Check.Interval.Duration {

@@ -132,13 +132,26 @@ type SchedulersResult struct {
 	Schedulers map[string]*checks.Scheduler
 }
 
-func provideSchedulers(cfg *config.Config) (SchedulersResult, error) {
+func provideSchedulers(cfg *config.Config, m *metrics.Metrics) (SchedulersResult, error) {
 	scheds := make(map[string]*checks.Scheduler, len(cfg.VIPs))
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
 		checker, err := checks.NewChecker(&v.Check)
 		if err != nil {
 			return SchedulersResult{}, fmt.Errorf("creating checker for VIP %q: %w", v.Name, err)
+		}
+		if v.RequireLocalAddress {
+			gauge := m.VIPLocalAddress.WithLabelValues(v.Name, v.Prefix)
+			checker, err = checks.NewLocalAddressGuard(v.Name, v.Prefix, v.LocalInterface, checker, func(assigned bool) {
+				if assigned {
+					gauge.Set(1)
+				} else {
+					gauge.Set(0)
+				}
+			})
+			if err != nil {
+				return SchedulersResult{}, fmt.Errorf("creating local address guard for VIP %q: %w", v.Name, err)
+			}
 		}
 		interval := v.Check.Interval.Duration
 		timeout := v.Check.Timeout.Duration

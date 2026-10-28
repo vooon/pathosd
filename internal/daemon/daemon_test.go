@@ -224,7 +224,7 @@ func TestProvideSchedulers(t *testing.T) {
 			},
 		}
 
-		_, err := provideSchedulers(cfg)
+		_, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `creating checker for VIP "vip-bad"`)
 	})
@@ -259,7 +259,7 @@ func TestProvideSchedulers(t *testing.T) {
 			},
 		}
 
-		out, err := provideSchedulers(cfg)
+		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
 		sched := out.Schedulers["vip-explicit"]
 		require.NotNil(t, sched)
@@ -310,7 +310,7 @@ func TestProvideSchedulers(t *testing.T) {
 		}
 		config.ApplyDefaults(cfg)
 
-		out, err := provideSchedulers(cfg)
+		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
 		sched := out.Schedulers["vip-defaults"]
 		require.NotNil(t, sched)

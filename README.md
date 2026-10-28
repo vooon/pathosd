@@ -57,7 +57,7 @@ sudoedit /etc/pathosd/pathosd.toml
 sudo systemctl enable --now pathosd
 ```
 
-The host must also own the VIP addresses. [contrib/systemd/dummy-vip](contrib/systemd/dummy-vip/) holds them on a systemd-networkd `dummy` interface, one drop-in per VIP, and ships a unit drop-in so pathosd starts only once the interface is configured.
+The host must also own the VIP addresses. [contrib/systemd/dummy-vip](contrib/systemd/dummy-vip/) holds them on a systemd-networkd `dummy` interface, one drop-in per VIP, and ships a unit drop-in so pathosd starts only once the interface is configured. Set `require_local_address: true` on the VIP to make pathosd verify this itself (see [Local Address Guard](#local-address-guard)).
 
 ### Container
 
@@ -139,6 +139,21 @@ curl -X POST http://127.0.0.1:59179/api/v1/vips/web-frontend/check
 ```
 
 The result feeds into the normal rise/fall state machine — it does not bypass hysteresis. The response carries the check result including type-specific details (status code, RTTs, rcode, …).
+
+### Local Address Guard
+
+A route for an address the host does not own black-holes traffic. With `require_local_address: true` the check fails, with an explicit detail and a warning log, while the VIP address is not configured on a local interface; the real check only runs once it is. `local_interface` narrows it to one interface:
+
+```yaml
+vips:
+  - name: web
+    prefix: 10.10.1.1/32
+    require_local_address: true
+    local_interface: dummy-vip   # optional: any interface when omitted
+    check: { type: http, http: { url: https://web.example.com/healthz } }
+```
+
+The result goes through the normal rise/fall hysteresis, so removing the address withdraws the route after `fall` checks and adding it back announces after `rise`. `pathosd_vip_local_address_assigned{vip}` exports the state for alerting.
 
 ### HTTP Check Connections
 
@@ -309,6 +324,8 @@ The server applies `api.read_header_timeout`, `read_timeout`, `write_timeout` an
 | dns | `pathosd_dns_rcode{name}` | rcode of the last reply, 0 = NOERROR |
 | dns | `pathosd_dns_answers{name}` | answer records in the last reply |
 | grpc | `pathosd_grpc_status_code` | status code of the last call, 0 = OK |
+
+VIPs with `require_local_address` additionally export `pathosd_vip_local_address_assigned` (1 while the address is configured on the host).
 
 The same details are returned in the `result.details` object of the ad-hoc check trigger regardless of the flag.
 

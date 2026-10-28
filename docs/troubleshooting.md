@@ -130,6 +130,10 @@ lists the prefix, but the peer does not use it.
 - **The host does not own the VIP.** BGP announces the prefix; something
   still has to answer for the address. Put the VIP on a dummy interface
   (`contrib/systemd/dummy-vip/`) and make sure the service listens on it.
+  Set `require_local_address: true` on the VIP so pathosd refuses to
+  announce in this situation: the check detail then reads `VIP address X is
+  not configured on any interface`, a `VIP address missing on host` warning
+  is logged, and `pathosd_vip_local_address_assigned` drops to 0.
 - **Replies take a different path.** A VIP inside the subnet of a physical
   NIC makes the host reply directly to same-L2 peers, bypassing the router.
   Use a source-based policy route or pick a VIP outside the LAN subnets.

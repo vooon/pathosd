@@ -10,6 +10,7 @@ import (
 type CLI struct {
 	Run      RunCmd           `cmd:"" default:"withargs" help:"Run the pathosd daemon."`
 	Validate ValidateCmd      `cmd:"" help:"Validate configuration file."`
+	Check    CheckCmd         `cmd:"" help:"Run the configured health checks once and print the results (no BGP)."`
 	JQTest   JQTestCmd        `cmd:"" name:"jq-test" help:"Test a JQ expression against JSON input."`
 	Version  kong.VersionFlag `help:"Print version and exit."`
 }

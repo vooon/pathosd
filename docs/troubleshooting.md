@@ -13,6 +13,12 @@ curl -s 127.0.0.1:59179/readyz | jq .                  # required peers establis
 curl -s 127.0.0.1:59179/status | jq .                  # peers, VIPs, last check result
 ```
 
+The same information is available without `curl` or `jq`: open
+`http://127.0.0.1:59179/` in a browser. The landing page lists every VIP
+with its state, health, prepend count, check type and last check detail,
+every peer with its session state, and has a **Trigger check** button per
+VIP. Reload the page to refresh it.
+
 `/status` is the single most useful call. Per VIP it shows `state_name`
 (withdrawn / announced / pessimized), `health_name`, `consecutive_ok` /
 `consecutive_fail` against `rise` / `fall`, `last_check_success` with

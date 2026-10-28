@@ -271,7 +271,7 @@ gobgp -u 127.0.0.1:50051 global rib
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | HTML landing page with quick links and current daemon summary |
+| `/` | GET | HTML status page: VIPs with state, health and last check detail, peers with session state, a trigger-check button per VIP |
 | `/healthz` | GET | Liveness — 200 if process is running |
 | `/readyz` | GET | Readiness — 200 if all required BGP peers are established |
 | `/status` | GET | Full daemon state: peers, VIPs, last check results |

@@ -676,6 +676,32 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_SQLCheck(t *testing.T) {
+	mk := func(driver string) *Config {
+		return &Config{VIPs: []VIPConfig{{
+			Name: "v", Prefix: "203.0.113.1/32",
+			Check: CheckConfig{Type: CheckTypeSQL, SQL: &SQLCheckConfig{Driver: driver, User: "u"}},
+		}}}
+	}
+	cfg := mk(SQLDriverMySQL)
+	ApplyDefaults(cfg)
+	s := cfg.VIPs[0].Check.SQL
+	assert.Equal(t, "203.0.113.1", s.Host)
+	assert.Equal(t, uint16(3306), s.Port)
+	assert.Equal(t, []SQLQueryConfig{{SQL: "SELECT 1"}}, s.Queries)
+	assert.Equal(t, 100, s.MaxRows)
+	assert.Equal(t, "q1", s.Queries[0].EffectiveName(0))
+
+	cfg = mk(SQLDriverPostgres)
+	cfg.VIPs[0].Check.SQL.Port = 15432
+	cfg.VIPs[0].Check.SQL.Queries = []SQLQueryConfig{{Name: "x", SQL: "SELECT 2"}}
+	ApplyDefaults(cfg)
+	assert.Equal(t, uint16(15432), cfg.VIPs[0].Check.SQL.Port)
+	assert.Equal(t, "x", cfg.VIPs[0].Check.SQL.Queries[0].EffectiveName(0))
+	ApplyDefaults(mk(SQLDriverPostgres))
+	assert.Equal(t, uint16(5432), func() uint16 { c := mk(SQLDriverPostgres); ApplyDefaults(c); return c.VIPs[0].Check.SQL.Port }())
+}
+
 func TestApplyDefaults_ListenCheck(t *testing.T) {
 	cfg := &Config{VIPs: []VIPConfig{{
 		Name: "v", Prefix: "203.0.113.1/32",

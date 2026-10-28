@@ -269,6 +269,36 @@ vips:
     policy:
       fail_action: withdraw
 
+  # SQL check — MySQL/MariaDB or PostgreSQL. Each query must succeed; with
+  # result_jq its rows (a JSON array of {column: value}) must make the
+  # expression true. Replication lag or read-only state are just queries.
+  - name: mariadb-primary
+    prefix: 10.10.8.1/32
+    check:
+      type: sql
+      interval: 5s
+      timeout: 2s
+      rise: 2
+      fall: 3
+      sql:
+        driver: mysql           # mysql | postgres; port defaults to 3306 / 5432
+        user: pathosd
+        password: "%{DB_PASSWORD}"
+        # database: app
+        # tls: true
+        # tls_ca_cert: /etc/pathosd/db-ca.crt
+        # keep_alive: true      # reuse the connection instead of reconnecting each check
+        queries:
+          - sql: SELECT 1
+          - name: writable
+            sql: SELECT @@read_only AS read_only
+            result_jq: ".[0].read_only == 0"
+          # - name: replica_lag
+          #   sql: SHOW REPLICA STATUS
+          #   result_jq: ".[0].Seconds_Behind_Source < 60"
+    policy:
+      fail_action: withdraw
+
   # Listening-socket check — passes when a local socket is bound to the port
   # (TCP LISTEN or any bound UDP socket) without sending anything. Use it for
   # collectors that log every stray datagram (IPFIX, syslog, SNMP traps).

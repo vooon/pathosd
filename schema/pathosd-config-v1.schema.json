@@ -156,7 +156,8 @@
             "udp",
             "tcp",
             "grpc",
-            "listen"
+            "listen",
+            "sql"
           ],
           "description": "Health check backend type."
         },
@@ -212,6 +213,10 @@
         "listen": {
           "$ref": "#/$defs/ListenCheckConfig",
           "description": "Listening-socket check configuration (required when type is \"listen\")."
+        },
+        "sql": {
+          "$ref": "#/$defs/SQLCheckConfig",
+          "description": "SQL check configuration (required when type is \"sql\")."
         },
         "grpc": {
           "$ref": "#/$defs/GRPCCheckConfig",
@@ -768,6 +773,105 @@
         "router_id"
       ],
       "description": "RouterConfig identifies this BGP speaker."
+    },
+    "SQLCheckConfig": {
+      "properties": {
+        "driver": {
+          "type": "string",
+          "enum": [
+            "mysql",
+            "postgres"
+          ],
+          "description": "Database driver: \"mysql\" (also MariaDB) or \"postgres\". Required."
+        },
+        "host": {
+          "type": "string",
+          "description": "Server host (IP or DNS name). Defaults to the VIP prefix IP for /32 or /128."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "Server port. Default: 3306 for mysql, 5432 for postgres."
+        },
+        "user": {
+          "type": "string",
+          "description": "Login user. Required. Grant it only what the queries need."
+        },
+        "password": {
+          "type": "string",
+          "description": "Login password; use an environment placeholder (%{DB_PASSWORD}) rather than a literal."
+        },
+        "database": {
+          "type": "string",
+          "description": "Database to connect to. Optional for mysql; postgres defaults to the user name."
+        },
+        "tls": {
+          "type": "boolean",
+          "description": "Enable TLS. Default: false (plaintext).",
+          "default": false
+        },
+        "tls_insecure": {
+          "type": "boolean",
+          "description": "Skip certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.",
+          "default": false
+        },
+        "tls_ca_cert": {
+          "type": "string",
+          "description": "Path to a PEM-encoded CA certificate for verification. Requires tls=true."
+        },
+        "tls_server_name": {
+          "type": "string",
+          "description": "TLS server name for SNI and verification. Defaults to host."
+        },
+        "keep_alive": {
+          "type": "boolean",
+          "description": "Reuse the connection across checks. Off by default so every check\nexercises connect and authentication.",
+          "default": false
+        },
+        "queries": {
+          "items": {
+            "$ref": "#/$defs/SQLQueryConfig"
+          },
+          "type": "array",
+          "description": "Queries to run in order on one connection. Default: a single \"SELECT 1\"."
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Upper bound on rows fetched per query. Default: 100.",
+          "default": 100
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "driver",
+        "user"
+      ],
+      "description": "SQLCheckConfig defines a check that connects to a SQL server and runs queries."
+    },
+    "SQLQueryConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name used in details, metrics (query label) and errors. Default: q1, q2, …"
+        },
+        "sql": {
+          "type": "string",
+          "description": "Statement to execute. Required."
+        },
+        "result_jq": {
+          "type": "string",
+          "description": "jq expression evaluated against the rows as a JSON array of\n{column: value} objects (numbers for numeric columns, strings otherwise);\nmust yield true. E.g. \".[0].Seconds_Behind_Source \u003c 60\" or\n\".[0].read_only == 0\". Empty: the query only has to succeed."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "sql"
+      ],
+      "description": "SQLQueryConfig is one statement of a SQL check."
     },
     "TCPCheckConfig": {
       "properties": {

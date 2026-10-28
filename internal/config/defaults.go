@@ -78,6 +78,26 @@ func ApplyDefaults(cfg *Config) {
 	applyOTelDefaults(&cfg.OTel)
 }
 
+func applySQLDefaults(s *SQLCheckConfig, vipPrefix string) {
+	if s.Host == "" {
+		s.Host = vipHostIP(vipPrefix)
+	}
+	if s.Port == 0 {
+		switch s.Driver {
+		case SQLDriverMySQL:
+			s.Port = 3306
+		case SQLDriverPostgres:
+			s.Port = 5432
+		}
+	}
+	if len(s.Queries) == 0 {
+		s.Queries = []SQLQueryConfig{{SQL: "SELECT 1"}}
+	}
+	if s.MaxRows == 0 {
+		s.MaxRows = 100
+	}
+}
+
 func applyPathsDefaults(p *PathsConfig) {
 	if p.Procfs == "" {
 		p.Procfs = "/proc"
@@ -166,6 +186,12 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 		if c.Listen.Host == "" {
 			c.Listen.Host = vipHostIP(vipPrefix)
 		}
+
+	case CheckTypeSQL:
+		if c.SQL == nil {
+			c.SQL = &SQLCheckConfig{}
+		}
+		applySQLDefaults(c.SQL, vipPrefix)
 
 	case CheckTypeTCP:
 		if c.TCP == nil {

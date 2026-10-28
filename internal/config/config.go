@@ -17,6 +17,14 @@ const (
 	// CheckTypeListen passes when a local socket is bound to a port, without
 	// sending anything.
 	CheckTypeListen = "listen"
+	// CheckTypeSQL runs queries against MySQL/MariaDB or PostgreSQL.
+	CheckTypeSQL = "sql"
+)
+
+// SQL drivers accepted by SQLCheckConfig.Driver.
+const (
+	SQLDriverMySQL    = "mysql"
+	SQLDriverPostgres = "postgres"
 )
 
 // Config is the top-level configuration for pathosd.
@@ -310,7 +318,7 @@ type CheckConfig struct {
 	// the check type; required when a VIP has several checks of the same type.
 	Name string `yaml:"name,omitempty" json:"name,omitempty" toml:"name,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$"`
 	// Health check backend type.
-	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc,enum=listen"`
+	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc,enum=listen,enum=sql"`
 	// Export check-type-specific metrics for this VIP (ping RTT histogram and packet loss,
 	// HTTP status code and TLS certificate expiry, DNS rcode and answer count per name,
 	// gRPC status code). Off by default to keep the metric set small.
@@ -335,6 +343,8 @@ type CheckConfig struct {
 	TCP *TCPCheckConfig `yaml:"tcp,omitempty" json:"tcp,omitempty" toml:"tcp,omitempty"`
 	// Listening-socket check configuration (required when type is "listen").
 	Listen *ListenCheckConfig `yaml:"listen,omitempty" json:"listen,omitempty" toml:"listen,omitempty"`
+	// SQL check configuration (required when type is "sql").
+	SQL *SQLCheckConfig `yaml:"sql,omitempty" json:"sql,omitempty" toml:"sql,omitempty"`
 	// gRPC check configuration (required when type is "grpc").
 	GRPC *GRPCCheckConfig `yaml:"grpc,omitempty" json:"grpc,omitempty" toml:"grpc,omitempty"`
 }
@@ -426,6 +436,62 @@ type ListenCheckConfig struct {
 	NetnsPID int `yaml:"netns_pid,omitempty" json:"netns_pid,omitempty" toml:"netns_pid,omitempty" jsonschema:"minimum=0"`
 	// Procfs is filled from paths.procfs by ApplyDefaults; not a config key.
 	Procfs string `yaml:"-" json:"-" toml:"-" jsonschema:"-"`
+}
+
+// SQLCheckConfig defines a check that connects to a SQL server and runs
+// queries. The check passes when every query succeeds and, where result_jq is
+// set, the rows satisfy the expression. Nothing database-specific is built
+// in: replication lag, read-only state or application tables are all
+// expressed as a query plus a jq condition.
+type SQLCheckConfig struct {
+	// Database driver: "mysql" (also MariaDB) or "postgres". Required.
+	Driver string `yaml:"driver" json:"driver" toml:"driver" jsonschema:"required,enum=mysql,enum=postgres"`
+	// Server host (IP or DNS name). Defaults to the VIP prefix IP for /32 or /128.
+	Host string `yaml:"host" json:"host" toml:"host"`
+	// Server port. Default: 3306 for mysql, 5432 for postgres.
+	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"minimum=1,maximum=65535"`
+	// Login user. Required. Grant it only what the queries need.
+	User string `yaml:"user" json:"user" toml:"user" jsonschema:"required"`
+	// Login password; use an environment placeholder (%{DB_PASSWORD}) rather than a literal.
+	Password string `yaml:"password,omitempty" json:"password,omitempty" toml:"password,omitempty"`
+	// Database to connect to. Optional for mysql; postgres defaults to the user name.
+	Database string `yaml:"database,omitempty" json:"database,omitempty" toml:"database,omitempty"`
+	// Enable TLS. Default: false (plaintext).
+	TLS bool `yaml:"tls,omitempty" json:"tls,omitempty" toml:"tls,omitempty" jsonschema:"default=false"`
+	// Skip certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.
+	TLSInsecure bool `yaml:"tls_insecure,omitempty" json:"tls_insecure,omitempty" toml:"tls_insecure,omitempty" jsonschema:"default=false"`
+	// Path to a PEM-encoded CA certificate for verification. Requires tls=true.
+	TLSCACert string `yaml:"tls_ca_cert,omitempty" json:"tls_ca_cert,omitempty" toml:"tls_ca_cert,omitempty"`
+	// TLS server name for SNI and verification. Defaults to host.
+	TLSServerName string `yaml:"tls_server_name,omitempty" json:"tls_server_name,omitempty" toml:"tls_server_name,omitempty"`
+	// Reuse the connection across checks. Off by default so every check
+	// exercises connect and authentication.
+	KeepAlive bool `yaml:"keep_alive,omitempty" json:"keep_alive,omitempty" toml:"keep_alive,omitempty" jsonschema:"default=false"`
+	// Queries to run in order on one connection. Default: a single "SELECT 1".
+	Queries []SQLQueryConfig `yaml:"queries,omitempty" json:"queries,omitempty" toml:"queries,omitempty"`
+	// Upper bound on rows fetched per query. Default: 100.
+	MaxRows int `yaml:"max_rows,omitempty" json:"max_rows,omitempty" toml:"max_rows,omitempty" jsonschema:"minimum=1,default=100"`
+}
+
+// SQLQueryConfig is one statement of a SQL check.
+type SQLQueryConfig struct {
+	// Name used in details, metrics (query label) and errors. Default: q1, q2, …
+	Name string `yaml:"name,omitempty" json:"name,omitempty" toml:"name,omitempty"`
+	// Statement to execute. Required.
+	SQL string `yaml:"sql" json:"sql" toml:"sql" jsonschema:"required"`
+	// jq expression evaluated against the rows as a JSON array of
+	// {column: value} objects (numbers for numeric columns, strings otherwise);
+	// must yield true. E.g. ".[0].Seconds_Behind_Source < 60" or
+	// ".[0].read_only == 0". Empty: the query only has to succeed.
+	ResultJQ string `yaml:"result_jq,omitempty" json:"result_jq,omitempty" toml:"result_jq,omitempty"`
+}
+
+// EffectiveName returns the query name, defaulting to q<index+1>.
+func (q *SQLQueryConfig) EffectiveName(index int) string {
+	if q.Name != "" {
+		return q.Name
+	}
+	return fmt.Sprintf("q%d", index+1)
 }
 
 // DNSCheckConfig defines a DNS health check.

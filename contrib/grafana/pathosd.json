@@ -52,7 +52,7 @@
   "editable": true,
   "graphTooltip": 0,
   "schemaVersion": 41,
-  "version": 3,
+  "version": 4,
   "id": null,
   "time": {
     "from": "now-1h",
@@ -3292,6 +3292,144 @@
             "h": 4,
             "w": 8,
             "x": 0,
+            "y": 107
+          }
+        },
+        {
+          "id": 58,
+          "type": "stat",
+          "title": "SQL Query Passed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "1 when the query succeeded and its result_jq held in the last sql check",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "pathosd_sql_query_passed{instance=~\"$instance\", vip=~\"$vip\"}",
+              "legendFormat": "{{vip}} {{check}} {{query}}",
+              "editorMode": "code",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 107
+          }
+        },
+        {
+          "id": 59,
+          "type": "stat",
+          "title": "SQL Query Duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Duration of each query in the last sql check",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "pathosd_sql_query_duration_seconds{instance=~\"$instance\", vip=~\"$vip\"}",
+              "legendFormat": "{{vip}} {{check}} {{query}}",
+              "editorMode": "code",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.5
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
             "y": 107
           }
         }

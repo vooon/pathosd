@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/itchyny/gojq"
 	"net"
 	"net/netip"
 	"net/url"
@@ -249,7 +250,7 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 
 	// Exactly one of check / checks.
 	single := v.Check.Type != "" || v.Check.HTTP != nil || v.Check.DNS != nil || v.Check.Ping != nil ||
-		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil || v.Check.Listen != nil
+		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil || v.Check.Listen != nil || v.Check.SQL != nil
 	switch {
 	case single && len(v.Checks) > 0:
 		add(prefix+".checks", "cannot be combined with check; move the single check into the list")
@@ -430,6 +431,13 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 		}
 
+	case CheckTypeSQL:
+		if c.SQL == nil {
+			add(prefix+".sql", "required when type is \"sql\"")
+		} else {
+			errs = append(errs, validateSQLCheck(prefix+".sql", c.SQL, vipPrefix)...)
+		}
+
 	case CheckTypeGRPC:
 		if c.GRPC == nil {
 			add(prefix+".grpc", "required when type is \"grpc\"")
@@ -443,6 +451,62 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 		add(prefix+".type", fmt.Sprintf("unsupported check type %q", c.Type))
 	}
 
+	return errs
+}
+
+func validateSQLCheck(prefix string, s *SQLCheckConfig, vipPrefix string) []error {
+	var errs []error
+	add := func(path, msg string) {
+		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+	}
+	switch s.Driver {
+	case SQLDriverMySQL, SQLDriverPostgres:
+	case "":
+		add(prefix+".driver", "required (mysql or postgres)")
+	default:
+		add(prefix+".driver", fmt.Sprintf("must be mysql or postgres, got %q", s.Driver))
+	}
+	if s.User == "" {
+		add(prefix+".user", "required")
+	}
+	if s.Host == "" && !isSingleHost(vipPrefix) {
+		add(prefix+".host", "required when VIP prefix is not /32 or /128")
+	}
+	if s.MaxRows < 0 {
+		add(prefix+".max_rows", "must be >= 1")
+	}
+	if !s.TLS {
+		if s.TLSInsecure {
+			add(prefix+".tls_insecure", "requires tls: true")
+		}
+		if s.TLSCACert != "" {
+			add(prefix+".tls_ca_cert", "requires tls: true")
+		}
+		if s.TLSServerName != "" {
+			add(prefix+".tls_server_name", "requires tls: true")
+		}
+	}
+	if s.TLSInsecure && s.TLSCACert != "" {
+		add(prefix+".tls_insecure", "mutually exclusive with tls_ca_cert")
+	}
+	names := make(map[string]int)
+	for i, q := range s.Queries {
+		qp := fmt.Sprintf("%s.queries[%d]", prefix, i)
+		if strings.TrimSpace(q.SQL) == "" {
+			add(qp+".sql", "required")
+		}
+		name := q.EffectiveName(i)
+		if j, dup := names[name]; dup {
+			add(qp+".name", fmt.Sprintf("duplicate query name %q (also %s.queries[%d])", name, prefix, j))
+		} else {
+			names[name] = i
+		}
+		if q.ResultJQ != "" {
+			if _, err := gojq.Parse(q.ResultJQ); err != nil {
+				add(qp+".result_jq", fmt.Sprintf("invalid jq expression: %v", err))
+			}
+		}
+	}
 	return errs
 }
 

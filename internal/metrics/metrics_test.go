@@ -141,6 +141,17 @@ func TestObserveCheckDetails(t *testing.T) {
 		assert.Equal(t, float64(2), testutil.ToFloat64(m.ListenSockets.WithLabelValues(vip, nlri, "listen")))
 	})
 
+	t.Run("sql", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, "sql", &model.SQLDetails{Queries: []model.SQLQueryDetails{
+			{Name: "q1", Rows: 1, Duration: 20 * time.Millisecond, Passed: true},
+			{Name: "lag", Rows: 1, Duration: 5 * time.Millisecond, Passed: false},
+		}})
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.SQLQueryPassed.WithLabelValues(vip, nlri, "sql", "q1")))
+		assert.Equal(t, float64(0), testutil.ToFloat64(m.SQLQueryPassed.WithLabelValues(vip, nlri, "sql", "lag")))
+		assert.Equal(t, 0.02, testutil.ToFloat64(m.SQLQueryDuration.WithLabelValues(vip, nlri, "sql", "q1")))
+		assert.Equal(t, float64(1), testutil.ToFloat64(m.SQLQueryRows.WithLabelValues(vip, nlri, "sql", "lag")))
+	})
+
 	t.Run("grpc", func(t *testing.T) {
 		m.ObserveCheckDetails(vip, nlri, "http", &model.GRPCDetails{StatusCode: 14})
 		assert.Equal(t, float64(14), testutil.ToFloat64(m.GRPCStatusCode.WithLabelValues(vip, nlri, "http")))

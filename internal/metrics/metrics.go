@@ -51,6 +51,9 @@ type Metrics struct {
 	DNSAnswers         *prometheus.GaugeVec
 	GRPCStatusCode     *prometheus.GaugeVec
 	ListenSockets      *prometheus.GaugeVec
+	SQLQueryRows       *prometheus.GaugeVec
+	SQLQueryDuration   *prometheus.GaugeVec
+	SQLQueryPassed     *prometheus.GaugeVec
 }
 
 const (
@@ -205,6 +208,18 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_listen_sockets",
 			Help: "Local sockets bound to the checked port in the last listen check (check.detailed_metrics only).",
 		}, []string{"vip", "nlri", "check"}),
+		SQLQueryRows: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_sql_query_rows",
+			Help: "Rows returned by the query in the last sql check (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check", "query"}),
+		SQLQueryDuration: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_sql_query_duration_seconds",
+			Help: "Duration of the query in the last sql check (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check", "query"}),
+		SQLQueryPassed: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_sql_query_passed",
+			Help: "1 when the query succeeded and its result_jq held in the last sql check, else 0 (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check", "query"}),
 	}
 
 	reg.MustRegister(
@@ -226,6 +241,9 @@ func New(checkBuckets []float64) *Metrics {
 		m.DNSAnswers,
 		m.GRPCStatusCode,
 		m.ListenSockets,
+		m.SQLQueryRows,
+		m.SQLQueryDuration,
+		m.SQLQueryPassed,
 		pver.NewCollector("pathosd"),
 	)
 
@@ -255,5 +273,15 @@ func (m *Metrics) ObserveCheckDetails(vip, nlri, check string, details model.Che
 		m.GRPCStatusCode.WithLabelValues(vip, nlri, check).Set(float64(d.StatusCode))
 	case *model.ListenDetails:
 		m.ListenSockets.WithLabelValues(vip, nlri, check).Set(float64(len(d.Sockets)))
+	case *model.SQLDetails:
+		for _, q := range d.Queries {
+			m.SQLQueryRows.WithLabelValues(vip, nlri, check, q.Name).Set(float64(q.Rows))
+			m.SQLQueryDuration.WithLabelValues(vip, nlri, check, q.Name).Set(q.Duration.Seconds())
+			passed := 0.0
+			if q.Passed {
+				passed = 1
+			}
+			m.SQLQueryPassed.WithLabelValues(vip, nlri, check, q.Name).Set(passed)
+		}
 	}
 }

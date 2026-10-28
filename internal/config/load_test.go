@@ -154,6 +154,7 @@ func TestDetectFormat(t *testing.T) {
 }
 
 func TestLoad_ExampleYAML(t *testing.T) {
+	t.Setenv("DB_PASSWORD", "example") // examples reference %{DB_PASSWORD}
 	cfg, err := Load("../../examples/pathosd.yaml")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -163,6 +164,7 @@ func TestLoad_ExampleYAML(t *testing.T) {
 }
 
 func TestLoad_ExampleTOML(t *testing.T) {
+	t.Setenv("DB_PASSWORD", "example") // examples reference %{DB_PASSWORD}
 	cfg, err := Load("../../examples/pathosd.toml")
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -178,6 +180,7 @@ func TestLoad_NonexistentFile(t *testing.T) {
 }
 
 func TestLoad_AppliesDefaults(t *testing.T) {
+	t.Setenv("DB_PASSWORD", "example") // examples reference %{DB_PASSWORD}
 	// Parse without defaults to confirm they're absent, then Load which applies them.
 	raw, err := Parse([]byte(minimalYAML), "yaml")
 	require.NoError(t, err)

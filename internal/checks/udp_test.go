@@ -40,7 +40,7 @@ func TestUDPChecker_PortOpen(t *testing.T) {
 	c := NewUDPChecker(&config.UDPCheckConfig{
 		Host:    "127.0.0.1",
 		Port:    port,
-		Payload: []byte{0x00},
+		Payload: "\x00",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -57,7 +57,7 @@ func TestUDPChecker_PortClosed(t *testing.T) {
 	c := NewUDPChecker(&config.UDPCheckConfig{
 		Host:    "127.0.0.1",
 		Port:    port,
-		Payload: []byte{0x00},
+		Payload: "\x00",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -96,7 +96,7 @@ func TestUDPChecker_ContextCancelled(t *testing.T) {
 	c := NewUDPChecker(&config.UDPCheckConfig{
 		Host:    "127.0.0.1",
 		Port:    port,
-		Payload: []byte{0x00},
+		Payload: "\x00",
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,7 +118,7 @@ func TestUDPChecker_IPv6Host(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
 
-	c := NewUDPChecker(&config.UDPCheckConfig{Host: "::1", Port: port, Payload: []byte{0x00}})
+	c := NewUDPChecker(&config.UDPCheckConfig{Host: "::1", Port: port, Payload: "\x00"})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

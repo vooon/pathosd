@@ -54,6 +54,25 @@ func (s *HTTPCheckerSuite) checker(ts *httptest.Server, cfg *config.HTTPCheckCon
 	return c
 }
 
+func (s *HTTPCheckerSuite) TestUserAgent() {
+	var seen []string
+	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("User-Agent"))
+		w.WriteHeader(http.StatusOK)
+	})
+
+	c := s.checker(ts, &config.HTTPCheckConfig{URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200}})
+	s.True(c.Check(context.Background()).Success)
+
+	c = s.checker(ts, &config.HTTPCheckConfig{URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+		Headers: map[string]string{"user-agent": "custom/1"}})
+	s.True(c.Check(context.Background()).Success)
+
+	s.Require().Len(seen, 2)
+	s.Equal("pathosd/dev", seen[0], "default identifies the probe")
+	s.Equal("custom/1", seen[1], "an explicit header wins")
+}
+
 func (s *HTTPCheckerSuite) TestType() {
 	c, err := NewHTTPChecker(&config.HTTPCheckConfig{})
 	s.Require().NoError(err)

@@ -264,7 +264,7 @@ vips:
       fall: 3
       udp:
         port: 514
-        # payload: "\x00"  # probe payload; default is a single null byte
+        # payload: "<191>pathosd probe"  # probe payload; default is a single null byte ("\x00")
         # host: 10.10.5.1  # explicit host override
     policy:
       fail_action: withdraw

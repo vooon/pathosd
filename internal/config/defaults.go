@@ -348,8 +348,8 @@ func applyUDPDefaults(u *UDPCheckConfig, vipPrefix string) {
 	}
 	// Default payload: a single null byte — enough to trigger ICMP port-unreachable
 	// when nothing is listening, without being a valid application message.
-	if len(u.Payload) == 0 {
-		u.Payload = []byte{0x00}
+	if u.Payload == "" {
+		u.Payload = "\x00"
 	}
 }
 

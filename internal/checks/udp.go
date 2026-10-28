@@ -66,7 +66,7 @@ func (c *UDPChecker) Check(ctx context.Context) Result {
 	}
 
 	// Send probe datagram.
-	payload := c.cfg.Payload
+	payload := []byte(c.cfg.Payload)
 	if len(payload) == 0 {
 		payload = []byte{0x00}
 	}

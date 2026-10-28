@@ -1,10 +1,24 @@
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates
-
 LABEL org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer"
 
+# Non-root runtime user: uid 100, gid 101 (Alpine system account defaults).
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S pathosd \
+ && adduser -S -G pathosd -h /var/lib/pathosd -s /sbin/nologin pathosd \
+ && install -d -o root -g pathosd -m 0750 /etc/pathosd
+
 COPY pathosd /usr/local/bin/pathosd
+
+# File capabilities so the daemon can bind BGP port 179 and open raw ICMP
+# sockets (check.ping.privileged) without running as root. Permitted only
+# (+p): the daemon raises them itself, and exec still succeeds when the
+# container's bounding set lacks one (e.g. NET_RAW under --cap-drop ALL).
+RUN apk add --no-cache --virtual .setcap libcap \
+ && setcap cap_net_bind_service,cap_net_raw=+p /usr/local/bin/pathosd \
+ && apk del .setcap
+
+USER pathosd:pathosd
 
 ENTRYPOINT ["pathosd"]
 CMD ["run", "--config", "/etc/pathosd/pathosd.yaml"]

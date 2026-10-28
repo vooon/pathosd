@@ -17,6 +17,7 @@ import (
 	"github.com/vooon/pathosd/internal/checks"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/httpapi"
+	"github.com/vooon/pathosd/internal/caps"
 	"github.com/vooon/pathosd/internal/logging"
 	"github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/policy"
@@ -43,6 +44,7 @@ func Run(cfg *config.Config) error {
 		}),
 		fx.Invoke(
 			ensureLoggerInitialized,
+			raiseCapabilities,
 			registerProcessLifecycle,
 			registerBGPLifecycle,
 			registerPeerWatcherLifecycle,
@@ -175,6 +177,19 @@ func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manag
 		Policy:     pol,
 		Schedulers: scheds,
 	})
+}
+
+// raiseCapabilities makes file capabilities granted to the binary effective
+// before any socket is opened. Failure is logged, not fatal: binding port
+// 179 or the raw ICMP socket then reports its own permission error.
+func raiseCapabilities(logger *slog.Logger) {
+	raised, err := caps.RaiseEffective()
+	switch {
+	case err != nil:
+		logger.Warn("could not raise file capabilities", "error", err)
+	case raised:
+		logger.Info("raised file capabilities to effective")
+	}
 }
 
 func ensureLoggerInitialized(_ *slog.Logger) {}

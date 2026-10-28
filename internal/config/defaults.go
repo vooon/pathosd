@@ -55,6 +55,8 @@ func ApplyDefaults(cfg *Config) {
 		}
 	}
 
+	applyPathsDefaults(&cfg.Paths)
+
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
 
@@ -63,6 +65,9 @@ func ApplyDefaults(cfg *Config) {
 		}
 		for _, c := range v.CheckList() {
 			applyCheckDefaults(c, v.Prefix)
+			if c.Listen != nil && c.Listen.Procfs == "" {
+				c.Listen.Procfs = cfg.Paths.Procfs
+			}
 		}
 		if v.ChecksPolicy == "" {
 			v.ChecksPolicy = ChecksPolicyAll
@@ -71,6 +76,12 @@ func ApplyDefaults(cfg *Config) {
 	}
 
 	applyOTelDefaults(&cfg.OTel)
+}
+
+func applyPathsDefaults(p *PathsConfig) {
+	if p.Procfs == "" {
+		p.Procfs = "/proc"
+	}
 }
 
 func applyOTelDefaults(o *OTelConfig) {
@@ -147,6 +158,14 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 			c.UDP = &UDPCheckConfig{}
 		}
 		applyUDPDefaults(c.UDP, vipPrefix)
+
+	case CheckTypeListen:
+		if c.Listen == nil {
+			c.Listen = &ListenCheckConfig{}
+		}
+		if c.Listen.Host == "" {
+			c.Listen.Host = vipHostIP(vipPrefix)
+		}
 
 	case CheckTypeTCP:
 		if c.TCP == nil {

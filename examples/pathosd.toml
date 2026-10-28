@@ -29,6 +29,11 @@ format = "text"
 #   grpc://host:4317   gRPC plaintext    grpcs://host:4317  gRPC TLS
 #   http://host:4318   OTLP/HTTP         https://host:4318  OTLP/HTTP TLS
 # Set enabled = false (or remove endpoint) to disable entirely.
+# Kernel filesystem locations, node-exporter style. Only the listen check
+# reads them. In a container: -v /proc:/host/proc:ro and procfs = "/host/proc".
+# [paths]
+# procfs = "/proc"
+
 [otel]
 endpoint = "grpc://otel-collector.example.com:4317"
 # enabled = false
@@ -305,6 +310,28 @@ prefix = "10.10.5.1/32"
 # gRPC health check — standard gRPC Health Checking Protocol
 # (grpc.health.v1.Health/Check). Passes when the server responds SERVING.
 # host defaults to VIP IP for /32 prefix.
+# Listening-socket check — passes when a local socket is bound to the port
+# (TCP LISTEN or any bound UDP socket) without sending anything. Use it for
+# collectors that log every stray datagram (IPFIX, syslog, SNMP traps).
+# Only sees pathosd's own network namespace.
+[[vips]]
+name = "ipfix-collector"
+prefix = "10.10.7.1/32"
+
+  [vips.check]
+  type = "listen"
+  interval = "5s"
+  timeout = "1s"
+
+    [vips.check.listen]
+    proto = "udp"
+    port = 4739
+    # host = "10.10.7.1"  # default: VIP address; wildcard binds (0.0.0.0, ::) match too
+    # netns_pid = 1      # host network namespace from a container (needs paths.procfs = "/host/proc")
+
+  [vips.policy]
+  fail_action = "withdraw"
+
 [[vips]]
 name = "grpc-service"
 prefix = "10.10.6.1/32"

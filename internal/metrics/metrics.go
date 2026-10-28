@@ -50,6 +50,7 @@ type Metrics struct {
 	DNSRcode           *prometheus.GaugeVec
 	DNSAnswers         *prometheus.GaugeVec
 	GRPCStatusCode     *prometheus.GaugeVec
+	ListenSockets      *prometheus.GaugeVec
 }
 
 const (
@@ -200,6 +201,10 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_grpc_status_code",
 			Help: "gRPC status code of the last check call, 0 = OK (check.detailed_metrics only).",
 		}, []string{"vip", "nlri", "check"}),
+		ListenSockets: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_listen_sockets",
+			Help: "Local sockets bound to the checked port in the last listen check (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "check"}),
 	}
 
 	reg.MustRegister(
@@ -220,6 +225,7 @@ func New(checkBuckets []float64) *Metrics {
 		m.DNSRcode,
 		m.DNSAnswers,
 		m.GRPCStatusCode,
+		m.ListenSockets,
 		pver.NewCollector("pathosd"),
 	)
 
@@ -247,5 +253,7 @@ func (m *Metrics) ObserveCheckDetails(vip, nlri, check string, details model.Che
 		}
 	case *model.GRPCDetails:
 		m.GRPCStatusCode.WithLabelValues(vip, nlri, check).Set(float64(d.StatusCode))
+	case *model.ListenDetails:
+		m.ListenSockets.WithLabelValues(vip, nlri, check).Set(float64(len(d.Sockets)))
 	}
 }

@@ -52,7 +52,7 @@
   "editable": true,
   "graphTooltip": 0,
   "schemaVersion": 41,
-  "version": 2,
+  "version": 3,
   "id": null,
   "time": {
     "from": "now-1h",
@@ -3226,6 +3226,73 @@
             "w": 12,
             "x": 12,
             "y": 100
+          }
+        },
+        {
+          "id": 57,
+          "type": "stat",
+          "title": "Listen Sockets",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Sockets bound to the checked port in the last listen check (0 = nothing listening)",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "pathosd_listen_sockets{instance=~\"$instance\", vip=~\"$vip\"}",
+              "legendFormat": "{{vip}} {{check}}",
+              "editorMode": "code",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 107
           }
         }
       ]

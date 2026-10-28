@@ -30,6 +30,11 @@ logging:
 #   grpc://host:4317   gRPC plaintext    grpcs://host:4317  gRPC TLS
 #   http://host:4318   OTLP/HTTP         https://host:4318  OTLP/HTTP TLS
 # Set enabled: false (or remove endpoint) to disable entirely.
+# Kernel filesystem locations, node-exporter style. Only the listen check
+# reads them. In a container: -v /proc:/host/proc:ro and procfs: /host/proc.
+# paths:
+#   procfs: /proc
+
 otel:
   endpoint: grpc://otel-collector.example.com:4317
   # enabled: false
@@ -261,6 +266,24 @@ vips:
         port: 514
         # payload: "\x00"  # probe payload; default is a single null byte
         # host: 10.10.5.1  # explicit host override
+    policy:
+      fail_action: withdraw
+
+  # Listening-socket check — passes when a local socket is bound to the port
+  # (TCP LISTEN or any bound UDP socket) without sending anything. Use it for
+  # collectors that log every stray datagram (IPFIX, syslog, SNMP traps).
+  # Only sees pathosd's own network namespace.
+  - name: ipfix-collector
+    prefix: 10.10.7.1/32
+    check:
+      type: listen
+      interval: 5s
+      timeout: 1s
+      listen:
+        proto: udp
+        port: 4739
+        # host: 10.10.7.1  # default: VIP address; wildcard binds (0.0.0.0, ::) match too
+        # netns_pid: 1     # host network namespace from a container (needs paths.procfs: /host/proc)
     policy:
       fail_action: withdraw
 

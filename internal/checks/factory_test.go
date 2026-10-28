@@ -36,6 +36,16 @@ func TestNewChecker(t *testing.T) {
 			wantType: "udp",
 		},
 		{
+			name:     "listen",
+			cfg:      &config.CheckConfig{Type: "listen", Listen: &config.ListenCheckConfig{Proto: "udp", Host: "127.0.0.1", Port: 4739}},
+			wantType: "listen",
+		},
+		{
+			name:            "listen nil sub-config",
+			cfg:             &config.CheckConfig{Type: "listen"},
+			wantErrContains: "listen check config is nil",
+		},
+		{
 			name:            "unknown type",
 			cfg:             &config.CheckConfig{Type: "unknown"},
 			wantErrContains: `unsupported check type "unknown"`,

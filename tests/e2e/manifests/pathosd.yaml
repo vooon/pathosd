@@ -210,6 +210,35 @@ data:
               query_type: A
         policy:
           fail_action: withdraw
+      # listen-vip: socket-table checks, no traffic sent. The api check sees
+      # pathosd's own HTTP listener (:59179) in this pod; nothing is bound to
+      # UDP 4739, so that check never passes (health "unknown") and "any" keeps the VIP up.
+      - name: listen-vip
+        prefix: 10.100.10.1/32
+        checks_policy: any
+        checks:
+          - name: api
+            type: listen
+            interval: 2s
+            timeout: 1s
+            rise: 2
+            fall: 2
+            listen:
+              proto: tcp
+              port: 59179
+              host: "%{POD_IPV4}"
+          - name: ipfix
+            type: listen
+            interval: 2s
+            timeout: 1s
+            rise: 2
+            fall: 2
+            listen:
+              proto: udp
+              port: 4739
+              host: "%{POD_IPV4}"
+        policy:
+          fail_action: withdraw
       - name: squid-vip
         prefix: 10.100.7.1/32
         check:

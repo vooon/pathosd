@@ -1,6 +1,6 @@
 # pathosd
 
-Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
+Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC, listening socket) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
 
 ## Why pathosd?
 
@@ -21,7 +21,7 @@ High-availability services need a single, stable IP that fails over with the ser
 
 ## Features
 
-- **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ, forward proxy), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods)
+- **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ, forward proxy), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods), listening socket (no traffic sent)
 - **Rise/Fall hysteresis**: configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
 - **Several checks per VIP**: each with its own interval/thresholds, combined with `all`, `any` or a boolean expression such as `web || (dns && ping)`
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities), plus a `lower_priority_file` drain switch
@@ -78,6 +78,7 @@ docker run -d \
 - With `--cap-drop ALL`, add `NET_BIND_SERVICE` back unless `bgp.listen_port: -1` (pathosd dials every peer and never listens), and `NET_RAW` only for privileged ping. A capability the container lacks is simply not raised; the daemon then fails with a clear `bind: permission denied` or `socket: operation not permitted` instead of refusing to start.
 - Podman drops `NET_RAW` by default: add `--cap-add NET_RAW` for privileged ping.
 - Unprivileged ping (`privileged: false`, the default) uses ICMP datagram sockets, which need the container user's gid inside `net.ipv4.ping_group_range`. Container runtimes set that sysctl to `0 0` or leave it at the host value. With a private network namespace pass `--sysctl net.ipv4.ping_group_range="0 2147483647"`; with `--network host` the host's sysctl applies, and it cannot be set per container. In containers, `privileged: true` plus `NET_RAW` is the simpler choice.
+- The `listen` check reads the socket table of the container's network namespace. With `--network host` that is the host; otherwise mount `-v /proc:/host/proc:ro`, set `paths.procfs: /host/proc` and `listen.netns_pid: 1` (see [Listening Socket Check](#listening-socket-check)).
 - Kubernetes: `allowPrivilegeEscalation: false` makes the kernel ignore file capabilities. Either leave it unset and keep `NET_BIND_SERVICE` / `NET_RAW` in `capabilities.add`, or run the container as root (`runAsUser: 0`) with those capabilities added.
 
 ## Configuration
@@ -278,6 +279,38 @@ vips:
 
 The result goes through the normal rise/fall hysteresis, so removing the address withdraws the route after `fall` checks and adding it back announces after `rise`. `pathosd_vip_local_address_assigned{vip}` exports the state for alerting.
 
+### Listening Socket Check
+
+Some services log or alert on every unexpected datagram (IPFIX/NetFlow collectors, syslog, SNMP traps), which makes the `udp` probe noisy. The `listen` check sends nothing: it reads the kernel socket tables (`/proc/net/tcp`, `tcp6`, `udp`, `udp6`) and passes when a socket is bound to the port, a TCP socket in `LISTEN` state or any bound UDP socket. A wildcard bind (`0.0.0.0`, `::`) satisfies any `host`.
+
+```yaml
+vips:
+  - name: ipfix
+    prefix: 10.10.7.1/32
+    check:
+      type: listen
+      listen:
+        proto: udp     # tcp | udp
+        port: 4739
+        # host: 10.10.7.1   # default: the VIP address; wildcard binds match too
+```
+
+It proves a process holds the port, not that it answers, so pair it with a real probe where one exists (`checks` + `checks_policy`). Linux only. With `detailed_metrics` it exports `pathosd_listen_sockets` (number of matching sockets).
+
+The socket tables are per network namespace (`/proc/net` is `/proc/self/net`), so by default the check sees the namespace pathosd runs in: every service on a host or with `--network host` / `hostNetwork`. A container with its own network namespace reads the host's table node-exporter style, by mounting the host's `/proc` and naming a host process whose namespace to use (pid 1 is the host's init):
+
+```yaml
+paths:
+  procfs: /host/proc        # docker run -v /proc:/host/proc:ro ...
+vips:
+  - name: ipfix
+    check:
+      type: listen
+      listen: { proto: udp, port: 4739, netns_pid: 1 }
+```
+
+`netns_pid` reads `<procfs>/<pid>/net/*`; the host's `/proc/net` itself would again resolve to the container's own namespace. Reading another process's `net/` needs no capability.
+
 ### HTTP Check Connections
 
 By default every HTTP check opens a new TCP (and TLS) connection, so each run exercises the full path including certificate verification. Set `http.keep_alive: true` to reuse the connection across checks; this saves the handshake on fast intervals, but the certificate is then only re-verified when the idle connection is dropped (after 90s idle, or when the server closes it).
@@ -447,6 +480,7 @@ The server applies `api.read_header_timeout`, `read_timeout`, `write_timeout` an
 | dns | `pathosd_dns_rcode{name}` | rcode of the last reply, 0 = NOERROR |
 | dns | `pathosd_dns_answers{name}` | answer records in the last reply |
 | grpc | `pathosd_grpc_status_code` | status code of the last call, 0 = OK |
+| listen | `pathosd_listen_sockets` | sockets bound to the checked port in the last run |
 
 VIPs with `require_local_address` additionally export `pathosd_vip_local_address_assigned` (1 while the address is configured on the host).
 

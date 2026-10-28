@@ -38,6 +38,7 @@ const (
 	squidVIPPrefix   = "10.100.7.1/32"
 	prependVIPPrefix = "10.100.8.1/32"
 	multiVIPPrefix   = "10.100.9.1/32"
+	listenVIPPrefix  = "10.100.10.1/32"
 	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -143,8 +144,44 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "ipv6-vip") == "announced" &&
 				vipStateFromStatus(status, "squid-vip") == "announced" &&
 				vipStateFromStatus(status, "prepend-vip") == "announced" &&
-				vipStateFromStatus(status, "multi-vip") == "announced"
+				vipStateFromStatus(status, "multi-vip") == "announced" &&
+				vipStateFromStatus(status, "listen-vip") == "announced"
 		})
+	})
+
+	// listen-vip: the tcp listen check finds pathosd's own API socket, the
+	// udp one finds nothing on 4739; "any" announces the VIP.
+	t.Run("listen_vip_checks", func(t *testing.T) {
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		vip := vipFromStatus(t, status, "listen-vip")
+		require.Len(t, vip.Checks, 2)
+		assert.Equal(t, "listen", vip.Checks[0].Type)
+		assert.Equal(t, "healthy", vip.Checks[0].HealthName, "api")
+		assert.Equal(t, "unknown", vip.Checks[1].HealthName, "ipfix never passed, so it stays unknown")
+
+		code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/listen-vip/check", nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, code, string(body))
+		var payload struct {
+			Results map[string]struct {
+				Success bool   `json:"success"`
+				Detail  string `json:"detail"`
+				Details struct {
+					Sockets []string `json:"sockets"`
+				} `json:"details"`
+			} `json:"results"`
+		}
+		require.NoError(t, json.Unmarshal(body, &payload))
+		assert.True(t, payload.Results["api"].Success, payload.Results["api"].Detail)
+		assert.NotEmpty(t, payload.Results["api"].Details.Sockets)
+		assert.False(t, payload.Results["ipfix"].Success)
+		assert.Contains(t, payload.Results["ipfix"].Detail, "no socket bound")
+
+		routes, err := frrRoutesNoFail()
+		require.NoError(t, err)
+		_, ok := routes[listenVIPPrefix]
+		assert.True(t, ok, "FRR has listen-vip route")
 	})
 
 	// multi-vip has an http check (nginx) and a dns check (coredns) combined

@@ -109,6 +109,17 @@ the first announcement. Look at `/status`:
   `allowPrivilegeEscalation: false`, which disables file capabilities.
 - `consecutive_ok` climbs but never reaches `rise`: a single failure resets
   it. Lower `rise` or fix the intermittent failure first.
+- `listen` check reports `no socket bound` although the service runs: the
+  check reads the socket table of pathosd's own network namespace. In a
+  container with its own namespace mount the host's `/proc` at
+  `/host/proc`, set `paths.procfs: /host/proc` and `listen.netns_pid: 1`
+  (pointing `paths.procfs` at the host `/proc` alone is not enough:
+  `/proc/net` resolves to the reader's namespace). Also compare the bind
+  address: a service bound to `127.0.0.1` does not match a VIP `host`;
+  wildcard binds do. `ss -lntu` shows what the kernel sees.
+- `listen check: procfs /host/proc/1: ... no such file`: the mount is
+  missing, or `netns_pid` names a pid that does not exist in the mounted
+  `/proc` (pid 1 only is the host's init when the host `/proc` is mounted).
 - Several checks: `health_name: healthy` on some entries of `checks` but the
   VIP stays unhealthy means `checks_policy` (default `all`) is not satisfied.
   The log line `check transition without VIP health change` names the check

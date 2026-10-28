@@ -33,6 +33,11 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 			return nil, fmt.Errorf("tcp check config is nil")
 		}
 		return NewTCPChecker(cfg.TCP), nil
+	case config.CheckTypeListen:
+		if cfg.Listen == nil {
+			return nil, fmt.Errorf("listen check config is nil")
+		}
+		return NewListenChecker(cfg.Listen), nil
 	case config.CheckTypeGRPC:
 		if cfg.GRPC == nil {
 			return nil, fmt.Errorf("grpc check config is nil")

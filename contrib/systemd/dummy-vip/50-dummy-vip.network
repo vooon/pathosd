@@ -1,0 +1,9 @@
+# /etc/systemd/network/50-dummy-vip.network
+[Match]
+Name=dummy-vip
+
+[Network]
+# One address per drop-in in /etc/systemd/network/50-dummy-vip.network.d/,
+# so VIPs can be added and removed without touching this file.
+# RequiredForOnline=yes (the default) lets
+# systemd-networkd-wait-online@dummy-vip.service wait for the addresses.

@@ -1,0 +1,6 @@
+# /etc/systemd/network/50-dummy-vip.netdev
+# Virtual interface that holds the VIP addresses pathosd announces, so the
+# host accepts traffic to them independently of any physical NIC.
+[NetDev]
+Name=dummy-vip
+Kind=dummy

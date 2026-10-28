@@ -2,6 +2,10 @@
 Description=pathosd BGP VIP announcer
 After=network-online.target
 Wants=network-online.target
+# Optional ordering after a systemd-networkd dummy interface that holds the
+# VIPs (contrib/systemd/dummy-vip/). Pure After=: it only takes effect when
+# something starts that unit, e.g. the drop-in shipped with the example.
+After=systemd-networkd-wait-online@dummy-vip.service
 
 [Service]
 User=pathosd

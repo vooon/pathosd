@@ -57,8 +57,10 @@
           <td><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span></td>
           <td title="base {{.ASPathPrependBase}}">{{.ASPathPrepend}}</td>
           <td>
-            {{if gt (len .Checks) 1}}<div class="meta">{{.ChecksPolicy}} of:</div>{{end}}
-            {{range .Checks}}<div><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span> {{.Name}}{{if ne .Name .Type}} <span class="meta">({{.Type}})</span>{{end}}</div>{{end}}
+            {{if gt (len .Checks) 1}}<div class="meta">{{if or (eq .ChecksPolicy "all") (eq .ChecksPolicy "any")}}{{.ChecksPolicy}} of:{{else}}<code>{{.ChecksPolicy}}</code>{{end}}</div>{{end}}
+            {{range .Checks}}<div class="check" title="type: {{.Type}}
+consecutive ok: {{.ConsecutiveOK}}, fail: {{.ConsecutiveFail}}
+last: {{if .LastTime.IsZero}}not run yet{{else}}{{if .LastSuccess}}success{{else}}failure{{end}} at {{.LastTime.Format "15:04:05"}}{{if .LastDetail}} — {{.LastDetail}}{{end}}{{end}}"><span class="tag tag-{{.HealthName}}">{{.HealthName}}</span> {{.Name}}{{if ne .Name .Type}} <span class="meta">({{.Type}})</span>{{end}}</div>{{end}}
           </td>
           <td>
             {{if gt (len .Checks) 1}}{{range .Checks}}<div><strong>{{.Name}}:</strong> {{.LastDetail}}</div>{{end}}{{else}}{{.LastCheckDetail}}{{end}}

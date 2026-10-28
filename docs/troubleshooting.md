@@ -112,7 +112,13 @@ the first announcement. Look at `/status`:
 - Several checks: `health_name: healthy` on some entries of `checks` but the
   VIP stays unhealthy means `checks_policy` (default `all`) is not satisfied.
   The log line `check transition without VIP health change` names the check
-  and the policy. A check that has never reported counts as unhealthy.
+  and the policy. A check that has never reported counts as unhealthy. The
+  landing page shows each check's counters and last result on hover.
+- The VIP reacts later than expected: each check needs `fall × interval` to
+  fail and `rise × interval` to recover; with `all` the VIP announces after
+  the slowest check, with `any` it withdraws after the slowest one. The
+  README's [Reaction time](https://github.com/vooon/pathosd#reaction-time) table and diagrams
+  show which check sets the pace.
 - Need an answer faster than `interval`: `POST /api/v1/vips/<name>/check`
   runs the check now and returns the full result, including details.
 

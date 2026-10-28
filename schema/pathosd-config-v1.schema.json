@@ -157,7 +157,8 @@
             "tcp",
             "grpc",
             "listen",
-            "sql"
+            "sql",
+            "kafka"
           ],
           "description": "Health check backend type."
         },
@@ -217,6 +218,10 @@
         "sql": {
           "$ref": "#/$defs/SQLCheckConfig",
           "description": "SQL check configuration (required when type is \"sql\")."
+        },
+        "kafka": {
+          "$ref": "#/$defs/KafkaCheckConfig",
+          "description": "Kafka check configuration (required when type is \"kafka\")."
         },
         "grpc": {
           "$ref": "#/$defs/GRPCCheckConfig",
@@ -433,6 +438,90 @@
         "url"
       ],
       "description": "HTTPCheckConfig defines an HTTP health check."
+    },
+    "KafkaCheckConfig": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Broker host (IP or DNS name). Defaults to the VIP prefix IP for /32 or /128."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "Broker port. Default: 9092.",
+          "default": 9092
+        },
+        "client_id": {
+          "type": "string",
+          "description": "Client ID presented to the broker (visible in broker logs and quotas). Default: pathosd.",
+          "default": "pathosd"
+        },
+        "tls": {
+          "type": "boolean",
+          "description": "Enable TLS. Default: false (plaintext).",
+          "default": false
+        },
+        "tls_insecure": {
+          "type": "boolean",
+          "description": "Skip certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.",
+          "default": false
+        },
+        "tls_ca_cert": {
+          "type": "string",
+          "description": "Path to a PEM-encoded CA certificate for verification. Requires tls=true."
+        },
+        "tls_server_name": {
+          "type": "string",
+          "description": "TLS server name for SNI and verification. Defaults to host."
+        },
+        "sasl": {
+          "$ref": "#/$defs/KafkaSASLConfig",
+          "description": "SASL authentication. Omit for an unauthenticated listener."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Topic that must exist with a leader for every partition. Empty: only\nbroker metadata is requested (cheap on large clusters)."
+        },
+        "min_brokers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum number of brokers the metadata must list. Default: 1.",
+          "default": 1
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "KafkaCheckConfig defines a check that connects to a Kafka broker (API version negotiation, optional TLS and SASL) and requests cluster metadata."
+    },
+    "KafkaSASLConfig": {
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "enum": [
+            "plain",
+            "scram-sha-256",
+            "scram-sha-512"
+          ],
+          "description": "Mechanism: plain, scram-sha-256 or scram-sha-512. Required."
+        },
+        "user": {
+          "type": "string",
+          "description": "User name. Required."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password; use an environment placeholder (%{KAFKA_PASSWORD}) rather than a literal."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mechanism",
+        "user",
+        "password"
+      ],
+      "description": "KafkaSASLConfig holds SASL credentials for the Kafka check."
     },
     "ListenCheckConfig": {
       "properties": {

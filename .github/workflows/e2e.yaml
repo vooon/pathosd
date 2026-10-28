@@ -64,6 +64,8 @@ jobs:
             echo "=== $d pathosd sidecar logs ==="
             kubectl -n pathosd-e2e logs deploy/$d -c pathosd --tail=60 || true
           done
+          echo "=== kafka logs ==="
+          kubectl -n pathosd-e2e logs deploy/kafka --tail=60 || true
           echo "=== FRR logs ==="
           kubectl -n pathosd-e2e logs frr --tail=50 || true
           echo "=== FRR BGP summary ==="

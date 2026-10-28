@@ -676,6 +676,24 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_KafkaCheck(t *testing.T) {
+	cfg := &Config{VIPs: []VIPConfig{{
+		Name: "v", Prefix: "203.0.113.1/32",
+		Check: CheckConfig{Type: CheckTypeKafka, Kafka: &KafkaCheckConfig{}},
+	}}}
+	ApplyDefaults(cfg)
+	k := cfg.VIPs[0].Check.Kafka
+	assert.Equal(t, "203.0.113.1", k.Host)
+	assert.Equal(t, uint16(9092), k.Port)
+	assert.Equal(t, "pathosd", k.ClientID)
+	assert.Equal(t, 1, k.MinBrokers)
+	assert.Nil(t, k.SASL)
+
+	cfg.VIPs[0].Check.Kafka = &KafkaCheckConfig{Host: "broker.example", Port: 9093, ClientID: "x", MinBrokers: 3}
+	ApplyDefaults(cfg)
+	assert.Equal(t, &KafkaCheckConfig{Host: "broker.example", Port: 9093, ClientID: "x", MinBrokers: 3}, cfg.VIPs[0].Check.Kafka)
+}
+
 func TestApplyDefaults_SQLCheck(t *testing.T) {
 	mk := func(driver string) *Config {
 		return &Config{VIPs: []VIPConfig{{

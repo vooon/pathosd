@@ -250,7 +250,7 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 
 	// Exactly one of check / checks.
 	single := v.Check.Type != "" || v.Check.HTTP != nil || v.Check.DNS != nil || v.Check.Ping != nil ||
-		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil || v.Check.Listen != nil || v.Check.SQL != nil
+		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil || v.Check.Listen != nil || v.Check.SQL != nil || v.Check.Kafka != nil
 	switch {
 	case single && len(v.Checks) > 0:
 		add(prefix+".checks", "cannot be combined with check; move the single check into the list")
@@ -438,6 +438,13 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			errs = append(errs, validateSQLCheck(prefix+".sql", c.SQL, vipPrefix)...)
 		}
 
+	case CheckTypeKafka:
+		if c.Kafka == nil {
+			add(prefix+".kafka", "required when type is \"kafka\"")
+		} else {
+			errs = append(errs, validateKafkaCheck(prefix+".kafka", c.Kafka, vipPrefix)...)
+		}
+
 	case CheckTypeGRPC:
 		if c.GRPC == nil {
 			add(prefix+".grpc", "required when type is \"grpc\"")
@@ -451,6 +458,49 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 		add(prefix+".type", fmt.Sprintf("unsupported check type %q", c.Type))
 	}
 
+	return errs
+}
+
+func validateKafkaCheck(prefix string, k *KafkaCheckConfig, vipPrefix string) []error {
+	var errs []error
+	add := func(path, msg string) {
+		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+	}
+	if k.Host == "" && !isSingleHost(vipPrefix) {
+		add(prefix+".host", "required when VIP prefix is not /32 or /128")
+	}
+	if k.MinBrokers < 0 {
+		add(prefix+".min_brokers", "must be >= 1")
+	}
+	if !k.TLS {
+		if k.TLSInsecure {
+			add(prefix+".tls_insecure", "requires tls: true")
+		}
+		if k.TLSCACert != "" {
+			add(prefix+".tls_ca_cert", "requires tls: true")
+		}
+		if k.TLSServerName != "" {
+			add(prefix+".tls_server_name", "requires tls: true")
+		}
+	}
+	if k.TLSInsecure && k.TLSCACert != "" {
+		add(prefix+".tls_insecure", "mutually exclusive with tls_ca_cert")
+	}
+	if s := k.SASL; s != nil {
+		switch s.Mechanism {
+		case KafkaSASLPlain, KafkaSASLScramSHA256, KafkaSASLScramSHA512:
+		case "":
+			add(prefix+".sasl.mechanism", "required (plain, scram-sha-256 or scram-sha-512)")
+		default:
+			add(prefix+".sasl.mechanism", fmt.Sprintf("must be plain, scram-sha-256 or scram-sha-512, got %q", s.Mechanism))
+		}
+		if s.User == "" {
+			add(prefix+".sasl.user", "required")
+		}
+		if s.Password == "" {
+			add(prefix+".sasl.password", "required")
+		}
+	}
 	return errs
 }
 

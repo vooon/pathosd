@@ -344,6 +344,34 @@ prefix = "10.10.8.1/32"
   [vips.policy]
   fail_action = "withdraw"
 
+# Kafka check — connects to the broker (TLS/SASL as configured) and asks
+# for metadata; optionally a topic must exist with a leader per partition.
+[[vips]]
+name = "kafka"
+prefix = "10.10.9.1/32"
+
+  [vips.check]
+  type = "kafka"
+  interval = "5s"
+  timeout = "3s"
+  rise = 2
+  fall = 3
+
+    [vips.check.kafka]
+    port = 9092                # host defaults to the VIP IP
+    # tls = true
+    # tls_ca_cert = "/etc/pathosd/kafka-ca.crt"
+    # topic = "events"         # must exist with a leader for every partition
+    # min_brokers = 3
+
+    [vips.check.kafka.sasl]
+    mechanism = "scram-sha-512" # plain | scram-sha-256 | scram-sha-512
+    user = "pathosd"
+    password = "%{KAFKA_PASSWORD}"
+
+  [vips.policy]
+  fail_action = "withdraw"
+
 # Listening-socket check — passes when a local socket is bound to the port
 # (TCP LISTEN or any bound UDP socket) without sending anything. Use it for
 # collectors that log every stray datagram (IPFIX, syslog, SNMP traps).

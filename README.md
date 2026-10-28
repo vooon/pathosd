@@ -1,6 +1,6 @@
 # pathosd
 
-Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC, SQL, listening socket) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
+Health-aware BGP VIP announcer. Runs local health checks (HTTP, HTTPS, DNS, ICMP ping, TCP, UDP, gRPC, SQL, Kafka, listening socket) with HAProxy-style rise/fall hysteresis, and announces or withdraws VIP routes over BGP based on service health.
 
 ## Why pathosd?
 
@@ -21,7 +21,7 @@ High-availability services need a single, stable IP that fails over with the ser
 
 ## Features
 
-- **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ, forward proxy), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods), SQL (MySQL/MariaDB and PostgreSQL, custom queries with jq conditions), listening socket (no traffic sent)
+- **Health checks**: HTTP/HTTPS (TLS, custom headers, response codes/text/regex/JQ, forward proxy), DNS (A/AAAA/CNAME/etc.), ICMP ping (loss ratio), TCP, UDP, gRPC (standard Health Checking Protocol + arbitrary unary methods), SQL (MySQL/MariaDB and PostgreSQL, custom queries with jq conditions), Kafka (broker metadata with TLS/SASL, optional topic leadership), listening socket (no traffic sent)
 - **Rise/Fall hysteresis**: configurable consecutive success/failure thresholds before state transitions (HAProxy-style)
 - **Several checks per VIP**: each with its own interval/thresholds, combined with `all`, `any` or a boolean expression such as `web || (dns && ping)`
 - **Policy actions**: `withdraw` (remove route entirely) or `lower_priority` (AS-path prepend + communities), plus a `lower_priority_file` drain switch
@@ -322,6 +322,32 @@ vips:
 
 Only the rows (bounded by `max_rows`, default 100) are inspected, the SQL text is not interpreted, and the user only needs the privileges the queries require. By default every check opens a fresh connection and closes it afterwards, so authentication is exercised each time; `keep_alive: true` reuses it. `tls`, `tls_ca_cert`, `tls_insecure` and `tls_server_name` work as for the HTTP check. With `detailed_metrics` the check exports `pathosd_sql_query_passed`, `pathosd_sql_query_rows` and `pathosd_sql_query_duration_seconds` per query name. The ad-hoc trigger response lists every query with its row count and outcome; queries after a failing one are not run.
 
+### Kafka Check
+
+The `kafka` check opens a client connection to one broker, negotiates API versions (and TLS and SASL when configured) and requests cluster metadata. It passes when the broker answers with at least `min_brokers` brokers (default 1) and, if `topic` is set, that topic exists with a leader for every partition. Without `topic` only broker metadata is requested, which stays cheap on large clusters.
+
+```yaml
+vips:
+  - name: kafka
+    prefix: 10.10.9.1/32
+    check:
+      type: kafka
+      interval: 5s
+      timeout: 3s
+      kafka:
+        port: 9092                  # host defaults to the VIP IP
+        # tls: true
+        # tls_ca_cert: /etc/pathosd/kafka-ca.crt
+        sasl:
+          mechanism: scram-sha-512  # plain | scram-sha-256 | scram-sha-512
+          user: pathosd
+          password: "%{KAFKA_PASSWORD}"
+        topic: events               # optional: must exist with a leader per partition
+        min_brokers: 3              # optional: metadata must list this many brokers
+```
+
+The check opens a fresh connection every run, so authentication is exercised each time; `client_id` (default `pathosd`) is what the broker logs and applies quotas to. With `detailed_metrics` the check exports `pathosd_kafka_brokers` and `pathosd_kafka_partitions_without_leader`; the trigger response carries the cluster ID, controller, broker count and partition counts.
+
 ### Listening Socket Check
 
 Some services log or alert on every unexpected datagram (IPFIX/NetFlow collectors, syslog, SNMP traps), which makes the `udp` probe noisy. The `listen` check sends nothing: it reads the kernel socket tables (`/proc/net/tcp`, `tcp6`, `udp`, `udp6`) and passes when a socket is bound to the port, a TCP socket in `LISTEN` state or any bound UDP socket. A wildcard bind (`0.0.0.0`, `::`) satisfies any `host`.
@@ -527,6 +553,8 @@ The server applies `api.read_header_timeout`, `read_timeout`, `write_timeout` an
 | sql | `pathosd_sql_query_passed{query}` | 1 when the query succeeded and its `result_jq` held |
 | sql | `pathosd_sql_query_rows{query}` | rows returned by the query |
 | sql | `pathosd_sql_query_duration_seconds{query}` | duration of the query in the last run |
+| kafka | `pathosd_kafka_brokers` | brokers listed in the metadata of the last run |
+| kafka | `pathosd_kafka_partitions_without_leader` | partitions of the configured topic without a leader |
 
 VIPs with `require_local_address` additionally export `pathosd_vip_local_address_assigned` (1 while the address is configured on the host).
 

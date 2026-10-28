@@ -239,6 +239,54 @@ data:
               host: "%{POD_IPV4}"
         policy:
           fail_action: withdraw
+      # kafka-vip: broker metadata over the PLAINTEXT listener.
+      # kafka-topic-vip: additionally needs topic "e2e" with leaders; the
+      # topic does not exist at start, so this VIP begins withdrawn.
+      # kafka-sasl-vip: the SASL_PLAINTEXT listener with PLAIN credentials.
+      - name: kafka-vip
+        prefix: 10.100.13.1/32
+        check:
+          type: kafka
+          interval: 2s
+          timeout: 1s
+          rise: 2
+          fall: 2
+          detailed_metrics: true
+          kafka:
+            host: kafka.pathosd-e2e.svc.cluster.local
+        policy:
+          fail_action: withdraw
+      - name: kafka-topic-vip
+        prefix: 10.100.13.2/32
+        check:
+          type: kafka
+          interval: 2s
+          timeout: 1s
+          rise: 2
+          fall: 2
+          detailed_metrics: true
+          kafka:
+            host: kafka.pathosd-e2e.svc.cluster.local
+            topic: e2e
+        policy:
+          fail_action: withdraw
+      - name: kafka-sasl-vip
+        prefix: 10.100.13.3/32
+        check:
+          type: kafka
+          interval: 2s
+          timeout: 1s
+          rise: 2
+          fall: 2
+          kafka:
+            host: kafka.pathosd-e2e.svc.cluster.local
+            port: 9094
+            sasl:
+              mechanism: plain
+              user: pathosd
+              password: "%{E2E_KAFKA_PASSWORD}"
+        policy:
+          fail_action: withdraw
       - name: squid-vip
         prefix: 10.100.7.1/32
         check:
@@ -351,6 +399,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: E2E_KAFKA_PASSWORD
+              value: e2e-kafka
           ports:
             - containerPort: 59179
               name: http

@@ -98,6 +98,21 @@ func applySQLDefaults(s *SQLCheckConfig, vipPrefix string) {
 	}
 }
 
+func applyKafkaDefaults(k *KafkaCheckConfig, vipPrefix string) {
+	if k.Host == "" {
+		k.Host = vipHostIP(vipPrefix)
+	}
+	if k.Port == 0 {
+		k.Port = 9092
+	}
+	if k.ClientID == "" {
+		k.ClientID = "pathosd"
+	}
+	if k.MinBrokers == 0 {
+		k.MinBrokers = 1
+	}
+}
+
 func applyPathsDefaults(p *PathsConfig) {
 	if p.Procfs == "" {
 		p.Procfs = "/proc"
@@ -192,6 +207,12 @@ func applyCheckDefaults(c *CheckConfig, vipPrefix string) {
 			c.SQL = &SQLCheckConfig{}
 		}
 		applySQLDefaults(c.SQL, vipPrefix)
+
+	case CheckTypeKafka:
+		if c.Kafka == nil {
+			c.Kafka = &KafkaCheckConfig{}
+		}
+		applyKafkaDefaults(c.Kafka, vipPrefix)
 
 	case CheckTypeTCP:
 		if c.TCP == nil {

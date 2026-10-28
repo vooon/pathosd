@@ -190,6 +190,18 @@ type SQLDetails struct {
 	Queries []SQLQueryDetails `json:"queries"`
 }
 
+// KafkaDetails is reported by the kafka checker. Partition fields are zero
+// unless a topic is configured.
+type KafkaDetails struct {
+	ClusterID               string `json:"cluster_id"`
+	Controller              int32  `json:"controller"`
+	Brokers                 int    `json:"brokers"`
+	Topic                   string `json:"topic,omitempty"`
+	Partitions              int    `json:"partitions,omitempty"`
+	PartitionsWithoutLeader int    `json:"partitions_without_leader,omitempty"`
+}
+
+func (*KafkaDetails) checkDetails()  {}
 func (*SQLDetails) checkDetails()    {}
 func (*ListenDetails) checkDetails() {}
 func (*PingDetails) checkDetails()   {}

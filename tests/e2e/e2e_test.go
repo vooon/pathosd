@@ -44,6 +44,9 @@ const (
 	mysqlROPrefix    = "10.100.11.2/32"
 	pgRWPrefix       = "10.100.12.1/32"
 	pgROPrefix       = "10.100.12.2/32"
+	kafkaVIPPrefix   = "10.100.13.1/32"
+	kafkaTopicPrefix = "10.100.13.2/32"
+	kafkaSASLPrefix  = "10.100.13.3/32"
 	webVIPLockFile   = "/tmp/pathosd-web-vip-drain.lock"
 )
 
@@ -117,6 +120,7 @@ func TestE2E(t *testing.T) {
 		waitForPodReady(t, e2eNamespace, "app=squid", 120*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=mariadb", 240*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=postgres", 240*time.Second)
+		waitForPodReady(t, e2eNamespace, "app=kafka", 240*time.Second)
 		waitForPodReady(t, e2eNamespace, "app=pathosd", 120*time.Second)
 	})
 
@@ -152,8 +156,113 @@ func TestE2E(t *testing.T) {
 				vipStateFromStatus(status, "squid-vip") == "announced" &&
 				vipStateFromStatus(status, "prepend-vip") == "announced" &&
 				vipStateFromStatus(status, "multi-vip") == "announced" &&
-				vipStateFromStatus(status, "listen-vip") == "announced"
+				vipStateFromStatus(status, "listen-vip") == "announced" &&
+				vipStateFromStatus(status, "kafka-vip") == "announced" &&
+				vipStateFromStatus(status, "kafka-sasl-vip") == "announced"
 		})
+	})
+
+	// kafka-topic-vip requires topic "e2e" with a leader per partition. The
+	// broker starts without it, so the VIP is withdrawn until the test
+	// creates the topic.
+	t.Run("kafka_topic_vip_follows_topic", func(t *testing.T) {
+		type kafkaResult struct {
+			Success bool   `json:"success"`
+			Detail  string `json:"detail"`
+			Details struct {
+				ClusterID  string `json:"cluster_id"`
+				Brokers    int    `json:"brokers"`
+				Topic      string `json:"topic"`
+				Partitions int    `json:"partitions"`
+				Leaderless int    `json:"partitions_without_leader"`
+			} `json:"details"`
+		}
+		trigger := func() kafkaResult {
+			code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/kafka-topic-vip/check", nil)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, code, string(body))
+			var payload struct {
+				Result kafkaResult `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(body, &payload))
+			return payload.Result
+		}
+
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		assert.Equal(t, "withdrawn", vipStateFromStatus(status, "kafka-topic-vip"))
+		before := trigger()
+		assert.False(t, before.Success)
+		assert.Contains(t, before.Detail, `topic "e2e"`)
+		assert.Equal(t, 1, before.Details.Brokers, "broker metadata is reported even when the topic is missing")
+		routes := frrRoutes(t)
+		_, ok := routes[kafkaTopicPrefix]
+		assert.False(t, ok, "FRR must not have the kafka-topic-vip route yet")
+
+		kubectl(t, "-n", e2eNamespace, "exec", "deploy/kafka", "--",
+			"/opt/kafka/bin/kafka-topics.sh", "--create", "--topic", "e2e", "--partitions", "2", "--bootstrap-server", "localhost:9092")
+
+		waitForCondition(t, "kafka-topic-vip announced after topic creation", 60*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			return err == nil && vipStateFromStatus(status, "kafka-topic-vip") == "announced"
+		})
+		after := trigger()
+		assert.True(t, after.Success, after.Detail)
+		assert.Equal(t, "e2e", after.Details.Topic)
+		assert.Equal(t, 2, after.Details.Partitions)
+		assert.Equal(t, 0, after.Details.Leaderless)
+		assert.Equal(t, "4L6g3nShT-eMCtK--X86sw", after.Details.ClusterID)
+		waitForCondition(t, "FRR has kafka-topic-vip route", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			_, ok := routes[kafkaTopicPrefix]
+			return ok
+		})
+	})
+
+	t.Run("kafka_down_withdraws_all_kafka_vips", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "kafka", 0)
+		waitForCondition(t, "kafka VIPs withdrawn", 30*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "kafka-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "kafka-topic-vip") == "withdrawn" &&
+				vipStateFromStatus(status, "kafka-sasl-vip") == "withdrawn"
+		})
+		waitForCondition(t, "FRR drops the kafka routes", 30*time.Second, 1*time.Second, func() bool {
+			routes, err := frrRoutesNoFail()
+			if err != nil {
+				return false
+			}
+			for _, p := range []string{kafkaVIPPrefix, kafkaTopicPrefix, kafkaSASLPrefix} {
+				if _, ok := routes[p]; ok {
+					return false
+				}
+			}
+			return true
+		})
+	})
+
+	// The restarted broker has fresh storage: the plain and SASL VIPs come
+	// back, kafka-topic-vip stays withdrawn because the topic is gone.
+	t.Run("kafka_up_recovers_except_topic", func(t *testing.T) {
+		scaleDeploy(t, e2eNamespace, "kafka", 1)
+		waitForPodReady(t, e2eNamespace, "app=kafka", 240*time.Second)
+		waitForCondition(t, "kafka-vip and kafka-sasl-vip announced", 90*time.Second, 1*time.Second, func() bool {
+			status, err := getPathosdStatusNoFail()
+			if err != nil {
+				return false
+			}
+			return vipStateFromStatus(status, "kafka-vip") == "announced" &&
+				vipStateFromStatus(status, "kafka-sasl-vip") == "announced"
+		})
+		status, err := getPathosdStatusNoFail()
+		require.NoError(t, err)
+		assert.Equal(t, "withdrawn", vipStateFromStatus(status, "kafka-topic-vip"))
 	})
 
 	// SQL primary/replica routing. Each database pod runs pathosd as a

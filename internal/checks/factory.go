@@ -43,6 +43,11 @@ func NewChecker(cfg *config.CheckConfig) (Checker, error) {
 			return nil, fmt.Errorf("sql check config is nil")
 		}
 		return NewSQLChecker(cfg.SQL)
+	case config.CheckTypeKafka:
+		if cfg.Kafka == nil {
+			return nil, fmt.Errorf("kafka check config is nil")
+		}
+		return NewKafkaChecker(cfg.Kafka)
 	case config.CheckTypeGRPC:
 		if cfg.GRPC == nil {
 			return nil, fmt.Errorf("grpc check config is nil")

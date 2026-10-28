@@ -19,6 +19,15 @@ const (
 	CheckTypeListen = "listen"
 	// CheckTypeSQL runs queries against MySQL/MariaDB or PostgreSQL.
 	CheckTypeSQL = "sql"
+	// CheckTypeKafka asks a Kafka broker for cluster metadata.
+	CheckTypeKafka = "kafka"
+)
+
+// SASL mechanisms accepted by KafkaSASLConfig.Mechanism.
+const (
+	KafkaSASLPlain       = "plain"
+	KafkaSASLScramSHA256 = "scram-sha-256"
+	KafkaSASLScramSHA512 = "scram-sha-512"
 )
 
 // SQL drivers accepted by SQLCheckConfig.Driver.
@@ -318,7 +327,7 @@ type CheckConfig struct {
 	// the check type; required when a VIP has several checks of the same type.
 	Name string `yaml:"name,omitempty" json:"name,omitempty" toml:"name,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$"`
 	// Health check backend type.
-	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc,enum=listen,enum=sql"`
+	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc,enum=listen,enum=sql,enum=kafka"`
 	// Export check-type-specific metrics for this VIP (ping RTT histogram and packet loss,
 	// HTTP status code and TLS certificate expiry, DNS rcode and answer count per name,
 	// gRPC status code). Off by default to keep the metric set small.
@@ -345,6 +354,8 @@ type CheckConfig struct {
 	Listen *ListenCheckConfig `yaml:"listen,omitempty" json:"listen,omitempty" toml:"listen,omitempty"`
 	// SQL check configuration (required when type is "sql").
 	SQL *SQLCheckConfig `yaml:"sql,omitempty" json:"sql,omitempty" toml:"sql,omitempty"`
+	// Kafka check configuration (required when type is "kafka").
+	Kafka *KafkaCheckConfig `yaml:"kafka,omitempty" json:"kafka,omitempty" toml:"kafka,omitempty"`
 	// gRPC check configuration (required when type is "grpc").
 	GRPC *GRPCCheckConfig `yaml:"grpc,omitempty" json:"grpc,omitempty" toml:"grpc,omitempty"`
 }
@@ -471,6 +482,45 @@ type SQLCheckConfig struct {
 	Queries []SQLQueryConfig `yaml:"queries,omitempty" json:"queries,omitempty" toml:"queries,omitempty"`
 	// Upper bound on rows fetched per query. Default: 100.
 	MaxRows int `yaml:"max_rows,omitempty" json:"max_rows,omitempty" toml:"max_rows,omitempty" jsonschema:"minimum=1,default=100"`
+}
+
+// KafkaCheckConfig defines a check that connects to a Kafka broker (API
+// version negotiation, optional TLS and SASL) and requests cluster
+// metadata. It passes when the broker answers with at least min_brokers
+// brokers and, if topic is set, that topic exists with a leader for every
+// partition.
+type KafkaCheckConfig struct {
+	// Broker host (IP or DNS name). Defaults to the VIP prefix IP for /32 or /128.
+	Host string `yaml:"host" json:"host" toml:"host"`
+	// Broker port. Default: 9092.
+	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"minimum=1,maximum=65535,default=9092"`
+	// Client ID presented to the broker (visible in broker logs and quotas). Default: pathosd.
+	ClientID string `yaml:"client_id,omitempty" json:"client_id,omitempty" toml:"client_id,omitempty" jsonschema:"default=pathosd"`
+	// Enable TLS. Default: false (plaintext).
+	TLS bool `yaml:"tls,omitempty" json:"tls,omitempty" toml:"tls,omitempty" jsonschema:"default=false"`
+	// Skip certificate verification. Requires tls=true. Mutually exclusive with tls_ca_cert.
+	TLSInsecure bool `yaml:"tls_insecure,omitempty" json:"tls_insecure,omitempty" toml:"tls_insecure,omitempty" jsonschema:"default=false"`
+	// Path to a PEM-encoded CA certificate for verification. Requires tls=true.
+	TLSCACert string `yaml:"tls_ca_cert,omitempty" json:"tls_ca_cert,omitempty" toml:"tls_ca_cert,omitempty"`
+	// TLS server name for SNI and verification. Defaults to host.
+	TLSServerName string `yaml:"tls_server_name,omitempty" json:"tls_server_name,omitempty" toml:"tls_server_name,omitempty"`
+	// SASL authentication. Omit for an unauthenticated listener.
+	SASL *KafkaSASLConfig `yaml:"sasl,omitempty" json:"sasl,omitempty" toml:"sasl,omitempty"`
+	// Topic that must exist with a leader for every partition. Empty: only
+	// broker metadata is requested (cheap on large clusters).
+	Topic string `yaml:"topic,omitempty" json:"topic,omitempty" toml:"topic,omitempty"`
+	// Minimum number of brokers the metadata must list. Default: 1.
+	MinBrokers int `yaml:"min_brokers,omitempty" json:"min_brokers,omitempty" toml:"min_brokers,omitempty" jsonschema:"minimum=1,default=1"`
+}
+
+// KafkaSASLConfig holds SASL credentials for the Kafka check.
+type KafkaSASLConfig struct {
+	// Mechanism: plain, scram-sha-256 or scram-sha-512. Required.
+	Mechanism string `yaml:"mechanism" json:"mechanism" toml:"mechanism" jsonschema:"required,enum=plain,enum=scram-sha-256,enum=scram-sha-512"`
+	// User name. Required.
+	User string `yaml:"user" json:"user" toml:"user" jsonschema:"required"`
+	// Password; use an environment placeholder (%{KAFKA_PASSWORD}) rather than a literal.
+	Password string `yaml:"password" json:"password" toml:"password" jsonschema:"required"`
 }
 
 // SQLQueryConfig is one statement of a SQL check.

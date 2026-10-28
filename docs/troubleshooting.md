@@ -121,6 +121,16 @@ the first announcement. Look at `/status`:
 - `sql` check fails with `tls: ...`: MySQL and PostgreSQL both need
   `tls: true` before `tls_ca_cert` is used; a server that only allows TLS
   logins reports the refusal as an authentication error, not a TLS one.
+- `kafka` check fails with `metadata: ... EOF` or `unexpected EOF` right after
+  connect: the listener is TLS or SASL and the check is configured plain
+  (or the other way round). Match `tls` and `sasl` to the listener's
+  security protocol; a wrong SASL password reports `SASL_AUTHENTICATION_FAILED`.
+- `kafka` check fails with `topic "x" not in metadata` or
+  `UNKNOWN_TOPIC_OR_PARTITION`: the topic does not exist (the check never
+  auto-creates it) or the user lacks Describe on it.
+- `kafka` check fails with `partitions without leader`: the broker answered
+  but leadership for that topic is unavailable, typically during a broker
+  restart or an under-replicated partition losing its last in-sync replica.
 - `listen` check reports `no socket bound` although the service runs: the
   check reads the socket table of pathosd's own network namespace. In a
   container with its own namespace mount the host's `/proc` at

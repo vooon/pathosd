@@ -46,6 +46,16 @@ func TestNewChecker(t *testing.T) {
 			wantType: "sql",
 		},
 		{
+			name:     "kafka",
+			cfg:      &config.CheckConfig{Type: "kafka", Kafka: &config.KafkaCheckConfig{Host: "127.0.0.1", Port: 9092}},
+			wantType: "kafka",
+		},
+		{
+			name:            "kafka nil sub-config",
+			cfg:             &config.CheckConfig{Type: "kafka"},
+			wantErrContains: "kafka check config is nil",
+		},
+		{
 			name:            "sql nil sub-config",
 			cfg:             &config.CheckConfig{Type: "sql"},
 			wantErrContains: "sql check config is nil",

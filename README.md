@@ -259,7 +259,23 @@ Under `any` the same outage would keep the VIP announced until the dns check set
 
 ### Ad-Hoc Check Trigger
 
-For VIPs with long check intervals, you can trigger an immediate check:
+`pathosd check` runs the configured checks once, without BGP or the daemon, and prints each check's result and the combined VIP health. Use it to try a config before deploying, to debug a withdrawn VIP from a shell, or from a cron job. It exits non-zero when any selected VIP is unhealthy.
+
+```bash
+pathosd check --config /etc/pathosd/pathosd.toml                     # every VIP
+pathosd check --config pathosd.yaml --vip web --check http           # one check of one VIP
+pathosd check --config pathosd.yaml --format json --timeout 5s       # JSON with type-specific details
+```
+
+```
+VIP web (10.10.1.1/32): healthy [http || tcp]
+  OK    http  http  12.4ms  HTTP 200 OK
+  FAIL  tcp   tcp   1.1ms   dial tcp 10.10.1.1:443: connect: connection refused
+```
+
+`--check` runs only the named checks; the others count as failed in the combination, exactly like `?check=` on the API. `--skip-local-address` runs the probes even when `require_local_address` would hold them back on this host. Exit codes follow `test(1)`: `0` every selected VIP is healthy, `1` at least one is unhealthy. Internal errors (missing or invalid config, unknown VIP or check name) exit `200`, above the range a health verdict or a signal could produce. A malformed command line exits `80` (kong's usage error), as for every subcommand.
+
+For VIPs with long check intervals on a running daemon, trigger an immediate check through the API:
 
 ```bash
 curl -X POST http://127.0.0.1:59179/api/v1/vips/web-frontend/check

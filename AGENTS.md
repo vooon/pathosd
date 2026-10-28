@@ -12,14 +12,14 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 - Runtime is composed with component-owned Fx lifecycle hooks (BGP, watcher, schedulers, HTTP).
 - Startup/shutdown uses explicit `app.Start`/`app.Wait`/`app.Stop`; startup failures must propagate to CLI.
 - Config: YAML (`goccy/go-yaml`) or TOML (`BurntSushi/toml`), validated at load time.
-- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `version`.
+- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `check` (one-shot run of the configured checks), `jq-test`; `--version`.
 - Logging: `charmbracelet/log` as `slog.Handler`.
 - Metrics: `prometheus/client_golang` (shared registry with GoBGP's built-in collectors).
 - Build/release: GoReleaser, multi-platform (linux amd64/arm64), Docker multi-arch.
 
 ## Project Layout
 ```
-cmd/pathosd/          CLI entry point (Kong), run/validate/version commands
+cmd/pathosd/          CLI entry point (Kong), run/validate/check/jq-test commands
 internal/
   config/             Config structs, loading, validation, defaults, JSON Schema gen
   checks/             Check interface, HTTP/DNS/Ping backends, scheduler (rise/fall FSM)

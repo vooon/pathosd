@@ -134,6 +134,8 @@ bgp:
 
 ## Health Checks
 
+Each check type has its own guide with examples from the smallest config to production setups: [docs/checks/](https://github.com/vooon/pathosd/blob/main/docs/checks/README.md) (`http`, `dns`, `ping`, `tcp`, `udp`, `grpc`, `listen`, `sql`, `kafka`). There is deliberately no `exec` check and no embedded scripting; [docs/design/no-exec-no-scripting.md](https://github.com/vooon/pathosd/blob/main/docs/design/no-exec-no-scripting.md) explains why and what to use instead.
+
 ### Rise/Fall
 
 - **Fall**: number of consecutive failures before a healthy check transitions to unhealthy

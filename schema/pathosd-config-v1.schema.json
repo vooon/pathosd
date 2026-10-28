@@ -450,6 +450,10 @@
             "error"
           ],
           "description": "Minimum log level for OTEL log export. Defaults to the console level when unset.\nSet to a lower level than logging.level to send more detail to the OTEL receiver\nwhile keeping the console output quieter (e.g. level: warn, otel_level: debug)."
+        },
+        "timestamps": {
+          "type": "boolean",
+          "description": "Prefix console log records with a timestamp. Default: false when stderr is the\nsystemd journal (journald stores its own timestamps), true otherwise."
         }
       },
       "additionalProperties": false,

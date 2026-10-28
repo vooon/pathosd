@@ -188,6 +188,9 @@ type LoggingConfig struct {
 	// Set to a lower level than logging.level to send more detail to the OTEL receiver
 	// while keeping the console output quieter (e.g. level: warn, otel_level: debug).
 	OTelLevel string `yaml:"otel_level,omitempty" json:"otel_level,omitempty" toml:"otel_level,omitempty" jsonschema:"enum=debug,enum=info,enum=warn,enum=error"`
+	// Prefix console log records with a timestamp. Default: false when stderr is the
+	// systemd journal (journald stores its own timestamps), true otherwise.
+	Timestamps *bool `yaml:"timestamps,omitempty" json:"timestamps,omitempty" toml:"timestamps,omitempty"`
 }
 
 // BGPConfig defines global BGP parameters and neighbors.

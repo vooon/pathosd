@@ -14,13 +14,14 @@ import (
 	"go.uber.org/fx/fxevent"
 
 	"github.com/vooon/pathosd/internal/bgp"
+	"github.com/vooon/pathosd/internal/caps"
 	"github.com/vooon/pathosd/internal/checks"
 	"github.com/vooon/pathosd/internal/config"
 	"github.com/vooon/pathosd/internal/httpapi"
-	"github.com/vooon/pathosd/internal/caps"
 	"github.com/vooon/pathosd/internal/logging"
 	"github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/policy"
+	"github.com/vooon/pathosd/internal/systemd"
 	"github.com/vooon/pathosd/internal/telemetry"
 )
 
@@ -35,6 +36,7 @@ func Run(cfg *config.Config) error {
 			provideSchedulers,
 			providePolicyManager,
 			provideHTTPServer,
+			provideStatusReporter,
 		),
 		fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
 			fxlog := &fxevent.SlogLogger{Logger: logger.With("component", "fx")}
@@ -50,6 +52,7 @@ func Run(cfg *config.Config) error {
 			registerPeerWatcherLifecycle,
 			registerSchedulersLifecycle,
 			registerHTTPServerLifecycle,
+			registerSystemdLifecycle,
 		),
 		fx.StartTimeout(15*time.Second),
 		fx.StopTimeout(30*time.Second),
@@ -97,6 +100,11 @@ func provideTelemetry(cfg *config.Config, m *metrics.Metrics, lc fx.Lifecycle) (
 }
 
 func provideLogger(cfg *config.Config, tel *telemetry.Provider) *slog.Logger {
+	// journald stamps every record itself; skip ours unless configured.
+	timestamps := !systemd.StderrIsJournal()
+	if cfg.Logging.Timestamps != nil {
+		timestamps = *cfg.Logging.Timestamps
+	}
 	if h := tel.LogHandler(); h != nil {
 		otelH := h
 		if cfg.Logging.OTelLevel != "" {
@@ -104,9 +112,9 @@ func provideLogger(cfg *config.Config, tel *telemetry.Provider) *slog.Logger {
 			_ = otelLvl.UnmarshalText([]byte(cfg.Logging.OTelLevel))
 			otelH = logging.NewLevelFilter(otelLvl, h)
 		}
-		return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, otelH)
+		return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, timestamps, otelH)
 	}
-	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
+	return logging.Setup(cfg.Logging.Level, cfg.Logging.Format, timestamps)
 }
 
 func provideMetrics(cfg *config.Config) *metrics.Metrics {
@@ -238,7 +246,7 @@ func registerBGPLifecycle(lc fx.Lifecycle, bgpMgr *bgp.Manager) {
 	})
 }
 
-func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager) {
+func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, status *statusReporter) {
 	var (
 		bgpCancel context.CancelFunc
 	)
@@ -251,7 +259,7 @@ func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metric
 			}
 			watchCtx, cancel := context.WithCancel(context.Background())
 			bgpCancel = cancel
-			go bgp.WatchPeerState(watchCtx, bgpMgr.Server(), m, neighborNames)
+			go bgp.WatchPeerState(watchCtx, bgpMgr.Server(), m, neighborNames, status.Update)
 
 			return nil
 		},
@@ -344,6 +352,29 @@ func registerHTTPServerLifecycle(lc fx.Lifecycle, srv *http.Server, shutdowner f
 			case <-ctx.Done():
 				return fmt.Errorf("waiting for HTTP API shutdown: %w", ctx.Err())
 			}
+			return nil
+		},
+	})
+}
+
+// registerSystemdLifecycle is appended last so READY=1 goes out after every
+// other component started, and STOPPING=1 (OnStop hooks run in reverse) is
+// the first thing sent on shutdown. Without a notify socket it does nothing.
+func registerSystemdLifecycle(lc fx.Lifecycle, pol *policy.Manager, status *statusReporter) {
+	pol.SetTransitionListener(status.Update)
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			if !systemd.NotifyAvailable() {
+				return nil
+			}
+			status.Update()
+			if systemd.Ready() {
+				slog.Debug("systemd notified: ready")
+			}
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			systemd.Stopping()
 			return nil
 		},
 	})

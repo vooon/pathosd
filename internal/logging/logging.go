@@ -12,17 +12,12 @@ import (
 // Setup creates a structured slog.Logger and installs it as the global default.
 // Any additional slog.Handlers (e.g. an OTEL log bridge) can be appended via
 // the extra variadic parameter.  Log records are sent to all handlers.
-func Setup(level, format string, extra ...slog.Handler) *slog.Logger {
-	var primary slog.Handler
+// timestamps controls whether console records carry a time; disable it under
+// journald, which records its own.
+func Setup(level, format string, timestamps bool, extra ...slog.Handler) *slog.Logger {
 	var lvl slog.Level
 	_ = lvl.UnmarshalText([]byte(level))
-
-	switch format {
-	case "json":
-		primary = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})
-	default:
-		primary = newCharmHandler(os.Stderr, lvl)
-	}
+	primary := newPrimaryHandler(os.Stderr, format, lvl, timestamps)
 
 	handler := primary
 	if len(extra) > 0 {
@@ -37,12 +32,25 @@ func Setup(level, format string, extra ...slog.Handler) *slog.Logger {
 	return logger
 }
 
-func newCharmHandler(w io.Writer, level slog.Level) slog.Handler {
-	l := charmlog.NewWithOptions(w, charmlog.Options{
-		Level:           charmlog.Level(level),
-		ReportTimestamp: true,
-	})
-	return l
+func newPrimaryHandler(w io.Writer, format string, level slog.Level, timestamps bool) slog.Handler {
+	switch format {
+	case "json":
+		opts := &slog.HandlerOptions{Level: level}
+		if !timestamps {
+			opts.ReplaceAttr = func(groups []string, a slog.Attr) slog.Attr {
+				if len(groups) == 0 && a.Key == slog.TimeKey {
+					return slog.Attr{}
+				}
+				return a
+			}
+		}
+		return slog.NewJSONHandler(w, opts)
+	default:
+		return charmlog.NewWithOptions(w, charmlog.Options{
+			Level:           charmlog.Level(level),
+			ReportTimestamp: timestamps,
+		})
+	}
 }
 
 // multiHandler fans out slog records to multiple handlers.

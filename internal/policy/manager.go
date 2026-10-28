@@ -34,6 +34,17 @@ type Manager struct {
 	order    []string
 	metrics  *metrics.Metrics
 	notifier BGPNotifier
+	// onTransition, when set, is invoked (on its own goroutine, outside the
+	// lock) after every VIP state transition.
+	onTransition func()
+}
+
+// SetTransitionListener registers fn to be called after each VIP state
+// transition. It must be set before the schedulers start.
+func (m *Manager) SetTransitionListener(fn func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onTransition = fn
 }
 
 type vipEntry struct {
@@ -245,6 +256,9 @@ func (m *Manager) transitionStateLocked(ctx context.Context, vs *vipState, cfg *
 
 	if m.notifier != nil {
 		vs.bgpPending = m.applyBGP(ctx, cfg, newState) != nil
+	}
+	if m.onTransition != nil {
+		go m.onTransition()
 	}
 }
 

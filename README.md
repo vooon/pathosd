@@ -51,6 +51,8 @@ pathosd run --debug --config /etc/pathosd/pathosd.yaml
 
 Releases include a `.deb` that installs `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`.
 
+The unit is `Type=notify`: `systemctl start` returns once the BGP server and HTTP API are up, and `systemctl status pathosd` shows a live summary line such as `VIPs: 2 announced, 0 pessimized, 1 withdrawn; peers: 2/2 established`, refreshed on every VIP or peer transition. Under journald pathosd omits its own log timestamps, since the journal records them; `logging.timestamps` overrides the detection either way.
+
 ```bash
 sudo apt install ./pathosd_<version>_amd64.deb
 sudoedit /etc/pathosd/pathosd.toml

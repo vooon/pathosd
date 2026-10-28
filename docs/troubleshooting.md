@@ -8,6 +8,7 @@ the usual causes.
 
 ```bash
 pathosd validate --config /etc/pathosd/pathosd.toml   # config errors without starting
+systemctl status pathosd                               # Status: line = VIP/peer summary (deb unit)
 journalctl -u pathosd -n 100                           # startup log, transitions
 curl -s 127.0.0.1:59179/readyz | jq .                  # required peers established?
 curl -s 127.0.0.1:59179/status | jq .                  # peers, VIPs, last check result

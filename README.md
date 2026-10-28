@@ -57,6 +57,8 @@ sudoedit /etc/pathosd/pathosd.toml
 sudo systemctl enable --now pathosd
 ```
 
+The host must also own the VIP addresses. [contrib/systemd/dummy-vip](contrib/systemd/dummy-vip/) holds them on a systemd-networkd `dummy` interface, one drop-in per VIP, and ships a unit drop-in so pathosd starts only once the interface is configured.
+
 ### Container
 
 ```bash

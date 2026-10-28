@@ -136,6 +136,11 @@ func TestObserveCheckDetails(t *testing.T) {
 		assert.Equal(t, float64(3), testutil.ToFloat64(m.DNSRcode.WithLabelValues(vip, nlri, "http", "b.example")))
 	})
 
+	t.Run("listen", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, "listen", &model.ListenDetails{Sockets: []string{"0.0.0.0:4739", "[::]:4739"}})
+		assert.Equal(t, float64(2), testutil.ToFloat64(m.ListenSockets.WithLabelValues(vip, nlri, "listen")))
+	})
+
 	t.Run("grpc", func(t *testing.T) {
 		m.ObserveCheckDetails(vip, nlri, "http", &model.GRPCDetails{StatusCode: 14})
 		assert.Equal(t, float64(14), testutil.ToFloat64(m.GRPCStatusCode.WithLabelValues(vip, nlri, "http")))

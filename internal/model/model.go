@@ -170,7 +170,14 @@ type GRPCDetails struct {
 	ServingStatus string `json:"serving_status,omitempty"`
 }
 
-func (*PingDetails) checkDetails() {}
-func (*HTTPDetails) checkDetails() {}
-func (*DNSDetails) checkDetails()  {}
-func (*GRPCDetails) checkDetails() {}
+// ListenDetails is reported by the listen checker.
+type ListenDetails struct {
+	// Local addresses of the matching bound sockets, e.g. "0.0.0.0:4739".
+	Sockets []string `json:"sockets"`
+}
+
+func (*ListenDetails) checkDetails() {}
+func (*PingDetails) checkDetails()   {}
+func (*HTTPDetails) checkDetails()   {}
+func (*DNSDetails) checkDetails()    {}
+func (*GRPCDetails) checkDetails()   {}

@@ -804,6 +804,51 @@ func TestValidate_UDPCheck(t *testing.T) {
 	})
 }
 
+func TestValidate_ListenCheck(t *testing.T) {
+	makeListen := func() *Config {
+		cfg := validConfig()
+		cfg.VIPs[0].Check.Type = CheckTypeListen
+		cfg.VIPs[0].Check.HTTP = nil
+		cfg.VIPs[0].Check.Listen = &ListenCheckConfig{Proto: "udp", Host: "203.0.113.1", Port: 4739}
+		return cfg
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		assert.Empty(t, Validate(makeListen()))
+	})
+	t.Run("nil listen config", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Check.Listen = nil
+		assertErrorContains(t, Validate(cfg), ".listen: required")
+	})
+	t.Run("proto", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Check.Listen.Proto = "sctp"
+		assertErrorContains(t, Validate(cfg), ".listen.proto")
+	})
+	t.Run("port", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Check.Listen.Port = 0
+		assertErrorContains(t, Validate(cfg), ".listen.port")
+	})
+	t.Run("host must be an IP", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Check.Listen.Host = "collector.example"
+		assertErrorContains(t, Validate(cfg), ".listen.host: must be an IP")
+	})
+	t.Run("netns_pid negative", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Check.Listen.NetnsPID = -1
+		assertErrorContains(t, Validate(cfg), ".listen.netns_pid")
+	})
+	t.Run("host required for non-/32 prefix", func(t *testing.T) {
+		cfg := makeListen()
+		cfg.VIPs[0].Prefix = "203.0.113.0/24"
+		cfg.VIPs[0].Check.Listen.Host = ""
+		assertErrorContains(t, Validate(cfg), ".listen.host")
+	})
+}
+
 func TestValidate_TCPCheck(t *testing.T) {
 	makeTCPConfig := func() *Config {
 		cfg := validConfig()

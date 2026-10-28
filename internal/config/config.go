@@ -14,6 +14,9 @@ const (
 	CheckTypeUDP  = "udp"
 	CheckTypeTCP  = "tcp"
 	CheckTypeGRPC = "grpc"
+	// CheckTypeListen passes when a local socket is bound to a port, without
+	// sending anything.
+	CheckTypeListen = "listen"
 )
 
 // Config is the top-level configuration for pathosd.
@@ -28,10 +31,19 @@ type Config struct {
 	Logging LoggingConfig `yaml:"logging" json:"logging" toml:"logging"`
 	// OpenTelemetry export configuration (traces, metrics, logs). Disabled when endpoint is empty.
 	OTel OTelConfig `yaml:"otel" json:"otel" toml:"otel"`
+	// Locations of kernel filesystems, for checks that read them.
+	Paths PathsConfig `yaml:"paths,omitempty" json:"paths,omitempty" toml:"paths,omitempty"`
 	// BGP session parameters and neighbor definitions.
 	BGP BGPConfig `yaml:"bgp" json:"bgp" toml:"bgp" jsonschema:"required"`
 	// List of Virtual IPs to announce via BGP, each with a health check.
 	VIPs []VIPConfig `yaml:"vips" json:"vips" toml:"vips" jsonschema:"required,minItems=1"`
+}
+
+// PathsConfig points checks at the kernel filesystems, node-exporter style.
+type PathsConfig struct {
+	// Mount point of procfs. In a container mount the host's /proc at /host/proc
+	// (read-only) and set this to "/host/proc". Default: /proc.
+	Procfs string `yaml:"procfs,omitempty" json:"procfs,omitempty" toml:"procfs,omitempty" jsonschema:"default=/proc"`
 }
 
 // OTelSignalConfig configures a single OTEL signal (traces, metrics, or logs).
@@ -298,7 +310,7 @@ type CheckConfig struct {
 	// the check type; required when a VIP has several checks of the same type.
 	Name string `yaml:"name,omitempty" json:"name,omitempty" toml:"name,omitempty" jsonschema:"pattern=^[A-Za-z_][A-Za-z0-9_]*$"`
 	// Health check backend type.
-	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc"`
+	Type string `yaml:"type" json:"type" toml:"type" jsonschema:"required,enum=http,enum=dns,enum=ping,enum=udp,enum=tcp,enum=grpc,enum=listen"`
 	// Export check-type-specific metrics for this VIP (ping RTT histogram and packet loss,
 	// HTTP status code and TLS certificate expiry, DNS rcode and answer count per name,
 	// gRPC status code). Off by default to keep the metric set small.
@@ -321,6 +333,8 @@ type CheckConfig struct {
 	UDP *UDPCheckConfig `yaml:"udp,omitempty" json:"udp,omitempty" toml:"udp,omitempty"`
 	// TCP check configuration (required when type is "tcp").
 	TCP *TCPCheckConfig `yaml:"tcp,omitempty" json:"tcp,omitempty" toml:"tcp,omitempty"`
+	// Listening-socket check configuration (required when type is "listen").
+	Listen *ListenCheckConfig `yaml:"listen,omitempty" json:"listen,omitempty" toml:"listen,omitempty"`
 	// gRPC check configuration (required when type is "grpc").
 	GRPC *GRPCCheckConfig `yaml:"grpc,omitempty" json:"grpc,omitempty" toml:"grpc,omitempty"`
 }
@@ -390,6 +404,28 @@ type UDPCheckConfig struct {
 	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"required,minimum=1,maximum=65535"`
 	// Payload to send with the probe datagram. Default: single null byte.
 	Payload []byte `yaml:"payload" json:"payload" toml:"payload"`
+}
+
+// ListenCheckConfig defines a check that passes when a socket on this host is
+// bound to the port: a listening TCP socket or any bound UDP socket. It reads
+// the kernel socket tables (/proc/net/tcp, udp and their v6 variants) and
+// sends no traffic, so it suits services that log every stray datagram. It
+// only sees the network namespace pathosd runs in (Linux only).
+type ListenCheckConfig struct {
+	// Transport protocol of the socket: "tcp" or "udp". Required.
+	Proto string `yaml:"proto" json:"proto" toml:"proto" jsonschema:"required,enum=tcp,enum=udp"`
+	// Local port the socket must be bound to. Required.
+	Port uint16 `yaml:"port" json:"port" toml:"port" jsonschema:"required,minimum=1,maximum=65535"`
+	// Local address the socket must be bound to; a wildcard bind (0.0.0.0, ::)
+	// also matches. Defaults to the VIP prefix IP for /32 or /128.
+	Host string `yaml:"host" json:"host" toml:"host"`
+	// Read the socket table of this process's network namespace (<procfs>/<pid>/net)
+	// instead of pathosd's own. Use 1 with paths.procfs pointing at the host's /proc
+	// to check host sockets from a container with its own network namespace.
+	// Default: 0 (pathosd's namespace).
+	NetnsPID int `yaml:"netns_pid,omitempty" json:"netns_pid,omitempty" toml:"netns_pid,omitempty" jsonschema:"minimum=0"`
+	// Procfs is filled from paths.procfs by ApplyDefaults; not a config key.
+	Procfs string `yaml:"-" json:"-" toml:"-" jsonschema:"-"`
 }
 
 // DNSCheckConfig defines a DNS health check.

@@ -155,7 +155,8 @@
             "ping",
             "udp",
             "tcp",
-            "grpc"
+            "grpc",
+            "listen"
           ],
           "description": "Health check backend type."
         },
@@ -207,6 +208,10 @@
         "tcp": {
           "$ref": "#/$defs/TCPCheckConfig",
           "description": "TCP check configuration (required when type is \"tcp\")."
+        },
+        "listen": {
+          "$ref": "#/$defs/ListenCheckConfig",
+          "description": "Listening-socket check configuration (required when type is \"listen\")."
         },
         "grpc": {
           "$ref": "#/$defs/GRPCCheckConfig",
@@ -424,6 +429,40 @@
       ],
       "description": "HTTPCheckConfig defines an HTTP health check."
     },
+    "ListenCheckConfig": {
+      "properties": {
+        "proto": {
+          "type": "string",
+          "enum": [
+            "tcp",
+            "udp"
+          ],
+          "description": "Transport protocol of the socket: \"tcp\" or \"udp\". Required."
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "Local port the socket must be bound to. Required."
+        },
+        "host": {
+          "type": "string",
+          "description": "Local address the socket must be bound to; a wildcard bind (0.0.0.0, ::)\nalso matches. Defaults to the VIP prefix IP for /32 or /128."
+        },
+        "netns_pid": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Read the socket table of this process's network namespace (\u003cprocfs\u003e/\u003cpid\u003e/net)\ninstead of pathosd's own. Use 1 with paths.procfs pointing at the host's /proc\nto check host sockets from a container with its own network namespace.\nDefault: 0 (pathosd's namespace)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "proto",
+        "port"
+      ],
+      "description": "ListenCheckConfig defines a check that passes when a socket on this host is bound to the port: a listening TCP socket or any bound UDP socket."
+    },
     "LoggingConfig": {
       "properties": {
         "level": {
@@ -615,6 +654,18 @@
       "additionalProperties": false,
       "type": "object",
       "description": "OTelSignalConfig configures a single OTEL signal (traces, metrics, or logs)."
+    },
+    "PathsConfig": {
+      "properties": {
+        "procfs": {
+          "type": "string",
+          "description": "Mount point of procfs. In a container mount the host's /proc at /host/proc\n(read-only) and set this to \"/host/proc\". Default: /proc.",
+          "default": "/proc"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "PathsConfig points checks at the kernel filesystems, node-exporter style."
     },
     "PingCheckConfig": {
       "properties": {
@@ -856,6 +907,10 @@
     "otel": {
       "$ref": "#/$defs/OTelConfig",
       "description": "OpenTelemetry export configuration (traces, metrics, logs). Disabled when endpoint is empty."
+    },
+    "paths": {
+      "$ref": "#/$defs/PathsConfig",
+      "description": "Locations of kernel filesystems, for checks that read them."
     },
     "bgp": {
       "$ref": "#/$defs/BGPConfig",

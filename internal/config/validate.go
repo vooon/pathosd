@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -248,7 +249,7 @@ func validateVIP(prefix string, v *VIPConfig, names, prefixes map[string]bool) [
 
 	// Exactly one of check / checks.
 	single := v.Check.Type != "" || v.Check.HTTP != nil || v.Check.DNS != nil || v.Check.Ping != nil ||
-		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil
+		v.Check.TCP != nil || v.Check.UDP != nil || v.Check.GRPC != nil || v.Check.Listen != nil
 	switch {
 	case single && len(v.Checks) > 0:
 		add(prefix+".checks", "cannot be combined with check; move the single check into the list")
@@ -389,6 +390,30 @@ func validateCheck(prefix string, c *CheckConfig, vipPrefix string) []error {
 			}
 			if u.Host == "" && !isSingleHost(vipPrefix) {
 				add(prefix+".udp.host", "required when vip prefix is not a /32 or /128")
+			}
+		}
+
+	case CheckTypeListen:
+		if c.Listen == nil {
+			add(prefix+".listen", "required when type is \"listen\"")
+		} else {
+			l := c.Listen
+			if l.Proto != "tcp" && l.Proto != "udp" {
+				add(prefix+".listen.proto", fmt.Sprintf("must be tcp or udp, got %q", l.Proto))
+			}
+			if l.Port == 0 {
+				add(prefix+".listen.port", "required")
+			}
+			if l.Host == "" && !isSingleHost(vipPrefix) {
+				add(prefix+".listen.host", "required when vip prefix is not a /32 or /128")
+			}
+			if l.Host != "" {
+				if _, err := netip.ParseAddr(l.Host); err != nil {
+					add(prefix+".listen.host", "must be an IP address (no DNS names)")
+				}
+			}
+			if l.NetnsPID < 0 {
+				add(prefix+".listen.netns_pid", "must be >= 0")
 			}
 		}
 

@@ -676,6 +676,27 @@ func TestApplyDefaults_PingCheck(t *testing.T) {
 	})
 }
 
+func TestApplyDefaults_ListenCheck(t *testing.T) {
+	cfg := &Config{VIPs: []VIPConfig{{
+		Name: "v", Prefix: "203.0.113.1/32",
+		Check: CheckConfig{Type: CheckTypeListen, Listen: &ListenCheckConfig{Proto: "udp", Port: 4739}},
+	}}}
+	ApplyDefaults(cfg)
+	assert.Equal(t, "203.0.113.1", cfg.VIPs[0].Check.Listen.Host)
+	assert.Equal(t, "/proc", cfg.Paths.Procfs)
+	assert.Equal(t, "/proc", cfg.VIPs[0].Check.Listen.Procfs, "procfs propagated from paths")
+
+	cfg.Paths.Procfs = "/host/proc"
+	cfg.VIPs[0].Check.Listen.Procfs = ""
+	ApplyDefaults(cfg)
+	assert.Equal(t, "/host/proc", cfg.VIPs[0].Check.Listen.Procfs)
+
+	cfg.VIPs[0].Prefix = "203.0.113.0/24"
+	cfg.VIPs[0].Check.Listen.Host = ""
+	ApplyDefaults(cfg)
+	assert.Equal(t, "", cfg.VIPs[0].Check.Listen.Host)
+}
+
 func TestApplyDefaults_UDPCheck(t *testing.T) {
 	makeUDP := func(u UDPCheckConfig, prefix string) *Config {
 		return &Config{

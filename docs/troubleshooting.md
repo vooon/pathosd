@@ -150,7 +150,7 @@ the first announcement. Look at `/status`:
 - The VIP reacts later than expected: each check needs `fall × interval` to
   fail and `rise × interval` to recover; with `all` the VIP announces after
   the slowest check, with `any` it withdraws after the slowest one. The
-  README's [Reaction time](https://github.com/vooon/pathosd#reaction-time) table and diagrams
+  the [Reaction time](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md#reaction-time) table and diagrams
   show which check sets the pace.
 - Need an answer faster than `interval`: `POST /api/v1/vips/<name>/check`
   runs the check now and returns the full result, including details.

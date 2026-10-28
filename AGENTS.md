@@ -31,6 +31,7 @@ internal/
   logging/            slog setup (charmbracelet/log)
   model/              Shared types (VIPState, HealthStatus, DaemonStatus)
 schema/               Generated JSON Schema
+docs/                 User docs, one topic per page (docs/README.md is the index); docs/checks/ one guide per check type
 examples/             Sample YAML and TOML configs
 ```
 
@@ -60,7 +61,7 @@ examples/             Sample YAML and TOML configs
 - `golangci-lint run ./...` must pass (including `staticcheck` findings such as deprecated API usage).
 - `go build ./...` and `go vet ./...` must pass.
 - `go generate ./internal/config/... && git diff --exit-code schema/` — schema not stale.
-- Verify README and example configs match actual runtime behavior.
+- Verify README, `docs/` and example configs match actual runtime behavior; YAML blocks in them are loaded by `TestDocsCheckExamplesValidate`.
 - Keep documented defaults and actual defaults aligned.
 - CI pipeline must pass before merge.
 

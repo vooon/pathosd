@@ -176,7 +176,7 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 		}
 
 		if c.jqQuery != nil {
-			var parsed interface{}
+			var parsed any
 			if err := json.Unmarshal(body, &parsed); err != nil {
 				return Result{Duration: dur, Err: err, Detail: fmt.Sprintf("response is not valid JSON: %v", err)}
 			}

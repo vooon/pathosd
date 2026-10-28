@@ -110,9 +110,9 @@ func handleReadyz(bgpMgr *bgp.Manager, cfg *config.Config) http.HandlerFunc {
 			}
 		}
 		if allReady {
-			writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ready", "peers": peers})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "peers": peers})
 		} else {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"status": "not_ready", "unready": unready, "peers": peers})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "unready": unready, "peers": peers})
 		}
 	}
 }
@@ -157,11 +157,11 @@ func handleTriggerCheck(schedulers map[string]*checks.Scheduler) http.HandlerFun
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"vip": name, "result": result})
+		writeJSON(w, http.StatusOK, map[string]any{"vip": name, "result": result})
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {

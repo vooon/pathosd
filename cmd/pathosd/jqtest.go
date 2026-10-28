@@ -34,7 +34,7 @@ func (cmd *JQTestCmd) Run() (err error) {
 		input = f
 	}
 
-	var data interface{}
+	var data any
 	if err := json.NewDecoder(input).Decode(&data); err != nil {
 		return fmt.Errorf("invalid JSON input: %w", err)
 	}

@@ -521,8 +521,8 @@ func validateGRPCCheck(prefix string, g *GRPCCheckConfig, vipPrefix string) []er
 }
 
 func validateGoBGPAPIListen(listen string) error {
-	if strings.HasPrefix(listen, "unix://") {
-		socketPath := strings.TrimPrefix(listen, "unix://")
+	if after, ok := strings.CutPrefix(listen, "unix://"); ok {
+		socketPath := after
 		if socketPath == "" {
 			return fmt.Errorf("must include socket path for unix:// listener")
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
@@ -29,8 +28,10 @@ type BGPNotifier interface {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	vips     map[string]*vipEntry
+	mu   sync.Mutex
+	vips map[string]*vipEntry
+	// order lists VIP names in config order, so status output is stable.
+	order    []string
 	metrics  *metrics.Metrics
 	notifier BGPNotifier
 }
@@ -56,12 +57,14 @@ type vipState struct {
 func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPNotifier) *Manager {
 	mgr := &Manager{
 		vips:     make(map[string]*vipEntry, len(vipConfigs)),
+		order:    make([]string, 0, len(vipConfigs)),
 		metrics:  m,
 		notifier: notifier,
 	}
 	now := time.Now()
 	for i := range vipConfigs {
 		v := &vipConfigs[i]
+		mgr.order = append(mgr.order, v.Name)
 		mgr.vips[v.Name] = &vipEntry{
 			cfg: v,
 			state: vipState{
@@ -174,7 +177,8 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 	defer m.mu.Unlock()
 
 	out := make([]model.VIPStatus, 0, len(m.vips))
-	for name, entry := range m.vips {
+	for _, name := range m.order {
+		entry := m.vips[name]
 		cfg := entry.cfg
 		vs := entry.state
 		attrs := RouteAttrsFor(&cfg.Policy, vs.state)
@@ -197,7 +201,6 @@ func (m *Manager) GetVIPStatuses() []model.VIPStatus {
 			Communities:          attrs.Communities,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

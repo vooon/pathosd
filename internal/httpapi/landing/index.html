@@ -12,9 +12,10 @@
       <div>
         <h1>pathosd</h1>
         <div class="meta">Router <code>{{.RouterID}}</code> · ASN {{.ASN}} · Version {{.Version}} · Commit {{.Commit}}</div>
-        <div class="meta">Updated at {{.GeneratedAt.Format "2006-01-02 15:04:05 MST"}}</div>
+        <div class="meta">Updated at <span id="updated-at">{{.GeneratedAt.Format "2006-01-02 15:04:05 MST"}}</span></div>
       </div>
       <nav class="links">
+        <button type="button" class="toggle" data-auto-refresh aria-pressed="false" title="Reload the tables every 5 seconds">Auto-refresh: OFF</button>
         <a href="/status">JSON status</a>
         <a href="/readyz">readyz</a>
         <a href="/healthz">healthz</a>
@@ -22,7 +23,7 @@
       </nav>
     </header>
 
-    <div class="grid">
+    <div class="grid" id="summary">
       <section class="card">
         <div class="label">VIPs</div>
         <div class="value">{{len .VIPs}}</div>
@@ -47,7 +48,7 @@
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="vips-body">
         {{range .VIPs}}
         <tr>
           <td><strong>{{.Name}}</strong></td>
@@ -77,7 +78,7 @@
           <th>Required</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="peers-body">
         {{range .Peers}}
         <tr>
           <td>{{.Name}}</td>

@@ -188,3 +188,14 @@ code {
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
   font-size: 0.88em;
 }
+
+button.toggle {
+  background: var(--card);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+button.toggle.on {
+  color: var(--ok);
+  border-color: var(--ok);
+}

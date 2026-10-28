@@ -212,7 +212,7 @@ data:
           fail_action: withdraw
       # listen-vip: socket-table checks, no traffic sent. The api check sees
       # pathosd's own HTTP listener (:59179) in this pod; nothing is bound to
-      # UDP 4739, so that check stays unhealthy and "any" keeps the VIP up.
+      # UDP 4739, so that check never passes (health "unknown") and "any" keeps the VIP up.
       - name: listen-vip
         prefix: 10.100.10.1/32
         checks_policy: any

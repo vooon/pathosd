@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // DNSCheckerSuite spins up a fresh UDP DNS server before each test and shuts it
@@ -73,6 +74,10 @@ func (s *DNSCheckerSuite) TestSuccess() {
 	result := s.checker([]string{"example.com"}, "A").Check(context.TODO())
 	s.True(result.Success)
 	s.Contains(result.Detail, "DNS OK")
+
+	details, ok := result.Details.(*model.DNSDetails)
+	s.Require().True(ok)
+	s.Equal([]model.DNSNameDetails{{Name: "example.com", Rcode: dns.RcodeSuccess, Answers: 1}}, details.Names)
 }
 
 func (s *DNSCheckerSuite) TestNXDOMAIN() {

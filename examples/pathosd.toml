@@ -88,10 +88,12 @@ prefix = "10.10.1.1/32"
   timeout = "500ms"
   rise = 3
   fall = 3
+  # detailed_metrics = true  # export status code and TLS cert expiry for this VIP
 
     [vips.check.http]
     url = "https://web.example.com/healthz"
     response_codes = [200]
+    # keep_alive = true  # reuse the TLS connection between checks (default: new connection per check)
 
   [vips.policy]
   fail_action = "withdraw"

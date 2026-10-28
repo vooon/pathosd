@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 func TestNew_RegistryNotNil(t *testing.T) {
@@ -94,4 +95,52 @@ func TestGenerateCheckBuckets(t *testing.T) {
 			assert.GreaterOrEqual(t, buckets[len(buckets)-1], tc.timeout.Seconds())
 		})
 	}
+}
+
+func TestObserveCheckDetails(t *testing.T) {
+	m := New([]float64{0.001, 0.01, 0.1})
+	const vip, nlri = "vip-1", "10.0.0.1/32"
+
+	t.Run("nil details are ignored", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, nil)
+		assert.Equal(t, 0, testutil.CollectAndCount(m.HTTPResponseStatus))
+	})
+
+	t.Run("ping", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, &model.PingDetails{
+			RTTs: []time.Duration{2 * time.Millisecond, 3 * time.Millisecond}, PacketLoss: 0.25,
+		})
+		assert.Equal(t, 0.25, testutil.ToFloat64(m.PingPacketLoss.WithLabelValues(vip, nlri)))
+		assert.Equal(t, 1, testutil.CollectAndCount(m.PingRTT))
+	})
+
+	t.Run("http", func(t *testing.T) {
+		exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+		m.ObserveCheckDetails(vip, nlri, &model.HTTPDetails{StatusCode: 503, TLSCertNotAfter: exp})
+		assert.Equal(t, float64(503), testutil.ToFloat64(m.HTTPResponseStatus.WithLabelValues(vip, nlri)))
+		assert.Equal(t, float64(exp.Unix()), testutil.ToFloat64(m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri)))
+	})
+
+	t.Run("http without TLS leaves expiry untouched", func(t *testing.T) {
+		m2 := New(nil)
+		m2.ObserveCheckDetails(vip, nlri, &model.HTTPDetails{StatusCode: 200})
+		assert.Equal(t, 0, testutil.CollectAndCount(m2.HTTPTLSCertExpiry))
+	})
+
+	t.Run("dns", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, &model.DNSDetails{Names: []model.DNSNameDetails{
+			{Name: "a.example", Rcode: 0, Answers: 2},
+			{Name: "b.example", Rcode: 3, Answers: 0},
+		}})
+		assert.Equal(t, float64(2), testutil.ToFloat64(m.DNSAnswers.WithLabelValues(vip, nlri, "a.example")))
+		assert.Equal(t, float64(3), testutil.ToFloat64(m.DNSRcode.WithLabelValues(vip, nlri, "b.example")))
+	})
+
+	t.Run("grpc", func(t *testing.T) {
+		m.ObserveCheckDetails(vip, nlri, &model.GRPCDetails{StatusCode: 14})
+		assert.Equal(t, float64(14), testutil.ToFloat64(m.GRPCStatusCode.WithLabelValues(vip, nlri)))
+	})
+
+	_, err := m.Registry.Gather()
+	require.NoError(t, err)
 }

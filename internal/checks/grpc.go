@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // grpcCodesByName maps lower-cased, underscore-stripped gRPC status code names
@@ -160,18 +161,20 @@ func (c *GRPCChecker) checkStandardHealth(ctx context.Context, start time.Time) 
 	if err != nil {
 		st, _ := status.FromError(err)
 		detail := fmt.Sprintf("grpc health check %s:%d service=%q: %s", c.cfg.Host, c.cfg.Port, c.cfg.Service, st.Message())
-		return Result{Duration: dur, Err: err, Detail: detail, TimedOut: ctx.Err() != nil}
+		return Result{Duration: dur, Err: err, Detail: detail, TimedOut: ctx.Err() != nil, Details: &model.GRPCDetails{StatusCode: uint32(st.Code())}}
 	}
 
+	details := &model.GRPCDetails{StatusCode: uint32(codes.OK), ServingStatus: resp.Status.String()}
 	if resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 		detail := fmt.Sprintf("grpc health check %s:%d service=%q: status=%s (want SERVING)", c.cfg.Host, c.cfg.Port, c.cfg.Service, resp.Status)
-		return Result{Duration: dur, Err: fmt.Errorf("not serving: %s", resp.Status), Detail: detail}
+		return Result{Duration: dur, Err: fmt.Errorf("not serving: %s", resp.Status), Detail: detail, Details: details}
 	}
 
 	return Result{
 		Success:  true,
 		Duration: dur,
 		Detail:   fmt.Sprintf("grpc health check %s:%d service=%q: SERVING", c.cfg.Host, c.cfg.Port, c.cfg.Service),
+		Details:  details,
 	}
 }
 
@@ -184,6 +187,7 @@ func (c *GRPCChecker) checkCustomMethod(ctx context.Context, start time.Time) Re
 
 	st, _ := status.FromError(err)
 	code := st.Code()
+	details := &model.GRPCDetails{StatusCode: uint32(code)}
 
 	if !c.okCodes[code] {
 		detail := fmt.Sprintf("grpc %s:%d%s: code=%s", c.cfg.Host, c.cfg.Port, c.method, code)
@@ -194,12 +198,13 @@ func (c *GRPCChecker) checkCustomMethod(ctx context.Context, start time.Time) Re
 		if checkErr == nil {
 			checkErr = fmt.Errorf("unexpected status %s", code)
 		}
-		return Result{Duration: dur, Err: checkErr, Detail: detail, TimedOut: ctx.Err() != nil}
+		return Result{Duration: dur, Err: checkErr, Detail: detail, TimedOut: ctx.Err() != nil, Details: details}
 	}
 
 	return Result{
 		Success:  true,
 		Duration: dur,
 		Detail:   fmt.Sprintf("grpc %s:%d%s: code=%s", c.cfg.Host, c.cfg.Port, c.method, code),
+		Details:  details,
 	}
 }

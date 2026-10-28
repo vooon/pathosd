@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	pver "github.com/prometheus/client_golang/prometheus/collectors/version"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // Metrics holds all pathosd-specific Prometheus metrics.
@@ -36,6 +37,16 @@ type Metrics struct {
 	CheckLastResult *prometheus.GaugeVec
 	// Check timeout exceeded
 	CheckTimeoutExceeded *prometheus.CounterVec
+
+	// Per-check-type details, populated only for VIPs with
+	// check.detailed_metrics enabled (see ObserveCheckDetails).
+	PingRTT            *prometheus.HistogramVec
+	PingPacketLoss     *prometheus.GaugeVec
+	HTTPResponseStatus *prometheus.GaugeVec
+	HTTPTLSCertExpiry  *prometheus.GaugeVec
+	DNSRcode           *prometheus.GaugeVec
+	DNSAnswers         *prometheus.GaugeVec
+	GRPCStatusCode     *prometheus.GaugeVec
 }
 
 const (
@@ -151,6 +162,36 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_check_timeout_exceeded_total",
 			Help: "Total checks that exceeded their timeout.",
 		}, []string{"vip", "nlri"}),
+
+		PingRTT: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "pathosd_ping_rtt_seconds",
+			Help:    "Round-trip time of individual ICMP echo replies (check.detailed_metrics only).",
+			Buckets: checkBuckets,
+		}, []string{"vip", "nlri"}),
+		PingPacketLoss: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_ping_packet_loss_ratio",
+			Help: "Packet loss of the last ping check, 0..1 (check.detailed_metrics only).",
+		}, []string{"vip", "nlri"}),
+		HTTPResponseStatus: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_http_response_status",
+			Help: "HTTP status code of the last check response (check.detailed_metrics only).",
+		}, []string{"vip", "nlri"}),
+		HTTPTLSCertExpiry: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_http_tls_cert_expiry_timestamp_seconds",
+			Help: "NotAfter of the leaf TLS certificate seen by the last HTTPS check, as Unix time (check.detailed_metrics only).",
+		}, []string{"vip", "nlri"}),
+		DNSRcode: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_dns_rcode",
+			Help: "DNS response code of the last query per name, 0 = NOERROR (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "name"}),
+		DNSAnswers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_dns_answers",
+			Help: "Answer records in the last DNS reply per name (check.detailed_metrics only).",
+		}, []string{"vip", "nlri", "name"}),
+		GRPCStatusCode: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "pathosd_grpc_status_code",
+			Help: "gRPC status code of the last check call, 0 = OK (check.detailed_metrics only).",
+		}, []string{"vip", "nlri"}),
 	}
 
 	reg.MustRegister(
@@ -163,8 +204,39 @@ func New(checkBuckets []float64) *Metrics {
 		m.CheckDuration,
 		m.CheckLastResult,
 		m.CheckTimeoutExceeded,
+		m.PingRTT,
+		m.PingPacketLoss,
+		m.HTTPResponseStatus,
+		m.HTTPTLSCertExpiry,
+		m.DNSRcode,
+		m.DNSAnswers,
+		m.GRPCStatusCode,
 		pver.NewCollector("pathosd"),
 	)
 
 	return m
+}
+
+// ObserveCheckDetails exports check-type-specific observations for a VIP.
+// Callers gate it on check.detailed_metrics; nil details are ignored.
+func (m *Metrics) ObserveCheckDetails(vip, nlri string, details model.CheckDetails) {
+	switch d := details.(type) {
+	case *model.PingDetails:
+		for _, rtt := range d.RTTs {
+			m.PingRTT.WithLabelValues(vip, nlri).Observe(rtt.Seconds())
+		}
+		m.PingPacketLoss.WithLabelValues(vip, nlri).Set(d.PacketLoss)
+	case *model.HTTPDetails:
+		m.HTTPResponseStatus.WithLabelValues(vip, nlri).Set(float64(d.StatusCode))
+		if !d.TLSCertNotAfter.IsZero() {
+			m.HTTPTLSCertExpiry.WithLabelValues(vip, nlri).Set(float64(d.TLSCertNotAfter.Unix()))
+		}
+	case *model.DNSDetails:
+		for _, n := range d.Names {
+			m.DNSRcode.WithLabelValues(vip, nlri, n.Name).Set(float64(n.Rcode))
+			m.DNSAnswers.WithLabelValues(vip, nlri, n.Name).Set(float64(n.Answers))
+		}
+	case *model.GRPCDetails:
+		m.GRPCStatusCode.WithLabelValues(vip, nlri).Set(float64(d.StatusCode))
+	}
 }

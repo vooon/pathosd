@@ -287,6 +287,27 @@ and `idle_timeout` (defaults 10s / 30s / 60s / 120s, `0` disables) so slow or
 idle clients cannot pin connections. `write_timeout` must exceed the longest
 `check.timeout` for the trigger endpoint to return a result.
 
+### Metrics
+
+`/metrics` always carries the VIP state, transition, priority, route-state and
+check counters/histograms (`pathosd_vip_*`, `pathosd_route_state`,
+`pathosd_check_*`) plus GoBGP's own collectors. Per-check-type details are
+opt-in per VIP with `check.detailed_metrics: true`, because they add series
+per VIP (and per name for DNS):
+
+| Check | Metric | Meaning |
+|-------|--------|---------|
+| ping | `pathosd_ping_rtt_seconds` (histogram) | RTT of each echo reply |
+| ping | `pathosd_ping_packet_loss_ratio` | loss of the last run, 0..1 |
+| http | `pathosd_http_response_status` | status code of the last response |
+| http | `pathosd_http_tls_cert_expiry_timestamp_seconds` | `NotAfter` of the leaf certificate (HTTPS only) |
+| dns | `pathosd_dns_rcode{name}` | rcode of the last reply, 0 = NOERROR |
+| dns | `pathosd_dns_answers{name}` | answer records in the last reply |
+| grpc | `pathosd_grpc_status_code` | status code of the last call, 0 = OK |
+
+The same details are returned in the `result.details` object of the ad-hoc
+check trigger regardless of the flag.
+
 ## Readiness vs Liveness
 
 - **`/healthz`** returns 200 as long as the process is up and config is loaded. It does NOT depend on BGP peer state.

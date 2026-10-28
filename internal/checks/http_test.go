@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"github.com/vooon/pathosd/internal/config"
+	"github.com/vooon/pathosd/internal/model"
 )
 
 // HTTPCheckerSuite provides helper methods for spinning up test HTTP(S) servers
@@ -151,6 +152,25 @@ func (s *HTTPCheckerSuite) TestTLSInsecure() {
 	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "https", URL: "/", Method: "GET", ResponseCodes: []int{200}, TLSInsecure: true})
 	result := c.Check(context.TODO())
 	s.True(result.Success)
+
+	details, ok := result.Details.(*model.HTTPDetails)
+	s.Require().True(ok, "https check must report HTTPDetails")
+	s.Equal(200, details.StatusCode)
+	s.False(details.TLSCertNotAfter.IsZero(), "leaf certificate expiry must be reported")
+}
+
+func (s *HTTPCheckerSuite) TestDetails_PlainHTTPUnexpectedStatus() {
+	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	c := s.checker(ts, &config.HTTPCheckConfig{Proto: "http", URL: "/", Method: "GET", ResponseCodes: []int{200}})
+	result := c.Check(context.TODO())
+	s.False(result.Success)
+
+	details, ok := result.Details.(*model.HTTPDetails)
+	s.Require().True(ok, "details must be reported even when the status check fails")
+	s.Equal(503, details.StatusCode)
+	s.True(details.TLSCertNotAfter.IsZero())
 }
 
 // TestTLSResolve verifies curl --resolve semantics: when tls_server_name is set

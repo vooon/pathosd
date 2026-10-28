@@ -330,6 +330,10 @@ otel:
 
 Every health check runs as a trace span; the BGP announce, pessimize or withdraw it causes appears as a child span, so a route change can be followed back to the check result that triggered it.
 
+## Troubleshooting
+
+See [docs/troubleshooting.md](docs/troubleshooting.md): what `/status` and the logs tell you, peers that never establish (including silent TCP MD5 mismatches), VIPs that stay withdrawn, routes the peer rejects, pessimization on iBGP, flapping, and empty metrics.
+
 ## Development
 
 ### Building

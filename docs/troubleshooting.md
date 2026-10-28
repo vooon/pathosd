@@ -1,0 +1,180 @@
+# Troubleshooting
+
+Work from the daemon outwards: first what pathosd itself reports, then the
+BGP session, then the network. Every section names the signal to look at and
+the usual causes.
+
+## First look
+
+```bash
+pathosd validate --config /etc/pathosd/pathosd.toml   # config errors without starting
+journalctl -u pathosd -n 100                           # startup log, transitions
+curl -s 127.0.0.1:59179/readyz | jq .                  # required peers established?
+curl -s 127.0.0.1:59179/status | jq .                  # peers, VIPs, last check result
+```
+
+`/status` is the single most useful call. Per VIP it shows `state_name`
+(withdrawn / announced / pessimized), `health_name`, `consecutive_ok` /
+`consecutive_fail` against `rise` / `fall`, `last_check_success` with
+`last_check_detail` (the check's own error text), `last_transition_reason`,
+and `bgp_pending`.
+
+Run with `--debug` (or `logging.level: debug`) to see every check result as
+`check passed` / `check failed` with its detail. At the default `info` level
+only transitions (`VIP state transition`, `VIP healthy`, `VIP unhealthy`) and
+peer events (`BGP peer state change`) are logged.
+
+## The daemon does not start
+
+The `run` command exits non-zero and prints the reason; with the Debian
+package `ExecStartPre` runs `validate` first, so `systemctl status pathosd`
+shows the same message.
+
+| Message | Cause |
+|---------|-------|
+| `validation failed: check.timeout ... interval` | `check.timeout` must be strictly less than `check.interval` |
+| `missing environment variables for placeholders: X` | `%{X}` is unset. Placeholders are expanded on the raw file, so one inside a **comment** fails too. Escape a literal with `%%{X}` |
+| `IPv6 route requires router.local_address_ipv6` | an IPv6 VIP needs an IPv6 next-hop; `router_id` stays IPv4 |
+| `tls_ca_cert cannot be set together with tls_insecure` | pick one |
+| `unrecognised OTLP endpoint scheme` | `otel.endpoint` must start with `grpc://`, `grpcs://`, `http://` or `https://` |
+| `starting BGP: ... bind: permission denied` | port 179 as non-root needs `CAP_NET_BIND_SERVICE` (the packaged unit grants it) or `bgp.listen_port: -1` when all peers are active and pathosd never listens |
+| `starting BGP: ... address already in use` | another BGP daemon (BIRD, FRR) owns the port on that address. Use a dedicated `bgp.listen_address` / `listen_port`, as in the OpenWrt/BIRD setup |
+| `HTTP API server failed ... address already in use` | `api.listen` collides with another service; default is `:59179` |
+
+## A required peer never becomes `established`
+
+`/readyz` returns 503 with the `unready` list; `BGP peer state change` log
+lines show the FSM moving between `idle`, `active`, `connect`, `opensent`.
+With `bgp.gobgp_api.enabled: true`, `gobgp -u 127.0.0.1:50051 neighbor`
+gives GoBGP's own view including the last NOTIFICATION.
+
+- **Stuck in `active` / `connect`, nothing arrives.** The peer is not
+  reachable on TCP 179, a firewall drops it, or the peer is also passive.
+  Exactly one side must dial. `passive: true` on pathosd means the peer has
+  to connect to `bgp.listen_address:listen_port`.
+- **Both sides see SYNs but the session never opens, no errors anywhere.**
+  TCP MD5 mismatch: with `auth_password` set on either side, the kernel
+  silently drops unsigned or wrongly signed segments. There is no log line
+  for this. Compare the key byte-for-byte on both ends (trailing newline
+  from a secrets file is a classic). The same mechanism breaks `nc -z` and
+  `tcpSocket` probes against an MD5-protected port, which is expected.
+- **`opensent` then back to `idle`, NOTIFICATION "bad peer AS".** `peer_asn`
+  does not match what the peer announces, or the peer expects a different
+  local ASN than `router.asn`.
+- **Session flaps every hold time.** Keepalives are not getting through.
+  Check MTU/firewall state timeouts and that `hold_time` / `keepalive_time`
+  are acceptable to the peer.
+- **Multihop peer.** For an eBGP peer that is not on a directly connected
+  subnet set `enable_multihop: true` on the neighbor (optionally
+  `multihop_ttl`); routers reject TTL 1 packets from a non-adjacent source.
+- **`local_address` mismatch.** If the neighbor's `local_address` is not an
+  address of this host the connect fails with `cannot assign requested
+  address`; if it differs from what the peer has configured as its neighbor
+  address, the peer refuses the connection.
+
+## The VIP stays `withdrawn`
+
+VIPs always start withdrawn and need `rise` consecutive successes before
+the first announcement. Look at `/status`:
+
+- `last_check_success: false`: read `last_check_detail`. It carries the
+  check's own error (`unexpected status 503`, `dial tcp ... i/o timeout`,
+  `context deadline exceeded`, `not serving: NOT_SERVING`, DNS rcode, TLS
+  verification failure). Fix the backend or the check, not pathosd.
+- `context deadline exceeded` on every run: `check.timeout` is too tight for
+  the backend. `pathosd_check_timeout_exceeded_total` counts these.
+- HTTPS to a VIP or internal name fails on the certificate: the check
+  verifies against the system pool by default. Point `tls_ca_cert` at the
+  issuing CA, or set `host` so the SNI/Host header matches the certificate.
+- Ping never succeeds with `privileged: false`: unprivileged ICMP uses UDP
+  ping sockets, which the kernel only allows for GIDs inside
+  `net.ipv4.ping_group_range` (default `1 0`, nobody). Either widen the
+  range to include the `pathosd` group or set `privileged: true`, which
+  needs `CAP_NET_RAW` (granted by the packaged unit; `--cap-add NET_RAW`
+  in containers).
+- `consecutive_ok` climbs but never reaches `rise`: a single failure resets
+  it. Lower `rise` or fix the intermittent failure first.
+- Need an answer faster than `interval`: `POST /api/v1/vips/<name>/check`
+  runs the check now and returns the full result, including details.
+
+## Announced in pathosd but the route is not in the peer
+
+`/status` says `announced`, `pathosd_route_state` is 1, `gobgp global rib`
+lists the prefix, but the peer does not use it.
+
+- **`bgp_pending: true` in `/status`.** Pushing the route to GoBGP failed
+  (log `BGP state change failed`); pathosd retries on every check result and
+  logs `BGP state change retry succeeded`. The error text names the cause,
+  usually a next-hop problem.
+- **Peer rejects the next-hop.** Routes carry `router.local_address` as
+  next-hop (IPv6 VIPs: `router.local_address_ipv6`). The peer must be able
+  to resolve it. BIRD on the same host refuses a next-hop that is one of
+  its own addresses; rewrite it in the import filter as shown in the README
+  OpenWrt/BIRD section.
+- **Import filter.** FRR needs `neighbor X route-map IN in` or
+  `no bgp ebgp-requires-policy`; BIRD needs an `import` filter that accepts
+  the VIP prefixes. `gobgp neighbor <addr> adj-out` shows what pathosd sent,
+  the peer's own CLI shows what it accepted.
+- **Prefix filtered by the peer's policy** because it is a `/32` or outside
+  an allowed range. Compare `gobgp neighbor <addr> adj-out` with the peer's
+  received-routes view.
+
+## The route is there but traffic does not arrive
+
+- **The host does not own the VIP.** BGP announces the prefix; something
+  still has to answer for the address. Put the VIP on a dummy interface
+  (`contrib/systemd/dummy-vip/`) and make sure the service listens on it.
+- **Replies take a different path.** A VIP inside the subnet of a physical
+  NIC makes the host reply directly to same-L2 peers, bypassing the router.
+  Use a source-based policy route or pick a VIP outside the LAN subnets.
+- **Several nodes announce the same VIP** and the fabric picks one you did
+  not expect: look at the AS path lengths. `announce.as_path_prepend`
+  orders the nodes; see the README "Announce Policy" section.
+
+## Pessimization does not take effect
+
+- **iBGP peer.** pathosd never prepends its own ASN towards iBGP peers and
+  logs `ignoring local ASN prepend for iBGP-originated route`. Use
+  communities and a route-map on the receiving side, or peer over eBGP.
+- **The peer strips or ignores prepends** (`as-override`, `allowas-in`,
+  `bestpath as-path ignore`). Check the route attributes on the peer.
+- **`lower_priority_file` has no effect.** The file is polled when a check
+  result arrives, so the change applies at the next check, not instantly.
+  Confirm the path is readable by the `pathosd` user (the unit runs with
+  `ProtectSystem=strict`, which only restricts writing).
+
+## Flapping
+
+`pathosd_vip_transitions_total` rising steadily, `VIP state transition`
+lines every few seconds.
+
+- `fall: 1` or `rise: 1` turns every single blip into a transition. The
+  defaults (`rise: 1`, `fall: 3`) favour fast recovery; raise `rise` when
+  the backend is noisy after restart.
+- `check.timeout` close to the backend's real latency: look at
+  `pathosd_check_duration_seconds` against the timeout.
+- Repeated ad-hoc triggers reach `fall` faster than `interval` would. The
+  `ad-hoc check triggered` log line carries the caller's address.
+
+## Metrics and dashboard
+
+- `pathosd_*` series missing: Prometheus must scrape `api.listen` (default
+  `:59179`, examples use `127.0.0.1:59179`). `curl /metrics` from the
+  scraper's host.
+- `pathosd_ping_rtt_seconds`, `pathosd_http_response_status`,
+  `pathosd_dns_rcode` and friends are empty: they need
+  `check.detailed_metrics: true` per VIP.
+- The Grafana dashboard's `instance` variable is empty: it is populated
+  from `pathosd_vip_state`, so no data means no scrape.
+- OTel exporter errors in the log: verify the scheme (`grpc://` vs
+  `http://`) and that an `http(s)://` endpoint expects the `/v1/<signal>`
+  paths pathosd appends. Disable a signal with `otel.<signal>.enabled: false`
+  rather than removing the endpoint.
+
+## Shutdown and fail-closed behaviour
+
+Stopping pathosd (SIGTERM, `systemctl stop`) withdraws nothing explicitly;
+the BGP sessions close and the peers drop every route pathosd originated.
+This is intended. If routes linger on a peer after pathosd died, the peer
+is holding them through graceful restart: lower its restart timer or
+disable graceful restart for the pathosd neighbor.

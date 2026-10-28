@@ -158,7 +158,7 @@ func TestE2E(t *testing.T) {
 		require.Len(t, vip.Checks, 2)
 		assert.Equal(t, "listen", vip.Checks[0].Type)
 		assert.Equal(t, "healthy", vip.Checks[0].HealthName, "api")
-		assert.Equal(t, "unhealthy", vip.Checks[1].HealthName, "ipfix")
+		assert.Equal(t, "unknown", vip.Checks[1].HealthName, "ipfix never passed, so it stays unknown")
 
 		code, body, err := apiRequestNoFail(http.MethodPost, "/api/v1/vips/listen-vip/check", nil)
 		require.NoError(t, err)

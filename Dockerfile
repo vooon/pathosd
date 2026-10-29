@@ -41,6 +41,10 @@ COPY --from=rootfs /rootfs/ /
 
 USER pathosd:pathosd
 
+# One OS thread is plenty for a health checker with a few BGP sessions;
+# override with `-e GOMAXPROCS=N`.
+ENV GOMAXPROCS=1
+
 # No shell or curl in the image: the binary calls its own /readyz, which is
 # 200 only when every required BGP peer is established. Override with
 # `--addr host:port` when api.listen is not the default :59179, or `--live`

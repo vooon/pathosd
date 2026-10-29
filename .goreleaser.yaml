@@ -73,9 +73,12 @@ nfpms:
               mode: 0750
               owner: root
               group: pathosd
-          # default config, not overwritten on upgrade
+          # default config and service environment, not overwritten on upgrade
           - src: packaging/config/pathosd.toml
             dst: /etc/pathosd/pathosd.toml
+            type: config|noreplace
+          - src: packaging/config/pathosd.env
+            dst: /etc/default/pathosd
             type: config|noreplace
       rpm:
         dependencies:
@@ -95,6 +98,9 @@ nfpms:
               group: pathosd
           - src: packaging/config/pathosd.toml
             dst: /etc/pathosd/pathosd.toml
+            type: config|noreplace
+          - src: packaging/config/pathosd.env
+            dst: /etc/sysconfig/pathosd
             type: config|noreplace
     rpm:
       summary: Health-aware BGP VIP announcer

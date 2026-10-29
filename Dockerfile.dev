@@ -37,6 +37,10 @@ COPY --from=rootfs /rootfs/ /
 
 USER pathosd:pathosd
 
+# One OS thread is plenty for a health checker with a few BGP sessions;
+# override with `-e GOMAXPROCS=N`.
+ENV GOMAXPROCS=1
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD ["/usr/local/bin/pathosd", "healthcheck"]
 

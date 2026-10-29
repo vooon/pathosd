@@ -31,7 +31,7 @@ cosign verify ghcr.io/vooon/pathosd:<version> \
 
 ## Debian and RPM packages
 
-Releases include a `.deb` (Debian/Ubuntu) and an `.rpm` (EL9, EL10 and compatible: Rocky, Alma, RHEL, Fedora) for amd64 and arm64. Both install `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`. Upgrades restart a running service and leave a stopped one alone; the service is never enabled by the package.
+Releases include a `.deb` (Debian/Ubuntu) and an `.rpm` (EL9, EL10 and compatible: Rocky, Alma, RHEL, Fedora) for amd64 and arm64. Both install `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). To use YAML instead, or to change `GOMAXPROCS` (the unit sets `1`), uncomment the line in `/etc/default/pathosd` (Debian) or `/etc/sysconfig/pathosd` (EL) and restart; a `systemctl edit pathosd` drop-in with `Environment=` works too. The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`. Upgrades restart a running service and leave a stopped one alone; the service is never enabled by the package.
 
 The unit is `Type=notify`: `systemctl start` returns once the BGP server and HTTP API are up, and `systemctl status pathosd` shows a live summary line such as `VIPs: 2 announced, 0 pessimized, 1 withdrawn; peers: 2/2 established`, refreshed on every VIP or peer transition. Under journald pathosd omits its own log timestamps, since the journal records them; `logging.timestamps` overrides the detection either way.
 
@@ -64,6 +64,7 @@ docker run -d \
 - Unprivileged ping (`privileged: false`, the default) uses ICMP datagram sockets, which need the container user's gid inside `net.ipv4.ping_group_range`. Container runtimes set that sysctl to `0 0` or leave it at the host value. With a private network namespace pass `--sysctl net.ipv4.ping_group_range="0 2147483647"`; with `--network host` the host's sysctl applies, and it cannot be set per container. In containers, `privileged: true` plus `NET_RAW` is the simpler choice.
 - The `listen` check reads the socket table of the container's network namespace. With `--network host` that is the host; otherwise mount `-v /proc:/host/proc:ro`, set `paths.procfs: /host/proc` and `listen.netns_pid: 1` (see [Listening Socket Check](https://github.com/vooon/pathosd/blob/main/docs/checks/listen.md)).
 - Kubernetes: `allowPrivilegeEscalation: false` makes the kernel ignore file capabilities. Either leave it unset and keep `NET_BIND_SERVICE` / `NET_RAW` in `capabilities.add`, or run the container as root (`runAsUser: 0`) with those capabilities added.
+- The image sets `GOMAXPROCS=1`, which covers a health checker with a few BGP sessions; pass `-e GOMAXPROCS=N` for many checks with short intervals.
 - `tls_ca_cert` files and anything else the config refers to must be mounted into the container; the only file the image ships is the system bundle at `/etc/ssl/certs/ca-certificates.crt`, which a mount at the same path replaces.
 
 ### Health check

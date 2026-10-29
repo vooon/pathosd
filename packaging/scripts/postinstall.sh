@@ -26,5 +26,6 @@ if command -v systemctl > /dev/null 2>&1; then
 fi
 
 # The service is NOT enabled or started on first install.
-# Configure /etc/pathosd/pathosd.toml first, then run:
+# Configure /etc/pathosd/pathosd.toml (or point PATHOSD_CONFIG in
+# /etc/default/pathosd or /etc/sysconfig/pathosd at a YAML file), then run:
 #   systemctl enable --now pathosd

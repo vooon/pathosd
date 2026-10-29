@@ -34,8 +34,7 @@ LABEL org.opencontainers.image.title="pathosd" \
       org.opencontainers.image.source="https://github.com/vooon/pathosd" \
       org.opencontainers.image.documentation="https://github.com/vooon/pathosd/blob/main/docs/README.md" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.vendor="vooon" \
-      org.opencontainers.image.base.name="scratch"
+      org.opencontainers.image.vendor="vooon"
 
 # A single COPY keeps ownership, modes and the capability xattr of every file.
 COPY --from=rootfs /rootfs/ /

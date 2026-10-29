@@ -62,16 +62,20 @@ func TestTCPChecker_PortClosed(t *testing.T) {
 }
 
 func TestTCPChecker_Timeout(t *testing.T) {
-	// Use a routable but non-responsive address to force a dial timeout.
-	// 192.0.2.1 is TEST-NET-1 (RFC 5737) — no host will answer.
-	c := NewTCPChecker(&config.TCPCheckConfig{Host: "192.0.2.1", Port: 9999})
+	// An already-expired deadline makes the dialer give up before any packet
+	// leaves, so the outcome does not depend on the network. Dialing a
+	// black-hole address with a short live deadline was flaky on CI: an ICMP
+	// unreachable arriving before the deadline is a plain dial error, not a
+	// timeout.
+	_, port := listenTCP(t)
+	c := NewTCPChecker(&config.TCPCheckConfig{Host: "127.0.0.1", Port: port})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 
 	result := c.Check(ctx)
-	assert.False(t, result.Success)
-	assert.True(t, result.TimedOut)
+	assert.False(t, result.Success, "detail: %s", result.Detail)
+	assert.True(t, result.TimedOut, "detail: %s", result.Detail)
 }
 
 func TestTCPChecker_MissingHost(t *testing.T) {

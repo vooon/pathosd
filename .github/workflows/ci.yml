@@ -50,7 +50,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.15.0
 
       - name: go test
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
@@ -78,9 +78,10 @@ jobs:
           check-latest: true
           cache: true
 
-      # Human-readable report (never fails the job on its own).
+      # Pinned like every action; bump deliberately. Human-readable report
+      # (never fails the job on its own).
       - name: govulncheck report
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./... || true
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... || true
 
       # Gate on symbol-level ("affecting") findings only, minus known-stale
       # vulndb entries:
@@ -90,7 +91,7 @@ jobs:
       #   Drop the exclusion once https://github.com/golang/vulndb corrects it.
       - name: govulncheck gate
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest -format json ./... > govulncheck.json
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -format json ./... > govulncheck.json
           jq -r -s '
             [ .[] | .finding? // empty
               | select(.trace[0].function != null)

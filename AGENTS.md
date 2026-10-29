@@ -12,7 +12,8 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 - Runtime is composed with component-owned Fx lifecycle hooks (BGP, watcher, schedulers, HTTP).
 - Startup/shutdown uses explicit `app.Start`/`app.Wait`/`app.Stop`; startup failures must propagate to CLI.
 - Config: YAML (`goccy/go-yaml`) or TOML (`BurntSushi/toml`), validated at load time.
-- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `check` (one-shot run of the configured checks), `healthcheck` (readiness probe of a running daemon over the HTTP API), `jq-test`; `--version`.
+- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `check` (one-shot run of the configured checks), `healthcheck` (readiness probe of a running daemon over the HTTP API), `reload` (ask a running daemon to re-read its config, exit code says whether it was applied), `jq-test`; `--version`.
+- Hot reload (`internal/reload`): SIGHUP, `POST /api/v1/reload` and `pathosd reload` re-read the file. Only `vips` and `logging.level` change live; any other section rejects the reload whole (`config.RestartRequired`). Changed checks run in shadow until they reach a verdict, then replace the old ones (make-before-break). Adding a config section means deciding whether it is live or restart-only and covering it in `internal/config/diff.go`.
 - Container image: `FROM scratch` with only the binary, the CA bundle and passwd/group. No shell: health checks and exec diagnostics go through the binary (`pathosd healthcheck`, `pathosd check`). `Dockerfile.e2e` keeps Alpine because the e2e pod wraps the binary in a shell.
 - Logging: `charmbracelet/log` as `slog.Handler`.
 - Metrics: `prometheus/client_golang` (shared registry with GoBGP's built-in collectors).
@@ -23,9 +24,10 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 cmd/pathosd/          CLI entry point (Kong), run/validate/check/jq-test commands
 internal/
   config/             Config structs, loading, validation, defaults, JSON Schema gen
-  checks/             Check interface, HTTP/DNS/Ping backends, scheduler (rise/fall FSM)
+  checks/             Check interface, HTTP/DNS/Ping backends, scheduler (rise/fall FSM), registry of running schedulers
   policy/             Evaluate health → VIP state (announce/withdraw/pessimize)
   bgp/                Embedded GoBGP wrapper, peer management, route origination, watcher
+  reload/             Config hot reload: diff, shadow schedulers, commit, file-change poller
   metrics/            Prometheus metrics definitions (custom registry)
   httpapi/            HTTP API (/healthz, /readyz, /status, /metrics, ad-hoc trigger)
   daemon/             FX wiring, lifecycle hooks

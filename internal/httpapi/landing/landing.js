@@ -3,7 +3,7 @@
   const STORAGE_KEY = "pathosd.autoRefresh";
   // Fragments of the page that are swapped on refresh; everything else
   // (header, links, the toggle itself) is static.
-  const LIVE_IDS = ["updated-at", "summary", "vips-body", "peers-body"];
+  const LIVE_IDS = ["updated-at", "config-notice", "summary", "vips-body", "peers-body"];
 
   async function triggerCheck(button) {
     const vip = button.getAttribute("data-vip");

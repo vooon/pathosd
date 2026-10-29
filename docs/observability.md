@@ -24,6 +24,49 @@ VIPs with `require_local_address` additionally export `pathosd_vip_local_address
 
 The same details are returned in the `result.details` object of the ad-hoc check trigger regardless of the flag.
 
+## Config reload
+
+Hot reload ([Configuration](https://github.com/vooon/pathosd/blob/main/docs/configuration.md#hot-reload)) exports what is needed to notice a config that did not make it into the daemon:
+
+| Metric | Meaning |
+|--------|---------|
+| `pathosd_config_reload_total{result}` | reload attempts by outcome: `applied`, `unchanged`, `rejected`, `failed` |
+| `pathosd_config_last_reload_success` | 1 when the last reload was applied or unchanged, 0 when it was rejected or failed; 1 at startup |
+| `pathosd_config_last_reload_timestamp_seconds` | time of the last reload attempt, 0 before the first |
+| `pathosd_config_loaded_timestamp_seconds` | time the running config was loaded (startup or last applied reload) |
+| `pathosd_config_file_changed` | 1 while the file on disk differs from the running config (checked every 5 s); also 1 when the file is missing or unreadable |
+| `pathosd_config_reload_pending_vips` | VIPs whose changed checks still run in shadow, waiting for their verdict |
+
+Alert rules worth having:
+
+```yaml
+groups:
+  - name: pathosd-config
+    rules:
+      - alert: PathosdConfigReloadNotApplied
+        expr: pathosd_config_last_reload_success == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "pathosd on {{ $labels.instance }} rejected its last config reload"
+          description: "The daemon still runs the previous config; `pathosd reload` or the journal has the reason."
+      - alert: PathosdConfigFileNotReloaded
+        expr: pathosd_config_file_changed == 1
+        for: 15m
+        labels: {severity: info}
+        annotations:
+          summary: "pathosd on {{ $labels.instance }} has an edited config file that was never reloaded"
+      - alert: PathosdConfigReloadStuck
+        expr: pathosd_config_reload_pending_vips > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "pathosd on {{ $labels.instance }} has VIPs waiting for the verdict of reloaded checks"
+          description: "A new check neither passes nor fails consistently; the old check definition still governs the route."
+```
+
+The same state is on the status page (a banner above the summary), in the `config` block of `/status`, and in the `systemctl status` line (`...; config reload rejected at 15:04:05: ...`).
+
 ## Grafana dashboard
 
 [contrib/grafana/pathosd.json](https://github.com/vooon/pathosd/blob/main/contrib/grafana/pathosd.json) is an importable dashboard (Grafana 11+, Prometheus-compatible datasource) with rows for VIP state, routes, health checks, the GoBGP session, and a collapsed row for the opt-in per-check details. Import it via *Dashboards → New → Import* and pick your datasource; the `instance` and `vip` variables filter every panel.

@@ -234,3 +234,9 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 
 	return result
 }
+
+// Rise returns the consecutive successes needed to become healthy.
+func (s *Scheduler) Rise() int { return s.rise }
+
+// Fall returns the consecutive failures needed to become unhealthy.
+func (s *Scheduler) Fall() int { return s.fall }

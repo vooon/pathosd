@@ -36,13 +36,21 @@ type Manager struct {
 	metrics             *pathosmetrics.Metrics
 	routeStateByPrefix  map[string]map[string]routeStateLabels
 	tracer              trace.Tracer
+	logLevel            *slog.LevelVar
+}
+
+// SetLogLevel changes the level of the embedded GoBGP logger (config reload
+// of logging.level).
+func (m *Manager) SetLogLevel(level string) {
+	m.logLevel.Set(goBGPLevelFromString(level))
 }
 
 func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
 	gobgpLog := slog.Default().With("component", "gobgp")
 	fsmTimingsCollector := gobgpmetrics.NewFSMTimingsCollector()
+	logLevel := newGoBGPLevelVar(cfg.Logging.Level)
 	serverOptions := []server.ServerOption{
-		server.LoggerOption(gobgpLog, newGoBGPLevelVar(cfg.Logging.Level)),
+		server.LoggerOption(gobgpLog, logLevel),
 		server.TimingHookOption(fsmTimingsCollector),
 	}
 
@@ -65,6 +73,7 @@ func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
 		installedRouteUUID:  make(map[string]uuid.UUID),
 		routeStateByPrefix:  make(map[string]map[string]routeStateLabels),
 		tracer:              otel.Tracer("pathosd/bgp"),
+		logLevel:            logLevel,
 	}
 }
 

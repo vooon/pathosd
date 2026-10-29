@@ -38,7 +38,8 @@ func TestNewPrimaryHandler_Timestamps(t *testing.T) {
 		for _, ts := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/timestamps=%v", format, ts), func(t *testing.T) {
 				var buf bytes.Buffer
-				logger := slog.New(newPrimaryHandler(&buf, format, slog.LevelInfo, ts))
+				require.NoError(t, SetLevel("info"))
+				logger := slog.New(newPrimaryHandler(&buf, format, ts))
 				logger.Info("hello", "k", "v")
 				out := buf.String()
 				assert.Contains(t, out, "hello")
@@ -52,4 +53,21 @@ func TestNewPrimaryHandler_Timestamps(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestSetLevel_Live(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			require.NoError(t, SetLevel("info"))
+			logger := slog.New(newPrimaryHandler(&buf, format, false))
+			logger.Debug("hidden")
+			assert.NotContains(t, buf.String(), "hidden")
+			require.NoError(t, SetLevel("debug"))
+			logger.Debug("shown")
+			assert.Contains(t, buf.String(), "shown")
+			require.NoError(t, SetLevel("info"))
+		})
+	}
+	assert.Error(t, SetLevel("loud"))
 }

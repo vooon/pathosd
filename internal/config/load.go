@@ -14,10 +14,26 @@ import (
 
 // Load reads a config file, detects format by extension, parses, applies defaults, and validates.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	cfg, _, err := LoadRaw(path)
+	return cfg, err
+}
+
+// LoadRaw is Load that also returns the file's bytes as read, before
+// placeholder expansion, so a caller can tell whether the file changed.
+func LoadRaw(path string) (*Config, []byte, error) {
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config: %w", err)
+		return nil, nil, fmt.Errorf("reading config: %w", err)
 	}
+	cfg, err := loadBytes(raw, path)
+	if err != nil {
+		return nil, raw, err
+	}
+	return cfg, raw, nil
+}
+
+func loadBytes(data []byte, path string) (*Config, error) {
+	var err error
 
 	data, err = expandEnvPlaceholders(data)
 	if err != nil {

@@ -25,6 +25,9 @@ EnvironmentFile=-/etc/sysconfig/pathosd
 
 ExecStartPre=/usr/bin/pathosd validate --config ${PATHOSD_CONFIG}
 ExecStart=/usr/bin/pathosd run --config ${PATHOSD_CONFIG}
+# `systemctl reload pathosd` asks the daemon to apply the edited file and
+# fails when it could not (invalid file, or a section that needs a restart).
+ExecReload=/usr/bin/pathosd reload --config ${PATHOSD_CONFIG}
 
 Restart=on-failure
 RestartSec=5s

@@ -19,12 +19,12 @@ func applyRunOverrides(cfg *config.Config, debug bool) {
 }
 
 func (r *RunCmd) Run() error {
-	cfg, err := config.Load(r.Config)
+	cfg, raw, err := config.LoadRaw(r.Config)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
 	applyRunOverrides(cfg, r.Debug)
-	if err := daemon.Run(cfg); err != nil {
+	if err := daemon.Run(cfg, daemon.ConfigFile{Path: r.Config, Raw: raw, DebugForced: r.Debug}); err != nil {
 		return fmt.Errorf("running daemon: %w", err)
 	}
 	return nil

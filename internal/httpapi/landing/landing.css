@@ -203,3 +203,13 @@ button.toggle.on {
   color: var(--ok);
   border-color: var(--ok);
 }
+
+.notice {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #d9822b;
+  background: rgba(217, 130, 43, 0.12);
+  color: inherit;
+  font-size: 0.95em;
+}

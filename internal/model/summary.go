@@ -60,3 +60,29 @@ func SummarizePeers(peers []PeerStatus) string {
 	}
 	return s
 }
+
+// ConfigNotice renders the config problems worth a glance: a failed or
+// rejected last reload, a file that differs from the running config, VIPs
+// still waiting for the verdict of their new checks. Empty when the daemon
+// runs exactly what the file says. The systemd STATUS= line and the status
+// page both show it.
+func ConfigNotice(c *ConfigStatus) string {
+	if c == nil {
+		return ""
+	}
+	var parts []string
+	if lr := c.LastReload; lr != nil && !lr.OK() {
+		msg := lr.Error
+		if msg == "" {
+			msg = strings.Join(lr.Errors, "; ")
+		}
+		parts = append(parts, "config reload "+lr.Outcome+" at "+lr.At.Format("15:04:05")+": "+msg)
+	}
+	if c.FileChanged {
+		parts = append(parts, "config file changed on disk, not reloaded")
+	}
+	if len(c.PendingVIPs) > 0 {
+		parts = append(parts, "reload pending verdict for "+strings.Join(c.PendingVIPs, ", "))
+	}
+	return strings.Join(parts, "; ")
+}

@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"sync"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/common/version"
@@ -21,13 +23,28 @@ import (
 	"github.com/vooon/pathosd/internal/logging"
 	"github.com/vooon/pathosd/internal/metrics"
 	"github.com/vooon/pathosd/internal/policy"
+	"github.com/vooon/pathosd/internal/reload"
 	"github.com/vooon/pathosd/internal/systemd"
 	"github.com/vooon/pathosd/internal/telemetry"
 )
 
-func Run(cfg *config.Config) error {
+// ConfigFile is where cfg came from, for hot reload: the path to re-read
+// and the bytes that produced cfg, so a reload can tell an edited file
+// from an untouched one.
+type ConfigFile struct {
+	Path string
+	Raw  []byte
+	// DebugForced means `run --debug` overrode logging.level; reloads keep it.
+	DebugForced bool
+}
+
+// configPollInterval is how often the config file is compared with the
+// running config to raise pathosd_config_file_changed.
+const configPollInterval = 5 * time.Second
+
+func Run(cfg *config.Config, file ConfigFile) error {
 	app := fx.New(
-		fx.Supply(cfg),
+		fx.Supply(cfg, file),
 		fx.Provide(
 			provideTelemetry,
 			provideLogger,
@@ -37,6 +54,7 @@ func Run(cfg *config.Config) error {
 			providePolicyManager,
 			provideHTTPServer,
 			provideStatusReporter,
+			provideReloader,
 		),
 		fx.WithLogger(func(logger *slog.Logger) fxevent.Logger {
 			fxlog := &fxevent.SlogLogger{Logger: logger.With("component", "fx")}
@@ -52,6 +70,7 @@ func Run(cfg *config.Config) error {
 			registerPeerWatcherLifecycle,
 			registerSchedulersLifecycle,
 			registerHTTPServerLifecycle,
+			registerReloadLifecycle,
 			registerSystemdLifecycle,
 		),
 		fx.StartTimeout(15*time.Second),
@@ -139,80 +158,45 @@ func provideBGPManager(cfg *config.Config, m *metrics.Metrics) (*bgp.Manager, er
 	return bgpMgr, nil
 }
 
-type SchedulersResult struct {
-	fx.Out
-	// Schedulers holds one scheduler per check, keyed by VIP name in config order.
-	Schedulers map[string][]*checks.Scheduler
-}
-
-func provideSchedulers(cfg *config.Config, m *metrics.Metrics) (SchedulersResult, error) {
-	scheds := make(map[string][]*checks.Scheduler, len(cfg.VIPs))
+// provideSchedulers builds one scheduler per check into a registry; a
+// reload adds, replaces and removes schedulers in it later.
+func provideSchedulers(cfg *config.Config, m *metrics.Metrics) (*checks.Registry, error) {
+	reg := checks.NewRegistry()
 	for i := range cfg.VIPs {
 		v := &cfg.VIPs[i]
-		var guard *checks.LocalAddressGuard
-		if v.RequireLocalAddress {
-			gauge := m.VIPLocalAddress.WithLabelValues(v.Name, v.Prefix)
-			g, err := checks.NewLocalAddressGuard(v.Name, v.Prefix, v.LocalInterface, func(assigned bool) {
-				if assigned {
-					gauge.Set(1)
-				} else {
-					gauge.Set(0)
-				}
-			})
-			if err != nil {
-				return SchedulersResult{}, fmt.Errorf("creating local address guard for VIP %q: %w", v.Name, err)
-			}
-			guard = g
+		scheds, err := reload.NewSchedulers(v, v.CheckList(), m, checks.NewChecker)
+		if err != nil {
+			return nil, err
 		}
-		for _, c := range v.CheckList() {
-			checker, err := checks.NewChecker(c)
-			if err != nil {
-				return SchedulersResult{}, fmt.Errorf("creating checker %q for VIP %q: %w", c.EffectiveName(), v.Name, err)
-			}
-			if guard != nil {
-				checker = guard.Wrap(checker)
-			}
-			interval, timeout := time.Second, 100*time.Millisecond
-			if c.Interval != nil {
-				interval = c.Interval.Duration
-			}
-			if c.Timeout != nil {
-				timeout = c.Timeout.Duration
-			}
-			rise := 1
-			if c.Rise != nil {
-				rise = *c.Rise
-			}
-			fall := 3
-			if c.Fall != nil {
-				fall = *c.Fall
-			}
-			scheds[v.Name] = append(scheds[v.Name], checks.NewScheduler(checks.SchedulerConfig{
-				VIPName:   v.Name,
-				CheckName: c.EffectiveName(),
-				Checker:   checker,
-				Interval:  interval,
-				Timeout:   timeout,
-				Rise:      rise,
-				Fall:      fall,
-			}))
+		for _, s := range scheds {
+			reg.Add(s)
 		}
 	}
-	return SchedulersResult{Schedulers: scheds}, nil
+	return reg, nil
 }
 
 func providePolicyManager(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager) *policy.Manager {
 	return policy.NewManager(cfg.VIPs, m, bgpMgr)
 }
 
-func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, scheds map[string][]*checks.Scheduler) *http.Server {
+func provideHTTPServer(cfg *config.Config, m *metrics.Metrics, bgpMgr *bgp.Manager, pol *policy.Manager, reg *checks.Registry, rl *reload.Reloader) *http.Server {
 	return httpapi.NewServer(httpapi.ServerDeps{
-		Config:     cfg,
-		Metrics:    m,
-		BGP:        bgpMgr,
-		Policy:     pol,
-		Schedulers: scheds,
+		Config:   cfg,
+		Metrics:  m,
+		BGP:      bgpMgr,
+		Policy:   pol,
+		Registry: reg,
+		Reloader: rl,
 	})
+}
+
+func provideReloader(cfg *config.Config, file ConfigFile, pol *policy.Manager, reg *checks.Registry, m *metrics.Metrics, bgpMgr *bgp.Manager, status *statusReporter) *reload.Reloader {
+	rl := reload.New(file.Path, cfg, file.Raw, pol, reg, m, bgpMgr, status.Update)
+	if file.DebugForced {
+		rl.LockLogLevel()
+	}
+	status.SetConfigStatus(rl.Status)
+	return rl
 }
 
 // raiseCapabilities makes file capabilities granted to the binary effective
@@ -287,41 +271,64 @@ func registerPeerWatcherLifecycle(lc fx.Lifecycle, cfg *config.Config, m *metric
 	})
 }
 
-func registerSchedulersLifecycle(lc fx.Lifecycle, scheds map[string][]*checks.Scheduler, pol *policy.Manager) {
-	var (
-		schedCancels []context.CancelFunc
-		schedWG      sync.WaitGroup
-	)
-
+func registerSchedulersLifecycle(lc fx.Lifecycle, reg *checks.Registry, pol *policy.Manager) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			schedCancels = make([]context.CancelFunc, 0, len(scheds))
-			for _, vipScheds := range scheds {
+			for _, vipScheds := range reg.Schedulers() {
 				for _, sched := range vipScheds {
 					sched.SetCallbacks(pol.OnHealthTransition, pol.OnCheckResult)
-					schedCtx, cancel := context.WithCancel(context.Background())
-					schedCancels = append(schedCancels, cancel)
-					schedWG.Go(func() { sched.Run(schedCtx) })
 					slog.Info("scheduler started", "vip", sched.VIPName(), "check", sched.CheckName())
 				}
 			}
+			reg.Start()
+			return nil
+		},
+		// Wait for in-flight checks so no callback reaches BGP after it stops.
+		OnStop: reg.Stop,
+	})
+}
+
+// registerReloadLifecycle runs the file poller and the shadow-commit loop,
+// and turns SIGHUP into a reload. Fx's own signal handling covers only
+// SIGINT and SIGTERM.
+func registerReloadLifecycle(lc fx.Lifecycle, rl *reload.Reloader) {
+	var (
+		cancel context.CancelFunc
+		done   chan struct{}
+		hup    chan os.Signal
+	)
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			ctx, c := context.WithCancel(context.Background())
+			cancel = c
+			done = make(chan struct{})
+			hup = make(chan os.Signal, 1)
+			signal.Notify(hup, syscall.SIGHUP)
+			go func() {
+				defer close(done)
+				rl.Run(ctx, configPollInterval)
+			}()
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-hup:
+						slog.Info("SIGHUP received, reloading config")
+						rl.Reload(ctx)
+					}
+				}
+			}()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			for _, cancel := range schedCancels {
-				cancel()
-			}
-			// Wait for in-flight checks so no callback reaches BGP after it stops.
-			done := make(chan struct{})
-			go func() {
-				schedWG.Wait()
-				close(done)
-			}()
+			signal.Stop(hup)
+			cancel()
 			select {
 			case <-done:
 				return nil
 			case <-ctx.Done():
-				return fmt.Errorf("waiting for schedulers to stop: %w", ctx.Err())
+				return ctx.Err()
 			}
 		},
 	})

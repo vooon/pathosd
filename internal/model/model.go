@@ -123,6 +123,61 @@ type DaemonStatus struct {
 	StartTime time.Time    `json:"start_time"`
 	Peers     []PeerStatus `json:"peers"`
 	VIPs      []VIPStatus  `json:"vips"`
+	// Config describes the running config and the last reload; nil when
+	// the daemon runs without a reloader (tests).
+	Config *ConfigStatus `json:"config,omitempty"`
+}
+
+// Reload outcomes, see ReloadStatus.Outcome.
+const (
+	ReloadApplied   = "applied"
+	ReloadUnchanged = "unchanged"
+	ReloadRejected  = "rejected"
+	ReloadFailed    = "failed"
+)
+
+// ConfigStatus is the config part of DaemonStatus.
+type ConfigStatus struct {
+	Path string `json:"path"`
+	// LoadedAt is when the running config was read: startup or the last
+	// applied reload.
+	LoadedAt time.Time `json:"loaded_at"`
+	// Generation counts applied reloads; 1 is the startup config.
+	Generation int `json:"generation"`
+	// FileChanged is true while the file on disk differs from what is
+	// running: an edit nobody reloaded, or a reload that was rejected.
+	FileChanged bool `json:"file_changed"`
+	// PendingVIPs lists VIPs whose new check definitions still run in
+	// shadow; their old definition governs until the new one has a verdict.
+	PendingVIPs []string `json:"pending_vips,omitempty"`
+	// LastReload is nil until the first reload attempt.
+	LastReload *ReloadStatus `json:"last_reload,omitempty"`
+}
+
+// ReloadStatus is the result of one reload attempt. It is also the body of
+// POST /api/v1/reload.
+type ReloadStatus struct {
+	At time.Time `json:"at"`
+	// Outcome is applied, unchanged, rejected (config invalid or a
+	// restart-only section changed; nothing was touched) or failed (the
+	// diff was applied but a step reported an error, see Errors).
+	Outcome string `json:"outcome"`
+	// Error is the reason for a rejected reload.
+	Error string `json:"error,omitempty"`
+	// Errors lists what went wrong in a failed reload.
+	Errors  []string `json:"errors,omitempty"`
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
+	// Changed lists VIPs whose definition changed; those in Pending are
+	// still waiting for their new checks' verdicts.
+	Changed []string `json:"changed,omitempty"`
+	Pending []string `json:"pending,omitempty"`
+}
+
+// OK reports whether the attempt left the daemon running the file's config
+// (applied or unchanged).
+func (r *ReloadStatus) OK() bool {
+	return r != nil && (r.Outcome == ReloadApplied || r.Outcome == ReloadUnchanged)
 }
 
 // CheckDetails carries check-type-specific observations alongside a check

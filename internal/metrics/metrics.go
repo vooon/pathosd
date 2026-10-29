@@ -56,6 +56,14 @@ type Metrics struct {
 	SQLQueryPassed     *prometheus.GaugeVec
 	KafkaBrokers       *prometheus.GaugeVec
 	KafkaLeaderless    *prometheus.GaugeVec
+
+	// Config reload bookkeeping (see internal/reload).
+	ConfigReloadTotal         *prometheus.CounterVec
+	ConfigLastReloadSuccess   prometheus.Gauge
+	ConfigLastReloadTimestamp prometheus.Gauge
+	ConfigLoadedTimestamp     prometheus.Gauge
+	ConfigFileChanged         prometheus.Gauge
+	ConfigReloadPendingVIPs   prometheus.Gauge
 }
 
 const (
@@ -230,7 +238,33 @@ func New(checkBuckets []float64) *Metrics {
 			Name: "pathosd_kafka_partitions_without_leader",
 			Help: "Partitions of the configured topic without a leader in the last kafka check (check.detailed_metrics only).",
 		}, []string{"vip", "nlri", "check"}),
+
+		ConfigReloadTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "pathosd_config_reload_total",
+			Help: "Config reload attempts by result: applied, unchanged, rejected (nothing changed), failed (applied with errors).",
+		}, []string{"result"}),
+		ConfigLastReloadSuccess: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "pathosd_config_last_reload_success",
+			Help: "1 when the last config reload was applied or found nothing to change, 0 when it was rejected or failed. 1 at startup.",
+		}),
+		ConfigLastReloadTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "pathosd_config_last_reload_timestamp_seconds",
+			Help: "Unix time of the last config reload attempt, 0 before the first.",
+		}),
+		ConfigLoadedTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "pathosd_config_loaded_timestamp_seconds",
+			Help: "Unix time the running config was loaded (startup or last applied reload).",
+		}),
+		ConfigFileChanged: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "pathosd_config_file_changed",
+			Help: "1 while the config file on disk differs from the running config: an edit that was not reloaded, or a reload that was rejected.",
+		}),
+		ConfigReloadPendingVIPs: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "pathosd_config_reload_pending_vips",
+			Help: "VIPs whose new check definitions are still running in shadow, waiting for a verdict before the reload takes effect for them.",
+		}),
 	}
+	m.ConfigLastReloadSuccess.Set(1)
 
 	reg.MustRegister(
 		m.VIPState,
@@ -256,6 +290,12 @@ func New(checkBuckets []float64) *Metrics {
 		m.SQLQueryPassed,
 		m.KafkaBrokers,
 		m.KafkaLeaderless,
+		m.ConfigReloadTotal,
+		m.ConfigLastReloadSuccess,
+		m.ConfigLastReloadTimestamp,
+		m.ConfigLoadedTimestamp,
+		m.ConfigFileChanged,
+		m.ConfigReloadPendingVIPs,
 		pver.NewCollector("pathosd"),
 	)
 
@@ -298,5 +338,35 @@ func (m *Metrics) ObserveCheckDetails(vip, nlri, check string, details model.Che
 			}
 			m.SQLQueryPassed.WithLabelValues(vip, nlri, check, q.Name).Set(passed)
 		}
+	}
+}
+
+// vipVecs lists every vector labelled by vip (and check where applicable).
+func (m *Metrics) vipVecs() []interface {
+	DeletePartialMatch(labels prometheus.Labels) int
+} {
+	return []interface {
+		DeletePartialMatch(labels prometheus.Labels) int
+	}{
+		m.VIPState, m.VIPTransitions, m.VIPLastTransition, m.VIPPriority, m.VIPLocalAddress,
+		m.CheckTotal, m.CheckDuration, m.CheckLastResult, m.CheckTimeoutExceeded,
+		m.PingRTT, m.PingPacketLoss, m.HTTPResponseStatus, m.HTTPTLSCertExpiry,
+		m.DNSRcode, m.DNSAnswers, m.GRPCStatusCode, m.ListenSockets,
+		m.SQLQueryRows, m.SQLQueryDuration, m.SQLQueryPassed, m.KafkaBrokers, m.KafkaLeaderless,
+	}
+}
+
+// DeleteVIPSeries drops every series of a VIP removed by a config reload, so
+// /metrics stops reporting a state for it.
+func (m *Metrics) DeleteVIPSeries(vip string) {
+	for _, vec := range m.vipVecs() {
+		vec.DeletePartialMatch(prometheus.Labels{"vip": vip})
+	}
+}
+
+// DeleteCheckSeries drops the series of one check of a VIP.
+func (m *Metrics) DeleteCheckSeries(vip, check string) {
+	for _, vec := range m.vipVecs() {
+		vec.DeletePartialMatch(prometheus.Labels{"vip": vip, "check": check})
 	}
 }

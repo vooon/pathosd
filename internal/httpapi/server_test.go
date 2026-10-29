@@ -35,6 +35,12 @@ func (m *mockChecker) Type() string {
 
 func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 	t.Helper()
+	return newTestServerWith(t, checker, nil)
+}
+
+// newTestServerWith lets a test adjust the deps before the server is built.
+func newTestServerWith(t *testing.T, checker checks.Checker, adjust func(*ServerDeps)) *http.Server {
+	t.Helper()
 
 	cfg := &config.Config{
 		Router: config.RouterConfig{
@@ -81,7 +87,7 @@ func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 		Fall:     1,
 	})
 
-	return NewServer(ServerDeps{
+	deps := ServerDeps{
 		Config:  cfg,
 		Metrics: m,
 		BGP:     bgpMgr,
@@ -89,7 +95,11 @@ func newTestServer(t *testing.T, checker checks.Checker) *http.Server {
 		Schedulers: map[string][]*checks.Scheduler{
 			"vip-1": {sched},
 		},
-	})
+	}
+	if adjust != nil {
+		adjust(&deps)
+	}
+	return NewServer(deps)
 }
 
 func performRequest(t *testing.T, srv *http.Server, method, path string) *httptest.ResponseRecorder {
@@ -122,7 +132,7 @@ func TestNewServer_LandingAndAssets(t *testing.T) {
 		assert.Contains(t, rr.Body.String(), "Trigger check")
 		assert.Contains(t, rr.Body.String(), "vip-1")
 		assert.Contains(t, rr.Body.String(), "data-auto-refresh")
-		for _, id := range []string{"updated-at", "summary", "vips-body", "peers-body"} {
+		for _, id := range []string{"updated-at", "config-notice", "summary", "vips-body", "peers-body"} {
 			assert.Contains(t, rr.Body.String(), `id="`+id+`"`, "live fragment swapped by landing.js")
 		}
 	})

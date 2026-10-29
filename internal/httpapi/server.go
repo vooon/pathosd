@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"html/template"
@@ -26,8 +27,37 @@ type ServerDeps struct {
 	Metrics *metrics.Metrics
 	BGP     *bgp.Manager
 	Policy  *policy.Manager
-	// Schedulers holds one scheduler per check, keyed by VIP name.
+	// Schedulers holds one scheduler per check, keyed by VIP name. It is
+	// the static list used when Registry is nil (tests).
 	Schedulers map[string][]*checks.Scheduler
+	// Registry is the live scheduler list; a config reload changes it.
+	Registry *checks.Registry
+	// Reloader serves POST /api/v1/reload and the config block of /status;
+	// nil disables both.
+	Reloader Reloader
+}
+
+// Reloader is the part of reload.Reloader the API uses.
+type Reloader interface {
+	Reload(ctx context.Context) model.ReloadStatus
+	Status() model.ConfigStatus
+}
+
+// schedulers returns the current per-VIP scheduler list.
+func (d ServerDeps) schedulers() map[string][]*checks.Scheduler {
+	if d.Registry != nil {
+		return d.Registry.Schedulers()
+	}
+	return d.Schedulers
+}
+
+// configStatus is the config block of /status, nil without a reloader.
+func (d ServerDeps) configStatus() *model.ConfigStatus {
+	if d.Reloader == nil {
+		return nil
+	}
+	st := d.Reloader.Status()
+	return &st
 }
 
 type landingPageData struct {
@@ -38,6 +68,13 @@ type landingPageData struct {
 	GeneratedAt time.Time
 	Peers       []model.PeerStatus
 	VIPs        []model.VIPStatus
+	Config      *model.ConfigStatus
+}
+
+// ConfigNotice is the banner text for a config that is not what the file
+// says, empty when everything is applied.
+func (d landingPageData) ConfigNotice() string {
+	return model.ConfigNotice(d.Config)
 }
 
 //go:embed landing/*
@@ -63,7 +100,8 @@ func NewServer(deps ServerDeps) *http.Server {
 	mux.HandleFunc("GET /readyz", handleReadyz(deps.BGP, deps.Config))
 	mux.HandleFunc("GET /status", handleStatus(deps))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(deps.Metrics.Registry, promhttp.HandlerOpts{}))
-	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Policy, deps.Schedulers))
+	mux.HandleFunc("POST /api/v1/vips/{name}/check", handleTriggerCheck(deps.Policy, deps.schedulers))
+	mux.HandleFunc("POST /api/v1/reload", handleReload(deps.Reloader))
 	api := deps.Config.API
 	return &http.Server{
 		Addr:              api.Listen,
@@ -100,6 +138,7 @@ func handleLanding(deps ServerDeps) http.HandlerFunc {
 			GeneratedAt: time.Now(),
 			Peers:       deps.BGP.GetPeerStates(r.Context()),
 			VIPs:        vipStatuses(deps),
+			Config:      deps.configStatus(),
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -131,6 +170,7 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 			Commit:   version.GetRevision(),
 			Peers:    deps.BGP.GetPeerStates(r.Context()),
 			VIPs:     vipStatuses(deps),
+			Config:   deps.configStatus(),
 		}
 		writeJSON(w, http.StatusOK, status)
 	}
@@ -142,10 +182,11 @@ func handleStatus(deps ServerDeps) http.HandlerFunc {
 // consecutive_fail across the VIP's checks.
 func vipStatuses(deps ServerDeps) []model.VIPStatus {
 	statuses := deps.Policy.GetVIPStatuses()
+	scheds := deps.schedulers()
 	for i := range statuses {
 		st := &statuses[i]
 		byName := make(map[string]*checks.Scheduler)
-		for _, sched := range deps.Schedulers[st.Name] {
+		for _, sched := range scheds[st.Name] {
 			byName[sched.CheckName()] = sched
 		}
 		first := true
@@ -172,9 +213,10 @@ func vipStatuses(deps ServerDeps) []model.VIPStatus {
 // handleTriggerCheck runs every check of the VIP once (or only ?check=<name>)
 // and returns the per-check results plus a combined result that follows the
 // VIP's checks_policy. With a single check "result" is that check's result.
-func handleTriggerCheck(pol *policy.Manager, schedulers map[string][]*checks.Scheduler) http.HandlerFunc {
+func handleTriggerCheck(pol *policy.Manager, current func() map[string][]*checks.Scheduler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		schedulers := current()
 		scheds, ok := schedulers[name]
 		if !ok || len(scheds) == 0 {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "VIP not found: " + name})
@@ -231,5 +273,28 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		slog.Error("failed to write JSON response", "status", status, "error", err)
+	}
+}
+
+// handleReload re-reads the config file and applies the difference. The
+// status code carries the verdict so a probe or `pathosd reload` can act on
+// it: 200 applied or unchanged, 422 rejected (nothing changed), 500 failed
+// (applied with errors). The body is the model.ReloadStatus either way.
+func handleReload(rl Reloader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if rl == nil {
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "config reload is not available"})
+			return
+		}
+		slog.Info("config reload requested", "remote_addr", r.RemoteAddr)
+		res := rl.Reload(r.Context())
+		status := http.StatusOK
+		switch res.Outcome {
+		case model.ReloadRejected:
+			status = http.StatusUnprocessableEntity
+		case model.ReloadFailed:
+			status = http.StatusInternalServerError
+		}
+		writeJSON(w, status, res)
 	}
 }

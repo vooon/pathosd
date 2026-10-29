@@ -117,20 +117,19 @@ sboms:
     artifacts: package
 
 # Keyless (Sigstore) signature of the checksum file, which covers every
-# archive and package. Verify with:
-#   cosign verify-blob --certificate checksums.txt.pem --signature checksums.txt.sig \
+# archive and package. cosign v3 writes signature and certificate into one
+# bundle (the separate .sig/.pem outputs are ignored). Verify with:
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
 #     --certificate-identity-regexp 'https://github.com/vooon/pathosd/' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
 signs:
   - id: checksums
     cmd: cosign
-    certificate: "${artifact}.pem"
-    signature: "${artifact}.sig"
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
       - "--yes"
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
+      - "--bundle=${signature}"
       - "${artifact}"
     artifacts: checksum
 

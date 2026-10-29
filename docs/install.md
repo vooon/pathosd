@@ -20,7 +20,7 @@ Every release ships `checksums.txt` with a keyless [Sigstore](https://www.sigsto
 
 ```bash
 cosign verify-blob checksums.txt \
-  --certificate checksums.txt.pem --signature checksums.txt.sig \
+  --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp 'https://github.com/vooon/pathosd/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum --check --ignore-missing checksums.txt

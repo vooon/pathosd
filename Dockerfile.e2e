@@ -6,6 +6,8 @@ COPY . .
 ARG LDFLAGS=""
 RUN CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o pathosd ./cmd/pathosd
 
+# Test image only. Unlike the release image (FROM scratch) it keeps a shell:
+# the e2e pod wraps the binary in /bin/sh to resolve peer addresses first.
 FROM alpine:3.24
 
 LABEL org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer"

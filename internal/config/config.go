@@ -72,8 +72,8 @@ type OTelSignalConfig struct {
 	Endpoint string `yaml:"endpoint" json:"endpoint" toml:"endpoint"`
 	// Enable this signal. Default: true (inherits the global otel.enabled value).
 	Enabled *bool `yaml:"enabled" json:"enabled" toml:"enabled" jsonschema:"default=true"`
-	// Skip TLS certificate verification for this signal. Overrides the global otel.insecure.
-	// Leave unset to inherit the global value.
+	// Force plaintext transport (no TLS) for this signal, whatever the endpoint scheme says.
+	// Overrides the global otel.insecure. Leave unset to inherit the global value.
 	Insecure *bool `yaml:"insecure" json:"insecure" toml:"insecure"`
 	// Additional headers for this signal, merged on top of the global otel.headers.
 	// Signal-level keys take precedence over global keys.
@@ -126,8 +126,10 @@ type OTelConfig struct {
 	//   http://host:4318  — OTLP/HTTP (plaintext)
 	//   https://host:4318 — OTLP/HTTP (TLS)
 	Endpoint string `yaml:"endpoint" json:"endpoint" toml:"endpoint"`
-	// Skip TLS certificate verification for all signals. Not recommended in production.
-	// Can be overridden per signal.
+	// Force plaintext transport (no TLS) for all signals, whatever the endpoint scheme says.
+	// grpc:// and http:// endpoints are plaintext already; with grpcs:// or https:// this
+	// disables TLS entirely (it does not skip certificate verification), so the export
+	// fails against a TLS-only collector. Can be overridden per signal.
 	Insecure bool `yaml:"insecure" json:"insecure" toml:"insecure" jsonschema:"default=false"`
 	// Additional headers sent with every OTLP request (e.g. for API-key authentication).
 	// Can be extended or overridden per signal.

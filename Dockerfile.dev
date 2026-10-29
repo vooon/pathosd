@@ -1,18 +1,44 @@
-FROM ghcr.io/goreleaser/goreleaser-cross:v1.26 AS builder
-
+# Local build from source. Keep the runtime stages identical to Dockerfile,
+# which GoReleaser uses with a prebuilt binary.
+FROM golang:1.26-alpine AS builder
 WORKDIR /build
-
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
+ARG LDFLAGS=""
+RUN CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o pathosd ./cmd/pathosd
 
-RUN goreleaser build --snapshot --single-target
+FROM alpine:3.24 AS rootfs
 
-FROM alpine:3.24
+RUN apk add --no-cache ca-certificates libcap
 
-RUN apk add --no-cache ca-certificates
+RUN set -eu \
+ && install -d -m 0755 /rootfs/etc/ssl/certs /rootfs/usr/local/bin \
+ && cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ca-certificates.crt \
+ && printf 'root:x:0:0:root:/root:/sbin/nologin\npathosd:x:100:101:pathosd:/nonexistent:/sbin/nologin\n' > /rootfs/etc/passwd \
+ && printf 'root:x:0:\npathosd:x:101:\n' > /rootfs/etc/group \
+ && install -d -o 0 -g 101 -m 0750 /rootfs/etc/pathosd
 
-LABEL org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer"
+COPY --from=builder /build/pathosd /rootfs/usr/local/bin/pathosd
 
-COPY --from=builder /build/dist/pathosd_linux*/pathosd /usr/local/bin/pathosd
+RUN setcap cap_net_bind_service,cap_net_raw=+p /rootfs/usr/local/bin/pathosd
 
-ENTRYPOINT ["pathosd"]
+FROM scratch
+
+LABEL org.opencontainers.image.title="pathosd" \
+      org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer" \
+      org.opencontainers.image.url="https://github.com/vooon/pathosd" \
+      org.opencontainers.image.source="https://github.com/vooon/pathosd" \
+      org.opencontainers.image.documentation="https://github.com/vooon/pathosd/blob/main/docs/README.md" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="vooon"
+
+COPY --from=rootfs /rootfs/ /
+
+USER pathosd:pathosd
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD ["/usr/local/bin/pathosd", "healthcheck"]
+
+ENTRYPOINT ["/usr/local/bin/pathosd"]
 CMD ["run", "--config", "/etc/pathosd/pathosd.yaml"]

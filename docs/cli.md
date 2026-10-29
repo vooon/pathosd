@@ -6,6 +6,7 @@ pathosd <command> [flags]
   run       --config FILE [--debug]     run the daemon
   validate  --config FILE               load and validate a config, exit
   check     --config FILE [...]         run the configured health checks once, no BGP
+  healthcheck [--addr HOST:PORT] [...]  ask a running daemon whether it is ready (container health check)
   jq-test   <expression> [--file FILE]  evaluate a jq expression against JSON input
   --version                             print version, commit and build date
 ```
@@ -65,6 +66,37 @@ Exit codes follow `test(1)`:
 `200` sits above the health verdicts and above the `128+signal` codes a shell reports for a killed process, so a script cannot confuse an error with a result. Unknown VIP or check names are errors rather than empty runs.
 
 For a running daemon, the API's [ad-hoc trigger](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md#running-checks-on-demand) runs the checks through the normal hysteresis instead.
+
+## healthcheck
+
+```bash
+pathosd healthcheck                                        # 127.0.0.1:59179; ready when every required peer is established
+pathosd healthcheck --config /etc/pathosd/pathosd.toml     # dial api.listen from the config
+pathosd healthcheck --addr 127.0.0.1:8080 --live           # liveness only: does the HTTP API answer
+```
+
+Calls `/readyz` on a running daemon: exit `0` on 200, `1` on 503, and prints the peer summary from the reply:
+
+```
+ready: peers: 2/2 established
+not ready: peers: 1/2 established (down: bird)
+```
+
+It is the container image's `HEALTHCHECK` for plain Docker and Podman, since the image has no shell or `curl`; Kubernetes probes `/readyz` directly (see [Installation](https://github.com/vooon/pathosd/blob/main/docs/install.md#container)). The request is bounded by `--timeout`.
+
+| Flag | Effect |
+|------|--------|
+| `--addr HOST:PORT` | API address to dial; default `127.0.0.1:59179` |
+| `--config FILE` | take the address from the file's `api.listen`; an unspecified host (`:59179`, `0.0.0.0`, `::`) is mapped to loopback |
+| `--live` | `GET /healthz` instead of `/readyz`: passes while the process answers, whatever the peers do |
+| `--timeout DURATION` | request timeout, default `5s` |
+| `--quiet` | print nothing, exit code only |
+
+| Code | Meaning |
+|------|---------|
+| `0` | ready (alive with `--live`) |
+| `1` | not ready, or the API did not answer within `--timeout`; the reason goes to stderr |
+| `200` | bad flags or config |
 
 ## jq-test
 

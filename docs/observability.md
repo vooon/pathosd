@@ -30,7 +30,7 @@ The same details are returned in the `result.details` object of the ad-hoc check
 
 ## OpenTelemetry export
 
-Set `otel.endpoint` to an OTLP collector to export traces, metrics (bridged from the Prometheus registry) and logs. The URL scheme selects the transport: `grpc://` / `grpcs://` for OTLP/gRPC, `http://` / `https://` for OTLP/HTTP. Each signal can override the endpoint, headers, TLS setting or be disabled individually under `otel.traces`, `otel.metrics` and `otel.logs`; `logging.otel_level` sets a separate minimum level for exported logs.
+Set `otel.endpoint` to an OTLP collector to export traces, metrics (bridged from the Prometheus registry) and logs. The URL scheme selects the transport: `grpc://` / `grpcs://` for OTLP/gRPC, `http://` / `https://` for OTLP/HTTP. `otel.insecure` forces plaintext (no TLS) regardless of the scheme; it does not skip certificate verification, so a collector with a private CA needs that CA in the system bundle. Each signal can override the endpoint, headers, `insecure` or be disabled individually under `otel.traces`, `otel.metrics` and `otel.logs`; `logging.otel_level` sets a separate minimum level for exported logs.
 
 ```yaml
 otel:

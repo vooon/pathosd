@@ -307,12 +307,18 @@ func TestGRPCChecker_Timeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// An already-expired deadline: the RPC fails with DeadlineExceeded before
+	// anything is sent, so the result cannot depend on how fast the hung
+	// server or the transport reacts (a live 200ms deadline was flaky on CI).
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 
 	result := c.Check(ctx)
-	assert.False(t, result.Success)
-	assert.True(t, result.TimedOut)
+	assert.False(t, result.Success, "detail: %s", result.Detail)
+	assert.True(t, result.TimedOut, "detail: %s", result.Detail)
+	if d, ok := result.Details.(*model.GRPCDetails); assert.True(t, ok) {
+		assert.Equal(t, uint32(codes.DeadlineExceeded), d.StatusCode)
+	}
 }
 
 // --- Connection error ---

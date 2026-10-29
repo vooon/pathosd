@@ -7,6 +7,7 @@ pathosd <command> [flags]
   validate  --config FILE               load and validate a config, exit
   check     --config FILE [...]         run the configured health checks once, no BGP
   healthcheck [--addr HOST:PORT] [...]  ask a running daemon whether it is ready (container health check)
+  reload    [--addr HOST:PORT] [...]    make a running daemon re-read its config file
   jq-test   <expression> [--file FILE]  evaluate a jq expression against JSON input
   --version                             print version, commit and build date
 ```
@@ -20,7 +21,7 @@ pathosd run --config /etc/pathosd/pathosd.yaml
 pathosd run --debug --config /etc/pathosd/pathosd.yaml   # force debug logging regardless of config
 ```
 
-Loads and validates the config, starts the embedded GoBGP speaker, the check schedulers and the HTTP API, and runs until `SIGINT`/`SIGTERM`. A startup failure (bad config, port in use, missing capability) exits non-zero with the reason. Under systemd the unit is `Type=notify`: `READY=1` is sent once BGP and the API are up and the status line is refreshed on every VIP or peer transition. Shutdown withdraws nothing explicitly: the BGP sessions close and the peers drop every route, which is the fail-closed design.
+Loads and validates the config, starts the embedded GoBGP speaker, the check schedulers and the HTTP API, and runs until `SIGINT`/`SIGTERM`. `SIGHUP` re-reads the config file (see [Hot reload](https://github.com/vooon/pathosd/blob/main/docs/configuration.md#hot-reload)); with `--debug` the log level stays `debug` across reloads. A startup failure (bad config, port in use, missing capability) exits non-zero with the reason. Under systemd the unit is `Type=notify`: `READY=1` is sent once BGP and the API are up and the status line is refreshed on every VIP or peer transition. Shutdown withdraws nothing explicitly: the BGP sessions close and the peers drop every route, which is the fail-closed design.
 
 ## validate
 
@@ -96,6 +97,29 @@ It is the container image's `HEALTHCHECK` for plain Docker and Podman, since the
 |------|---------|
 | `0` | ready (alive with `--live`) |
 | `1` | not ready, or the API did not answer within `--timeout`; the reason goes to stderr |
+| `200` | bad flags or config |
+
+## reload
+
+```bash
+pathosd reload                                        # 127.0.0.1:59179
+pathosd reload --config /etc/pathosd/pathosd.toml     # dial api.listen from the config
+```
+
+Calls `POST /api/v1/reload` on a running daemon, which re-reads its config file and applies the difference (see [Hot reload](https://github.com/vooon/pathosd/blob/main/docs/configuration.md#hot-reload) for what can change live), and prints one line with the outcome:
+
+```
+applied: added api; changed web (pending verdict: web)
+unchanged
+rejected: restart required: bgp.neighbors changed
+```
+
+The package's systemd unit runs it as `ExecReload`, so `systemctl reload pathosd` fails with that line when the file was not applied instead of leaving the daemon on the old config with only a log entry. The daemon's address is resolved like `healthcheck`: `--addr`, else `api.listen` of `--config` (default `$PATHOSD_CONFIG`) with an unspecified host mapped to loopback, else `127.0.0.1:59179`.
+
+| Code | Meaning |
+|------|---------|
+| `0` | `applied` or `unchanged`: the daemon runs what the file says (VIPs whose checks changed may still be pending their verdict) |
+| `1` | `rejected` (nothing changed) or `failed` (applied with errors), or the API did not answer within `--timeout` (default `30s`); the reason goes to stderr |
 | `200` | bad flags or config |
 
 ## jq-test

@@ -86,34 +86,40 @@ func NewManager(vipConfigs []config.VIPConfig, m *metrics.Metrics, notifier BGPN
 	for i := range vipConfigs {
 		v := &vipConfigs[i]
 		mgr.order = append(mgr.order, v.Name)
-		cs := make(map[string]*checkState)
-		names := make([]string, 0, len(v.Checks)+1)
-		for _, c := range v.CheckList() {
-			cs[c.EffectiveName()] = &checkState{cfg: c, health: model.HealthUnknown}
-			names = append(names, c.EffectiveName())
-		}
-		eval, err := config.CompileChecksPolicy(v.ChecksPolicy, names)
-		if err != nil {
-			// Config validation rejects this earlier; fail closed to "all".
-			slog.Error("invalid checks_policy, falling back to all", "vip", v.Name, "error", err)
-			eval, _ = config.CompileChecksPolicy(config.ChecksPolicyAll, names)
-		}
-		mgr.vips[v.Name] = &vipEntry{
-			cfg:  v,
-			eval: eval,
-			state: vipState{
-				state:                model.StateWithdrawn,
-				health:               model.HealthUnknown,
-				checks:               cs,
-				lowerPriorityFileOn:  lowerPriorityFilePresent(v.Policy.LowerPriorityFile),
-				lastTransitionAt:     now,
-				lastTransitionReason: "initial",
-			},
-		}
+		mgr.vips[v.Name] = newVIPEntry(v, now)
 		m.VIPState.WithLabelValues(v.Name, v.Prefix).Set(float64(model.StateWithdrawn))
 		m.VIPPriority.WithLabelValues(v.Name, v.Prefix).Set(float64(priorityFor(&v.Policy, model.StateWithdrawn)))
 	}
 	return mgr
+}
+
+// newVIPEntry builds the withdrawn, unknown-health entry every VIP starts
+// from, at startup or when a reload adds it.
+func newVIPEntry(v *config.VIPConfig, now time.Time) *vipEntry {
+	cs := make(map[string]*checkState)
+	names := make([]string, 0, len(v.Checks)+1)
+	for _, c := range v.CheckList() {
+		cs[c.EffectiveName()] = &checkState{cfg: c, health: model.HealthUnknown}
+		names = append(names, c.EffectiveName())
+	}
+	eval, err := config.CompileChecksPolicy(v.ChecksPolicy, names)
+	if err != nil {
+		// Config validation rejects this earlier; fail closed to "all".
+		slog.Error("invalid checks_policy, falling back to all", "vip", v.Name, "error", err)
+		eval, _ = config.CompileChecksPolicy(config.ChecksPolicyAll, names)
+	}
+	return &vipEntry{
+		cfg:  v,
+		eval: eval,
+		state: vipState{
+			state:                model.StateWithdrawn,
+			health:               model.HealthUnknown,
+			checks:               cs,
+			lowerPriorityFileOn:  lowerPriorityFilePresent(v.Policy.LowerPriorityFile),
+			lastTransitionAt:     now,
+			lastTransitionReason: "initial",
+		},
+	}
 }
 
 func (m *Manager) OnHealthTransition(t checks.HealthTransition) {

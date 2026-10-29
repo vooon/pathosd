@@ -262,8 +262,8 @@ func TestProvideSchedulers(t *testing.T) {
 
 		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
-		require.Len(t, out.Schedulers["vip-explicit"], 1)
-		sched := out.Schedulers["vip-explicit"][0]
+		require.Len(t, out.Schedulers()["vip-explicit"], 1)
+		sched := out.Schedulers()["vip-explicit"][0]
 
 		result, err := sched.TriggerCheck(context.Background())
 		require.NoError(t, err)
@@ -313,8 +313,8 @@ func TestProvideSchedulers(t *testing.T) {
 
 		out, err := provideSchedulers(cfg, metrics.New(metrics.GenerateCheckBuckets(time.Second)))
 		require.NoError(t, err)
-		require.Len(t, out.Schedulers["vip-defaults"], 1)
-		sched := out.Schedulers["vip-defaults"][0]
+		require.Len(t, out.Schedulers()["vip-defaults"], 1)
+		sched := out.Schedulers()["vip-defaults"][0]
 
 		result, err := sched.TriggerCheck(context.Background())
 		require.NoError(t, err)
@@ -419,8 +419,10 @@ func TestRegisterSchedulersLifecycle(t *testing.T) {
 		},
 	}, metrics.New([]float64{0.1}), nil)
 
+	reg := checks.NewRegistry()
+	reg.Add(sched)
 	lc := &hookCollector{}
-	registerSchedulersLifecycle(lc, map[string][]*checks.Scheduler{"vip-a": {sched}}, pol)
+	registerSchedulersLifecycle(lc, reg, pol)
 
 	require.Len(t, lc.hooks, 1)
 	hook := lc.hooks[0]
@@ -495,7 +497,7 @@ func TestRun_ReturnsErrorOnStartFailure(t *testing.T) {
 		VIPs: []config.VIPConfig{},
 	}
 
-	err := Run(cfg)
+	err := Run(cfg, ConfigFile{Path: "unused.yaml"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "starting daemon:")
 	assert.Contains(t, err.Error(), "starting HTTP API listener")
@@ -541,6 +543,18 @@ func TestRegisterSystemdLifecycle(t *testing.T) {
 
 	// A VIP transition pushes a fresh status line.
 	pol.OnHealthTransition(checks.HealthTransition{VIPName: "v", Healthy: true, Reason: "test"})
+	assert.Equal(t, "STATUS=VIPs: 1 announced, 0 pessimized, 0 withdrawn; peers: 0/0 established", recv())
+
+	// A reload problem is appended to the line and goes away once resolved.
+	cfgStatus := model.ConfigStatus{LastReload: &model.ReloadStatus{Outcome: model.ReloadRejected, Error: "restart required: router changed"}}
+	status.SetConfigStatus(func() model.ConfigStatus { return cfgStatus })
+	status.Update()
+	assert.Equal(t, "STATUS=VIPs: 1 announced, 0 pessimized, 0 withdrawn; peers: 0/0 established; config reload rejected at 00:00:00: restart required: router changed", recv())
+	cfgStatus = model.ConfigStatus{PendingVIPs: []string{"v"}}
+	status.Update()
+	assert.Equal(t, "STATUS=VIPs: 1 announced, 0 pessimized, 0 withdrawn; peers: 0/0 established; reload pending verdict for v", recv())
+	cfgStatus = model.ConfigStatus{}
+	status.Update()
 	assert.Equal(t, "STATUS=VIPs: 1 announced, 0 pessimized, 0 withdrawn; peers: 0/0 established", recv())
 
 	require.NoError(t, lc.hooks[0].OnStop(context.Background()))

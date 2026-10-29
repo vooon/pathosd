@@ -14,6 +14,7 @@ type CLI struct {
 	Validate    ValidateCmd      `cmd:"" help:"Validate configuration file."`
 	Check       CheckCmd         `cmd:"" help:"Run the configured health checks once and print the results (no BGP)."`
 	Healthcheck HealthcheckCmd   `cmd:"" help:"Ask a running daemon whether it is ready; container health check."`
+	Reload      ReloadCmd        `cmd:"" help:"Make a running daemon re-read its config file and report whether it was applied."`
 	JQTest      JQTestCmd        `cmd:"" name:"jq-test" help:"Test a JQ expression against JSON input."`
 	Version     kong.VersionFlag `help:"Print version and exit."`
 }

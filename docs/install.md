@@ -33,13 +33,14 @@ cosign verify ghcr.io/vooon/pathosd:<version> \
 
 Releases include a `.deb` (Debian/Ubuntu) and an `.rpm` (EL9, EL10 and compatible: Rocky, Alma, RHEL, Fedora) for amd64 and arm64. Both install `/usr/bin/pathosd`, a `pathosd` system user, and a systemd unit that validates and then runs `/etc/pathosd/pathosd.toml` (kept on upgrade). To use YAML instead, or to change `GOMAXPROCS` (the unit sets `1`), uncomment the line in `/etc/default/pathosd` (Debian) or `/etc/sysconfig/pathosd` (EL) and restart; a `systemctl edit pathosd` drop-in with `Environment=` works too. The unit grants only `CAP_NET_RAW` (ICMP ping) and `CAP_NET_BIND_SERVICE` (port 179) and runs with `ProtectSystem=strict`. Upgrades restart a running service and leave a stopped one alone; the service is never enabled by the package.
 
-The unit is `Type=notify`: `systemctl start` returns once the BGP server and HTTP API are up, and `systemctl status pathosd` shows a live summary line such as `VIPs: 2 announced, 0 pessimized, 1 withdrawn; peers: 2/2 established`, refreshed on every VIP or peer transition. Under journald pathosd omits its own log timestamps, since the journal records them; `logging.timestamps` overrides the detection either way.
+The unit is `Type=notify`: `systemctl start` returns once the BGP server and HTTP API are up, and `systemctl status pathosd` shows a live summary line such as `VIPs: 2 announced, 0 pessimized, 1 withdrawn; peers: 2/2 established`, refreshed on every VIP or peer transition. After editing the config, `systemctl reload pathosd` applies it without dropping the BGP sessions (`ExecReload` runs [`pathosd reload`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#reload)) and fails with the reason when the change needs a restart, see [Hot reload](https://github.com/vooon/pathosd/blob/main/docs/configuration.md#hot-reload); the status line also warns while the file on disk differs from what runs. Under journald pathosd omits its own log timestamps, since the journal records them; `logging.timestamps` overrides the detection either way.
 
 ```bash
 sudo apt install ./pathosd_<version>_linux_amd64.deb      # Debian / Ubuntu
 sudo dnf install ./pathosd_<version>_linux_amd64.rpm      # EL9 / EL10 / Fedora
 sudoedit /etc/pathosd/pathosd.toml
 sudo systemctl enable --now pathosd
+sudoedit /etc/pathosd/pathosd.toml && sudo systemctl reload pathosd   # later changes to vips or logging.level
 ```
 
 ## Owning the VIP address
@@ -86,6 +87,8 @@ Without a shell, `docker exec` and `kubectl exec` can only run the binary itself
 ```bash
 docker exec pathosd /usr/local/bin/pathosd healthcheck
 docker exec pathosd /usr/local/bin/pathosd check
+docker exec pathosd /usr/local/bin/pathosd reload      # apply an edited config; exit 1 says why it was not applied
+docker kill -s HUP pathosd                             # same without an exit code; the reason is only in the log
 ```
 
 ## Version

@@ -64,12 +64,16 @@ func (c *HealthcheckCmd) run(out io.Writer) error {
 	return nil
 }
 
-// resolveAddr picks the address to dial: --addr, then api.listen of
-// --config mapped to the local host, then the built-in default.
 func (c *HealthcheckCmd) resolveAddr() (string, error) {
-	listen := c.Addr
-	if listen == "" && c.Config != "" {
-		cfg, err := config.Load(c.Config)
+	return resolveAPIAddr(c.Addr, c.Config)
+}
+
+// resolveAPIAddr picks the daemon address to dial: --addr, then api.listen
+// of --config mapped to the local host, then the built-in default.
+func resolveAPIAddr(addr, configPath string) (string, error) {
+	listen := addr
+	if listen == "" && configPath != "" {
+		cfg, err := config.Load(configPath)
 		if err != nil {
 			return "", fmt.Errorf("loading config: %w", err)
 		}

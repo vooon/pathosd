@@ -29,11 +29,12 @@ High-availability services need a single, stable IP that fails over with the ser
 - **IPv4 + IPv6 VIPs**: IPv6 routes are carried over IPv4-transport MP-BGP with a dedicated IPv6 next-hop
 - **BGP session security**: per-neighbor TCP MD5 (`auth_password`), graceful restart, passive peers, eBGP multihop
 - **Observability**: Prometheus metrics (plus GoBGP's built-in collectors), opt-in per-check-type metrics, OpenTelemetry traces/metrics/logs export, a Grafana dashboard
-- **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
+- **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger, config reload
+- **Hot reload**: `SIGHUP`, `systemctl reload` or `POST /api/v1/reload` apply VIP and log-level changes without dropping BGP sessions; changed checks prove themselves in shadow before they take over, and a rejected or forgotten reload is visible in metrics, `/status` and the status page
 - **Optional GoBGP gRPC API**: enable for `gobgp` CLI inspection/debugging
 - **YAML and TOML config** with JSON Schema validation and environment placeholders
 - **Packaging**: static Linux binaries (amd64/arm64), multi-arch non-root `FROM scratch` container image with a built-in health check, Debian and RPM packages with a hardened systemd unit
-- **CLI**: `pathosd check` runs the configured checks once from a shell with `test(1)`-style exit codes; `pathosd validate` checks a config without starting; `pathosd healthcheck` calls `/readyz` for container health checks
+- **CLI**: `pathosd check` runs the configured checks once from a shell with `test(1)`-style exit codes; `pathosd validate` checks a config without starting; `pathosd healthcheck` calls `/readyz` for container health checks; `pathosd reload` applies an edited config and fails when the daemon could not
 
 ## Quick start
 

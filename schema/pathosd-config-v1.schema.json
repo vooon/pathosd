@@ -691,7 +691,7 @@
         },
         "insecure": {
           "type": "boolean",
-          "description": "Skip TLS certificate verification for all signals. Not recommended in production.\nCan be overridden per signal.",
+          "description": "Force plaintext transport (no TLS) for all signals, whatever the endpoint scheme says.\ngrpc:// and http:// endpoints are plaintext already; with grpcs:// or https:// this\ndisables TLS entirely (it does not skip certificate verification), so the export\nfails against a TLS-only collector. Can be overridden per signal.",
           "default": false
         },
         "headers": {
@@ -733,7 +733,7 @@
         },
         "insecure": {
           "type": "boolean",
-          "description": "Skip TLS certificate verification for this signal. Overrides the global otel.insecure.\nLeave unset to inherit the global value."
+          "description": "Force plaintext transport (no TLS) for this signal, whatever the endpoint scheme says.\nOverrides the global otel.insecure. Leave unset to inherit the global value."
         },
         "headers": {
           "additionalProperties": {

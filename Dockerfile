@@ -26,7 +26,16 @@ RUN setcap cap_net_bind_service,cap_net_raw=+p /rootfs/usr/local/bin/pathosd
 
 FROM scratch
 
-LABEL org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer"
+# Static OCI annotations; version, created and revision come from the
+# GoReleaser build flags (see .goreleaser.yaml).
+LABEL org.opencontainers.image.title="pathosd" \
+      org.opencontainers.image.description="pathosd — health-aware BGP VIP announcer" \
+      org.opencontainers.image.url="https://github.com/vooon/pathosd" \
+      org.opencontainers.image.source="https://github.com/vooon/pathosd" \
+      org.opencontainers.image.documentation="https://github.com/vooon/pathosd/blob/main/docs/README.md" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="vooon" \
+      org.opencontainers.image.base.name="scratch"
 
 # A single COPY keeps ownership, modes and the capability xattr of every file.
 COPY --from=rootfs /rootfs/ /

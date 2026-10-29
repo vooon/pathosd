@@ -8,7 +8,7 @@ import (
 )
 
 type RunCmd struct {
-	Config string `help:"Path to configuration file." short:"c" type:"existingfile" required:""`
+	Config string `help:"Path to configuration file." short:"c" type:"existingfile" required:"" env:"PATHOSD_CONFIG"`
 	Debug  bool   `help:"Override configured log level and force debug logging."`
 }
 

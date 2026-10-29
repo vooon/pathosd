@@ -11,7 +11,7 @@ pathosd <command> [flags]
   --version                             print version, commit and build date
 ```
 
-`--config` accepts YAML (`.yaml`, `.yml`) or TOML (`.toml`); environment placeholders are expanded in both (see [Configuration](https://github.com/vooon/pathosd/blob/main/docs/configuration.md)). A malformed command line exits `80` on every subcommand.
+`--config` accepts YAML (`.yaml`, `.yml`) or TOML (`.toml`) and defaults to `$PATHOSD_CONFIG` on every subcommand, which is how the container image and the systemd unit set the path once; environment placeholders are expanded in both formats (see [Configuration](https://github.com/vooon/pathosd/blob/main/docs/configuration.md)). A malformed command line exits `80` on every subcommand.
 
 ## run
 
@@ -87,7 +87,7 @@ It is the container image's `HEALTHCHECK` for plain Docker and Podman, since the
 | Flag | Effect |
 |------|--------|
 | `--addr HOST:PORT` | API address to dial; default `127.0.0.1:59179` |
-| `--config FILE` | take the address from the file's `api.listen`; an unspecified host (`:59179`, `0.0.0.0`, `::`) is mapped to loopback |
+| `--config FILE` | take the address from the file's `api.listen` (default `$PATHOSD_CONFIG`); an unspecified host (`:59179`, `0.0.0.0`, `::`) is mapped to loopback |
 | `--live` | `GET /healthz` instead of `/readyz`: passes while the process answers, whatever the peers do |
 | `--timeout DURATION` | request timeout, default `5s` |
 | `--quiet` | print nothing, exit code only |

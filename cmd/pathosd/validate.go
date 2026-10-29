@@ -7,7 +7,7 @@ import (
 )
 
 type ValidateCmd struct {
-	Config string `help:"Path to configuration file." short:"c" type:"existingfile" required:""`
+	Config string `help:"Path to configuration file." short:"c" type:"existingfile" required:"" env:"PATHOSD_CONFIG"`
 }
 
 func (v *ValidateCmd) Run() error {

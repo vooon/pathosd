@@ -41,16 +41,18 @@ COPY --from=rootfs /rootfs/ /
 
 USER pathosd:pathosd
 
+# Every subcommand reads --config from $PATHOSD_CONFIG, so `run` and the
+# health check below share one path; override with `-e PATHOSD_CONFIG=...`.
 # One OS thread is plenty for a health checker with a few BGP sessions;
 # override with `-e GOMAXPROCS=N`.
-ENV GOMAXPROCS=1
+ENV PATHOSD_CONFIG=/etc/pathosd/pathosd.yaml \
+    GOMAXPROCS=1
 
 # No shell or curl in the image: the binary calls its own /readyz, which is
-# 200 only when every required BGP peer is established. Override with
-# `--addr host:port` when api.listen is not the default :59179, or `--live`
-# for a liveness-only probe (/healthz).
+# 200 only when every required BGP peer is established. The address comes
+# from api.listen of $PATHOSD_CONFIG; `--live` gives a liveness-only probe.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD ["/usr/local/bin/pathosd", "healthcheck"]
 
 ENTRYPOINT ["/usr/local/bin/pathosd"]
-CMD ["run", "--config", "/etc/pathosd/pathosd.yaml"]
+CMD ["run"]

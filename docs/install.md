@@ -55,8 +55,10 @@ docker run -d \
   --name pathosd \
   --network host \
   -v /etc/pathosd:/etc/pathosd:ro \
-  ghcr.io/vooon/pathosd run --config /etc/pathosd/pathosd.yaml
+  ghcr.io/vooon/pathosd
 ```
+
+The image sets `PATHOSD_CONFIG=/etc/pathosd/pathosd.yaml`, which every subcommand reads as its `--config` default; `-e PATHOSD_CONFIG=/etc/pathosd/pathosd.toml` switches the daemon and the health check together.
 
 - The config directory must be readable by uid 100 (`chmod 0644` the files, or mount it with `-v ...:ro` from a world-readable path).
 - With `--cap-drop ALL`, add `NET_BIND_SERVICE` back unless `bgp.listen_port: -1` (pathosd dials every peer and never listens), and `NET_RAW` only for privileged ping. A capability the container lacks is simply not raised; the daemon then fails with a clear `bind: permission denied` or `socket: operation not permitted` instead of refusing to start.
@@ -69,10 +71,10 @@ docker run -d \
 
 ### Health check
 
-The image declares a `HEALTHCHECK` that runs [`pathosd healthcheck`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#healthcheck) every 30 s: the container is `healthy` once every `required: true` peer is established, and `docker inspect` shows the peer summary line in the health log. The probe dials `127.0.0.1:59179`; when `api.listen` is something else, pass the address, and use `--live` for a probe that only needs the process to answer:
+The image declares a `HEALTHCHECK` that runs [`pathosd healthcheck`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#healthcheck) every 30 s: the container is `healthy` once every `required: true` peer is established, and `docker inspect` shows the peer summary line in the health log. The probe takes the address from `api.listen` of `$PATHOSD_CONFIG`, so a custom port needs no extra setup. Use `--live` for a probe that only needs the process to answer:
 
 ```bash
-docker run -d --health-cmd "/usr/local/bin/pathosd healthcheck --addr 127.0.0.1:8080" ...
+docker run -d --health-cmd "/usr/local/bin/pathosd healthcheck --live" ...
 ```
 
 Podman stores the health check only for `--format docker` builds; an OCI-format image drops it.
@@ -83,7 +85,7 @@ Without a shell, `docker exec` and `kubectl exec` can only run the binary itself
 
 ```bash
 docker exec pathosd /usr/local/bin/pathosd healthcheck
-docker exec pathosd /usr/local/bin/pathosd check --config /etc/pathosd/pathosd.yaml
+docker exec pathosd /usr/local/bin/pathosd check
 ```
 
 ## Version

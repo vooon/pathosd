@@ -302,7 +302,9 @@ func normalizeSQLValue(v any, numeric bool) any {
 
 func normalizeSQLString(s string, numeric bool) any {
 	if numeric {
-		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		// Bit size 0 bounds the value to int, so the conversion is exact
+		// (gojq wants int, not int64).
+		if i, err := strconv.ParseInt(s, 10, 0); err == nil {
 			return int(i)
 		}
 		if f, err := strconv.ParseFloat(s, 64); err == nil {

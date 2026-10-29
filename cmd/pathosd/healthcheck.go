@@ -23,7 +23,7 @@ const defaultAPIAddr = "127.0.0.1:59179"
 // no shell or curl.
 type HealthcheckCmd struct {
 	Addr    string        `help:"HTTP API address (host:port). Default: api.listen of --config, else 127.0.0.1:59179." short:"a"`
-	Config  string        `help:"Config file to read api.listen from." short:"c"`
+	Config  string        `help:"Config file to read api.listen from." short:"c" env:"PATHOSD_CONFIG"`
 	Live    bool          `help:"Check liveness (/healthz, process up) instead of readiness (required peers established)."`
 	Timeout time.Duration `help:"Request timeout." default:"5s"`
 	Quiet   bool          `help:"Print nothing, only set the exit code." short:"q"`

@@ -14,10 +14,17 @@ Type=notify
 User=pathosd
 Group=pathosd
 
-# To use YAML config instead of TOML:
-#   change pathosd.toml → pathosd.yaml in the two ExecStart* lines below
-ExecStartPre=/usr/bin/pathosd validate --config /etc/pathosd/pathosd.toml
-ExecStart=/usr/bin/pathosd run --config /etc/pathosd/pathosd.toml
+# Defaults, overridable without editing the unit: set PATHOSD_CONFIG (e.g. a
+# .yaml file) or GOMAXPROCS in /etc/default/pathosd (Debian) or
+# /etc/sysconfig/pathosd (EL), or in a `systemctl edit pathosd` drop-in.
+# One OS thread is plenty for a health checker with a few BGP sessions.
+Environment=PATHOSD_CONFIG=/etc/pathosd/pathosd.toml
+Environment=GOMAXPROCS=1
+EnvironmentFile=-/etc/default/pathosd
+EnvironmentFile=-/etc/sysconfig/pathosd
+
+ExecStartPre=/usr/bin/pathosd validate --config ${PATHOSD_CONFIG}
+ExecStart=/usr/bin/pathosd run --config ${PATHOSD_CONFIG}
 
 Restart=on-failure
 RestartSec=5s

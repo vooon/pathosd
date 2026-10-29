@@ -22,7 +22,7 @@ import (
 type CheckCmd struct {
 	// No type:"existingfile": a missing file must exit 200 like any other
 	// config error, not with kong's usage code.
-	Config           string        `help:"Path to configuration file." short:"c" required:""`
+	Config           string        `help:"Path to configuration file." short:"c" required:"" env:"PATHOSD_CONFIG"`
 	VIP              []string      `help:"Only these VIPs (repeatable). Default: all." short:"v" name:"vip"`
 	Check            []string      `help:"Only checks with these names (repeatable). Others count as failed when combining." name:"check"`
 	Format           string        `help:"Output format." enum:"text,json" default:"text"`

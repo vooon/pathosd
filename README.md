@@ -32,8 +32,8 @@ High-availability services need a single, stable IP that fails over with the ser
 - **HTTP API**: landing page (`/`), `/healthz`, `/readyz`, `/status`, `/metrics`, ad-hoc check trigger
 - **Optional GoBGP gRPC API**: enable for `gobgp` CLI inspection/debugging
 - **YAML and TOML config** with JSON Schema validation and environment placeholders
-- **Packaging**: static Linux binaries (amd64/arm64), multi-arch non-root container image, Debian and RPM packages with a hardened systemd unit
-- **CLI**: `pathosd check` runs the configured checks once from a shell with `test(1)`-style exit codes; `pathosd validate` checks a config without starting
+- **Packaging**: static Linux binaries (amd64/arm64), multi-arch non-root `FROM scratch` container image with a built-in health check, Debian and RPM packages with a hardened systemd unit
+- **CLI**: `pathosd check` runs the configured checks once from a shell with `test(1)`-style exit codes; `pathosd validate` checks a config without starting; `pathosd healthcheck` calls `/readyz` for container health checks
 
 ## Quick start
 

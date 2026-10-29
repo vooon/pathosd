@@ -12,7 +12,8 @@ Instructions for contributors/agents working in this repository (`pathosd`) — 
 - Runtime is composed with component-owned Fx lifecycle hooks (BGP, watcher, schedulers, HTTP).
 - Startup/shutdown uses explicit `app.Start`/`app.Wait`/`app.Stop`; startup failures must propagate to CLI.
 - Config: YAML (`goccy/go-yaml`) or TOML (`BurntSushi/toml`), validated at load time.
-- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `check` (one-shot run of the configured checks), `jq-test`; `--version`.
+- CLI: `github.com/alecthomas/kong` — subcommands `run`, `validate`, `check` (one-shot run of the configured checks), `healthcheck` (readiness probe of a running daemon over the HTTP API), `jq-test`; `--version`.
+- Container image: `FROM scratch` with only the binary, the CA bundle and passwd/group. No shell: health checks and exec diagnostics go through the binary (`pathosd healthcheck`, `pathosd check`). `Dockerfile.e2e` keeps Alpine because the e2e pod wraps the binary in a shell.
 - Logging: `charmbracelet/log` as `slog.Handler`.
 - Metrics: `prometheus/client_golang` (shared registry with GoBGP's built-in collectors).
 - Build/release: GoReleaser, multi-platform (linux amd64/arm64), Docker multi-arch.

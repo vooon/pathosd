@@ -12,7 +12,7 @@
 ## Readiness vs liveness
 
 - **`/healthz`** returns 200 as long as the process is up and config is loaded. It does NOT depend on BGP peer state.
-- **`/readyz`** returns 200 only when all `required: true` BGP peers have established sessions. Returns 503 with a JSON body listing unready peers otherwise.
+- **`/readyz`** returns 200 only when all `required: true` BGP peers have established sessions. Returns 503 with a JSON body listing unready peers otherwise. [`pathosd healthcheck`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#healthcheck) calls it from inside the container image, which has no `curl`.
 
 ## Security
 

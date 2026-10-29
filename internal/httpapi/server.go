@@ -113,18 +113,8 @@ func handleLanding(deps ServerDeps) http.HandlerFunc {
 func handleReadyz(bgpMgr *bgp.Manager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		peers := bgpMgr.GetPeerStates(r.Context())
-		allReady := true
-		var unready []model.PeerStatus
-		for _, p := range peers {
-			if !p.Required {
-				continue
-			}
-			if p.SessionState != "established" {
-				allReady = false
-				unready = append(unready, p)
-			}
-		}
-		if allReady {
+		unready := model.UnreadyPeers(peers)
+		if len(unready) == 0 {
 			writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "peers": peers})
 		} else {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "unready": unready, "peers": peers})

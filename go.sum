@@ -123,8 +123,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/orcaman/concurrent-map/v2 v2.0.1 h1:jOJ5Pg2w1oeB6PeDurIYf6k9PQ+aTITr/6lP/L/zp6c=
 github.com/orcaman/concurrent-map/v2 v2.0.1/go.mod h1:9Eq3TG2oBe5FirmYWQfYO5iH1q0Jv47PLaNK++uCdOM=
-github.com/osrg/gobgp/v4 v4.10.0 h1:9yoWSFo7mR9byOBRDg/daWh0yBlv2PfWkb1YkCZZww8=
-github.com/osrg/gobgp/v4 v4.10.0/go.mod h1:cVD5Q5BXFPLQ1EKROFeXexGJi3XYca4pbs/drBwzUig=
+github.com/osrg/gobgp/v4 v4.11.0 h1:RBX5ChL6gZOiW2ZkWV4fSWHt9qDOkyRKBoI5Q8VMT6U=
+github.com/osrg/gobgp/v4 v4.11.0/go.mod h1:5egCmsCa7GE6uMYr+AezWJrvYjPVbWb9Qt7IQ5rzHd0=
 github.com/pandatix/go-abnf v0.5.1 h1:iyLvSu2Aq12iE0r4n948Qw21BHDuckLq/8WIXAAF+HI=
 github.com/pandatix/go-abnf v0.5.1/go.mod h1:VBmbtpFgQNEaQpyAvmi+Ecd9wAYJKzA3TmiB3L93sVg=
 github.com/pb33f/go-yaml v0.1.1 h1:yWGmhVdwzionRnSc/hEJwcfq6PaZL2QdYzyReXBbX7Q=

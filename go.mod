@@ -16,7 +16,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/miekg/dns v1.1.73
-	github.com/osrg/gobgp/v4 v4.10.0
+	github.com/osrg/gobgp/v4 v4.11.0
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/common v0.73.0

@@ -527,7 +527,7 @@ func (m *Manager) buildPeerAfiSafis() []*api.AfiSafi {
 			Enabled: true,
 		},
 	}}
-	if m.hasIPv6VIP() {
+	if m.wantsIPv6() {
 		afs = append(afs, &api.AfiSafi{
 			Config: &api.AfiSafiConfig{
 				Family:  &api.Family{Afi: api.Family_AFI_IP6, Safi: api.Family_SAFI_UNICAST},
@@ -538,8 +538,14 @@ func (m *Manager) buildPeerAfiSafis() []*api.AfiSafi {
 	return afs
 }
 
-// hasIPv6VIP reports whether any configured VIP prefix is IPv6.
-func (m *Manager) hasIPv6VIP() bool {
+// wantsIPv6 reports whether peers negotiate IPv6 unicast. The address
+// families are fixed when the sessions open, while VIPs can be added by a
+// reload, so the decision follows router.local_address_ipv6 (restart-only,
+// and required for any IPv6 VIP) rather than the VIP list at startup.
+func (m *Manager) wantsIPv6() bool {
+	if m.cfg.Router.LocalAddressIPv6 != "" {
+		return true
+	}
 	for _, v := range m.cfg.VIPs {
 		if pfx, err := netip.ParsePrefix(v.Prefix); err == nil && pfx.Addr().Is6() {
 			return true

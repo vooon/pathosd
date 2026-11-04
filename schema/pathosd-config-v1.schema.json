@@ -850,7 +850,7 @@
         },
         "local_address_ipv6": {
           "type": "string",
-          "description": "IPv6 local address used as the next-hop (and listen address) for IPv6\nVIP routes. Required when any VIP prefix is IPv6. This is separate from\nlocal_address so an IPv4 peer source and IPv6 route next-hop can coexist."
+          "description": "IPv6 local address used as the next-hop (and listen address) for IPv6\nVIP routes. Required when any VIP prefix is IPv6. Setting it also makes every\npeer negotiate IPv6 unicast, so an IPv6 VIP can be added later by reload. This\nis separate from local_address so an IPv4 peer source and IPv6 route next-hop\ncan coexist."
         }
       },
       "additionalProperties": false,

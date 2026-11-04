@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -65,19 +67,27 @@ func (c *HealthcheckCmd) run(out io.Writer) error {
 }
 
 func (c *HealthcheckCmd) resolveAddr() (string, error) {
-	return resolveAPIAddr(c.Addr, c.Config)
+	return resolveAPIAddr(c.Addr, c.Config, true)
 }
 
 // resolveAPIAddr picks the daemon address to dial: --addr, then api.listen
-// of --config mapped to the local host, then the built-in default.
-func resolveAPIAddr(addr, configPath string) (string, error) {
+// of --config mapped to the local host, then the built-in default. With
+// missingOK a config file that does not exist falls through to the default
+// instead of failing: the image sets PATHOSD_CONFIG for every subcommand,
+// and the health probe must still reach a daemon started with an explicit
+// `run --config <other path>`.
+func resolveAPIAddr(addr, configPath string, missingOK bool) (string, error) {
 	listen := addr
 	if listen == "" && configPath != "" {
 		cfg, err := config.Load(configPath)
-		if err != nil {
+		switch {
+		case missingOK && errors.Is(err, fs.ErrNotExist):
+			// fall through to the default address
+		case err != nil:
 			return "", fmt.Errorf("loading config: %w", err)
+		default:
+			listen = cfg.API.Listen
 		}
-		listen = cfg.API.Listen
 	}
 	if listen == "" {
 		return defaultAPIAddr, nil

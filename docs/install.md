@@ -72,7 +72,7 @@ The image sets `PATHOSD_CONFIG=/etc/pathosd/pathosd.yaml`, which every subcomman
 
 ### Health check
 
-The image declares a `HEALTHCHECK` that runs [`pathosd healthcheck`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#healthcheck) every 30 s: the container is `healthy` once every `required: true` peer is established, and `docker inspect` shows the peer summary line in the health log. The probe takes the address from `api.listen` of `$PATHOSD_CONFIG`, so a custom port needs no extra setup. Use `--live` for a probe that only needs the process to answer:
+The image declares a `HEALTHCHECK` that runs [`pathosd healthcheck`](https://github.com/vooon/pathosd/blob/main/docs/cli.md#healthcheck) every 30 s: the container is `healthy` once every `required: true` peer is established, and `docker inspect` shows the peer summary line in the health log. The probe takes the address from `api.listen` of `$PATHOSD_CONFIG`, so a custom port needs no extra setup; when that file does not exist (the daemon was started with another `--config`) it dials the default `127.0.0.1:59179`. Use `--live` for a probe that only needs the process to answer:
 
 ```bash
 docker run -d --health-cmd "/usr/local/bin/pathosd healthcheck --live" ...

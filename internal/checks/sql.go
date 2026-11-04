@@ -156,6 +156,9 @@ func sqlTLSConfig(cfg *config.SQLCheckConfig) (*tls.Config, error) {
 	return tc, nil
 }
 
+// Close releases the connection pool.
+func (c *SQLChecker) Close() error { return c.db.Close() }
+
 func (c *SQLChecker) Type() string { return "sql" }
 
 func (c *SQLChecker) Check(ctx context.Context) Result {

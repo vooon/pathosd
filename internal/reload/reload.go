@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -211,28 +212,35 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 	diff := config.DiffVIPs(r.effectiveVIPsLocked(), cfg.VIPs)
 
 	// Build everything that can fail before touching the running state.
+	// What was built before a rejection is never started: close it.
 	added := make(map[string][]*checks.Scheduler, len(diff.Added))
+	staged := make(map[string]*stagedVIP, len(diff.Changed))
+	reject := func(err error) model.ReloadStatus {
+		for _, scheds := range added {
+			closeSchedulers(scheds)
+		}
+		for _, st := range staged {
+			closeSchedulers(slices.Collect(maps.Values(st.shadows)))
+		}
+		res.Outcome = model.ReloadRejected
+		res.Error = err.Error()
+		r.fileChanged = true
+		return res
+	}
 	for _, v := range diff.Added {
 		scheds, err := r.buildSchedulers(v, v.CheckList())
 		if err != nil {
-			res.Outcome = model.ReloadRejected
-			res.Error = err.Error()
-			r.fileChanged = true
-			return res
+			return reject(err)
 		}
 		added[v.Name] = scheds
 	}
-	staged := make(map[string]*stagedVIP, len(diff.Changed))
 	for _, ch := range diff.Changed {
 		if len(ch.ChecksChanged) == 0 {
 			continue
 		}
 		scheds, err := r.buildSchedulers(ch.New, ch.ChecksChanged)
 		if err != nil {
-			res.Outcome = model.ReloadRejected
-			res.Error = err.Error()
-			r.fileChanged = true
-			return res
+			return reject(err)
 		}
 		st := &stagedVIP{
 			cfg:      ch.New,
@@ -269,12 +277,14 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
+		closeSchedulers(running)
 		res.Removed = append(res.Removed, v.Name)
 	}
 	for _, v := range diff.Added {
 		if _, kept := failed[v.Name]; kept {
 			// Prefix change whose old route is still up: the old
 			// definition stays until the retry removes it.
+			closeSchedulers(added[v.Name])
 			continue
 		}
 		r.pol.AddVIP(v)
@@ -294,6 +304,7 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 			for _, c := range ch.ChecksRemoved {
 				if old := r.findVisible(ch.New.Name, c.EffectiveName()); old != nil {
 					r.reg.Remove(old)
+					closeSchedulers([]*checks.Scheduler{old})
 				}
 			}
 			if err := r.pol.CommitVIP(ctx, ch.New, nil); err != nil {
@@ -532,10 +543,13 @@ func (r *Reloader) commitLocked(ctx context.Context, st *stagedVIP) {
 	for _, name := range st.removed {
 		if old := r.findVisible(st.cfg.Name, name); old != nil {
 			r.reg.Remove(old)
+			closeSchedulers([]*checks.Scheduler{old})
 		}
 	}
 	for _, sh := range st.shadows {
-		r.reg.Promote(sh)
+		if old := r.reg.Promote(sh); old != nil {
+			closeSchedulers([]*checks.Scheduler{old})
+		}
 	}
 	seeds := make(map[string]policy.CheckSeed, len(st.shadows))
 	for name, sh := range st.shadows {
@@ -574,6 +588,7 @@ func (r *Reloader) dropStagingLocked() {
 	for name, st := range r.staging {
 		for _, s := range st.shadows {
 			r.reg.Remove(s)
+			closeSchedulers([]*checks.Scheduler{s})
 		}
 		delete(r.staging, name)
 	}
@@ -642,6 +657,16 @@ func (r *Reloader) pollFile() {
 			slog.Info("config file matches running config again", "path", r.path)
 		}
 		r.onChange()
+	}
+}
+
+// closeSchedulers releases the checkers of schedulers that will not run
+// again (replaced, removed, superseded or never started).
+func closeSchedulers(scheds []*checks.Scheduler) {
+	for _, s := range scheds {
+		if err := s.Close(); err != nil {
+			slog.Warn("closing checker", "vip", s.VIPName(), "check", s.CheckName(), "error", err)
+		}
 	}
 }
 

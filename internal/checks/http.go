@@ -143,6 +143,12 @@ func NewHTTPChecker(cfg *config.HTTPCheckConfig) (*HTTPChecker, error) {
 
 func (c *HTTPChecker) Type() string { return "http" }
 
+// Close drops the idle connection a keep_alive check holds.
+func (c *HTTPChecker) Close() error {
+	c.client.CloseIdleConnections()
+	return nil
+}
+
 func (c *HTTPChecker) Check(ctx context.Context) Result {
 	start := time.Now()
 	// Use the hostname for the URL when curl --resolve semantics are active so that

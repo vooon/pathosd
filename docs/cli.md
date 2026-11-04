@@ -88,7 +88,7 @@ It is the container image's `HEALTHCHECK` for plain Docker and Podman, since the
 | Flag | Effect |
 |------|--------|
 | `--addr HOST:PORT` | API address to dial; default `127.0.0.1:59179` |
-| `--config FILE` | take the address from the file's `api.listen` (default `$PATHOSD_CONFIG`); an unspecified host (`:59179`, `0.0.0.0`, `::`) is mapped to loopback |
+| `--config FILE` | take the address from the file's `api.listen` (default `$PATHOSD_CONFIG`); an unspecified host (`:59179`, `0.0.0.0`, `::`) is mapped to loopback. A file that does not exist means the default address, so the image's probe still works when the daemon was started with another `--config`; an invalid file is an error |
 | `--live` | `GET /healthz` instead of `/readyz`: passes while the process answers, whatever the peers do |
 | `--timeout DURATION` | request timeout, default `5s` |
 | `--quiet` | print nothing, exit code only |

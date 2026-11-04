@@ -105,8 +105,16 @@ vips:
 		assert.True(t, strings.HasPrefix(out.String(), "ready: "), out.String())
 	})
 
-	t.Run("missing config is an internal error", func(t *testing.T) {
-		err := (&HealthcheckCmd{Config: filepath.Join(t.TempDir(), "nope.yaml"), Timeout: time.Second}).run(&bytes.Buffer{})
+	t.Run("missing config falls back to the default address", func(t *testing.T) {
+		got, err := resolveAPIAddr("", filepath.Join(t.TempDir(), "nope.yaml"), true)
+		require.NoError(t, err)
+		assert.Equal(t, defaultAPIAddr, got)
+	})
+
+	t.Run("invalid config is an internal error", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "pathosd.yaml")
+		require.NoError(t, os.WriteFile(cfgPath, []byte("schema: v1\nrouter: {asn: 0}\n"), 0o600))
+		err := (&HealthcheckCmd{Config: cfgPath, Timeout: time.Second}).run(&bytes.Buffer{})
 		code, msg := exitCode(t, err)
 		assert.Equal(t, exitInternal, code)
 		assert.Contains(t, msg, "loading config")

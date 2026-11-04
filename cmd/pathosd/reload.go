@@ -30,7 +30,7 @@ func (c *ReloadCmd) Run() error {
 // run exits 0 when the daemon now runs the file (applied or unchanged), 1
 // when it does not (rejected, failed, or no answer) and 200 on bad flags.
 func (c *ReloadCmd) run(out io.Writer) error {
-	addr, err := resolveAPIAddr(c.Addr, c.Config)
+	addr, err := resolveAPIAddr(c.Addr, c.Config, false)
 	if err != nil {
 		return &exitCodeError{code: exitInternal, msg: "pathosd: error: " + err.Error()}
 	}

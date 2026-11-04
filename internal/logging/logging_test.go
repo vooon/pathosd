@@ -61,12 +61,21 @@ func TestSetLevel_Live(t *testing.T) {
 			var buf bytes.Buffer
 			require.NoError(t, SetLevel("info"))
 			logger := slog.New(newPrimaryHandler(&buf, format, false))
+			// Derived before the level change, like the GoBGP and fx
+			// loggers: it must follow the change too.
+			derived := logger.With("component", "gobgp")
 			logger.Debug("hidden")
+			derived.Debug("hidden-derived")
 			assert.NotContains(t, buf.String(), "hidden")
 			require.NoError(t, SetLevel("debug"))
 			logger.Debug("shown")
+			derived.Debug("shown-derived")
 			assert.Contains(t, buf.String(), "shown")
+			assert.Contains(t, buf.String(), "shown-derived")
+			assert.Contains(t, buf.String(), "gobgp", "derived attrs kept")
 			require.NoError(t, SetLevel("info"))
+			derived.Debug("hidden-again")
+			assert.NotContains(t, buf.String(), "hidden-again")
 		})
 	}
 	assert.Error(t, SetLevel("loud"))

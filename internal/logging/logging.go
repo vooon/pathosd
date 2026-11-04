@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"sync/atomic"
 
 	charmlog "github.com/charmbracelet/log"
 )
@@ -35,12 +34,9 @@ func Setup(level, format string, timestamps bool, extra ...slog.Handler) *slog.L
 }
 
 // levelVar is the console level; SetLevel changes it at runtime (config
-// reload of logging.level). The charmbracelet handler keeps its own copy,
-// so SetLevel also updates the most recently built one.
-var (
-	levelVar    = new(slog.LevelVar)
-	charmLogger atomic.Pointer[charmlog.Logger]
-)
+// reload of logging.level). Every console handler, including the ones
+// derived with With, consults it on each record.
+var levelVar = new(slog.LevelVar)
 
 // SetLevel changes the console log level of the logger installed by Setup.
 func SetLevel(level string) error {
@@ -49,9 +45,6 @@ func SetLevel(level string) error {
 		return err
 	}
 	levelVar.Set(lvl)
-	if l := charmLogger.Load(); l != nil {
-		l.SetLevel(charmlog.Level(lvl))
-	}
 	return nil
 }
 
@@ -69,13 +62,38 @@ func newPrimaryHandler(w io.Writer, format string, timestamps bool) slog.Handler
 		}
 		return slog.NewJSONHandler(w, opts)
 	default:
+		// The charm logger copies its level into every handler derived
+		// with WithAttrs, so a later SetLevel would not reach them. Let it
+		// pass everything and gate on the shared level here instead.
 		h := charmlog.NewWithOptions(w, charmlog.Options{
-			Level:           charmlog.Level(levelVar.Level()),
+			Level:           charmlog.DebugLevel,
 			ReportTimestamp: timestamps,
 		})
-		charmLogger.Store(h)
-		return h
+		return &liveLevelHandler{inner: h, level: levelVar}
 	}
+}
+
+// liveLevelHandler gates records on a shared LevelVar, so handlers derived
+// from it follow level changes made after they were created.
+type liveLevelHandler struct {
+	inner slog.Handler
+	level *slog.LevelVar
+}
+
+func (h *liveLevelHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.level.Level()
+}
+
+func (h *liveLevelHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.inner.Handle(ctx, r)
+}
+
+func (h *liveLevelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &liveLevelHandler{inner: h.inner.WithAttrs(attrs), level: h.level}
+}
+
+func (h *liveLevelHandler) WithGroup(name string) slog.Handler {
+	return &liveLevelHandler{inner: h.inner.WithGroup(name), level: h.level}
 }
 
 // multiHandler fans out slog records to multiple handlers.

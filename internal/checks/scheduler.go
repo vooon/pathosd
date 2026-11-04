@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -233,6 +234,16 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 	}
 
 	return result
+}
+
+// Close releases the checker's long-lived resources (connection pools).
+// Call it once the scheduler is stopped for good; a stopped scheduler that
+// may run again must not be closed.
+func (s *Scheduler) Close() error {
+	if c, ok := s.checker.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 // Interval returns the time between two check runs.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -96,6 +97,14 @@ type guardedChecker struct {
 }
 
 func (c *guardedChecker) Type() string { return c.inner.Type() }
+
+// Close releases the wrapped checker's resources, if it holds any.
+func (c *guardedChecker) Close() error {
+	if cl, ok := c.inner.(io.Closer); ok {
+		return cl.Close()
+	}
+	return nil
+}
 
 func (c *guardedChecker) Check(ctx context.Context) Result {
 	if r, ok := c.guard.check(); !ok {

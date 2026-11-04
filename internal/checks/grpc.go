@@ -134,6 +134,9 @@ func NewGRPCChecker(cfg *config.GRPCCheckConfig) (*GRPCChecker, error) {
 	}, nil
 }
 
+// Close releases the client connection.
+func (c *GRPCChecker) Close() error { return c.conn.Close() }
+
 func (c *GRPCChecker) Type() string { return "grpc" }
 
 func (c *GRPCChecker) Check(ctx context.Context) Result {

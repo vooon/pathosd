@@ -76,6 +76,18 @@ func (p portChecker) Check(context.Context) checks.Result {
 	return checks.Result{Success: true, Detail: "ok"}
 }
 
+// closeChecker counts Close calls on the harness so a test can verify that
+// discarded checkers release their resources.
+type closeChecker struct {
+	checks.Checker
+	closes *atomic.Int32
+}
+
+func (c closeChecker) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
 // ctrlChecker is steered by the test: pass, fail, or alternate (which never
 // reaches rise or fall with both >= 2).
 type ctrlChecker struct {
@@ -137,6 +149,8 @@ type harness struct {
 	wmu  sync.Mutex
 	// ctrl steers the checkers of ports 2-9 (see ctrlChecker); nil = fail.
 	ctrl map[uint16]*atomic.Int32
+	// built and closed count every checker the harness made and closed.
+	built, closed atomic.Int32
 }
 
 func newHarness(t *testing.T, body string) *harness {
@@ -167,10 +181,11 @@ func newHarnessOpts(t *testing.T, body string, run bool) *harness {
 		if c.TCP.Port == 99 {
 			return nil, assert.AnError
 		}
+		h.built.Add(1)
 		if mode, ok := h.ctrl[c.TCP.Port]; ok {
-			return &ctrlChecker{mode: mode}, nil
+			return closeChecker{Checker: &ctrlChecker{mode: mode}, closes: &h.closed}, nil
 		}
-		return portChecker{port: c.TCP.Port}, nil
+		return closeChecker{Checker: portChecker{port: c.TCP.Port}, closes: &h.closed}, nil
 	}
 	for i := range cfg.VIPs {
 		scheds, err := h.r.buildSchedulers(&cfg.VIPs[i], cfg.VIPs[i].CheckList())
@@ -490,6 +505,50 @@ func TestReload_CommitUsesCurrentShadowHealth(t *testing.T) {
 	assert.Equal(t, model.StateWithdrawn, h.state("web"), "c03 is unhealthy at commit time")
 	_, withdraws := h.n.snapshot()
 	assert.Equal(t, []string{"10.9.0.1/32"}, withdraws)
+}
+
+// Every checker a reload discards is closed: replaced by a promoted shadow,
+// dropped with its check or VIP, superseded in staging, or built for a
+// reload that was then rejected. Only the running ones stay open.
+func TestReload_ClosesDiscardedCheckers(t *testing.T) {
+	h := newHarness(t, vipChecks("web", "10.9.0.1/32", 80, 81))
+	h.waitState("web", model.StateAnnounced)
+	open := func() int32 { return h.built.Load() - h.closed.Load() }
+	require.Equal(t, int32(2), open())
+
+	// Rejected reload (port 99 cannot be built): the api checker built
+	// before the failure is closed.
+	h.write(vipChecks("web", "10.9.0.1/32", 80, 81) + vip("api", "10.9.0.2/32", 80, "") + vip("bad", "10.9.0.3/32", 99, ""))
+	assert.Equal(t, model.ReloadRejected, h.r.Reload(context.Background()).Outcome)
+	assert.Equal(t, int32(2), open())
+
+	// Dropped check: closed on the immediate path.
+	h.write(vipChecks("web", "10.9.0.1/32", 80))
+	assert.Equal(t, model.ReloadApplied, h.r.Reload(context.Background()).Outcome)
+	assert.Equal(t, int32(1), open())
+
+	// Changed check: the old one is closed once the shadow is promoted.
+	h.write(vipChecks("web", "10.9.0.1/32", 82))
+	assert.Equal(t, model.ReloadApplied, h.r.Reload(context.Background()).Outcome)
+	h.waitPending(0)
+	assert.Equal(t, int32(1), open())
+
+	// Superseded staging: the shadow is closed, the running check stays.
+	h.write(vipChecks("web", "10.9.0.1/32", 83))
+	assert.Equal(t, []string{"web"}, h.r.Reload(context.Background()).Pending)
+	h.write(vipChecks("web", "10.9.0.1/32", 82))
+	assert.Equal(t, model.ReloadApplied, h.r.Reload(context.Background()).Outcome)
+	assert.Empty(t, h.r.Status().PendingVIPs)
+	assert.Equal(t, int32(1), open())
+
+	// Removed VIP: closed after the withdraw.
+	h.write(vipChecks("web", "10.9.0.1/32", 82) + vip("api", "10.9.0.2/32", 80, ""))
+	assert.Equal(t, model.ReloadApplied, h.r.Reload(context.Background()).Outcome)
+	h.waitState("api", model.StateAnnounced)
+	assert.Equal(t, int32(2), open())
+	h.write(vipChecks("web", "10.9.0.1/32", 82))
+	assert.Equal(t, model.ReloadApplied, h.r.Reload(context.Background()).Outcome)
+	assert.Equal(t, int32(1), open())
 }
 
 func TestReload_SupersededStaging(t *testing.T) {

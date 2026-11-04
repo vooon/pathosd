@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,8 +64,8 @@ func (n *notifier) snapshot() (announces, withdraws []string) {
 	return append([]string(nil), n.announces...), append([]string(nil), n.withdraws...)
 }
 
-// outcomes maps "vip/check" to the result every check run returns; the
-// tcp port in the config selects it (port 1 fails, anything else passes).
+// portChecker returns a fixed result selected by the tcp port in the config:
+// port 1 fails, anything else passes.
 type portChecker struct{ port uint16 }
 
 func (p portChecker) Type() string { return "tcp" }
@@ -72,6 +74,31 @@ func (p portChecker) Check(context.Context) checks.Result {
 		return checks.Result{Detail: "port 1 refused"}
 	}
 	return checks.Result{Success: true, Detail: "ok"}
+}
+
+// ctrlChecker is steered by the test: pass, fail, or alternate (which never
+// reaches rise or fall with both >= 2).
+type ctrlChecker struct {
+	mode *atomic.Int32 // 0 fail, 1 pass, 2 alternate
+	n    atomic.Int32
+}
+
+const (
+	ctrlFail int32 = iota
+	ctrlPass
+	ctrlFlap
+)
+
+func (c *ctrlChecker) Type() string { return "tcp" }
+func (c *ctrlChecker) Check(context.Context) checks.Result {
+	n := c.n.Add(1)
+	switch c.mode.Load() {
+	case ctrlPass:
+		return checks.Result{Success: true, Detail: "ok"}
+	case ctrlFlap:
+		return checks.Result{Success: n%2 == 0, Detail: "flap"}
+	}
+	return checks.Result{Detail: "refused"}
 }
 
 const header = `schema: v1
@@ -108,11 +135,24 @@ type harness struct {
 	stop context.CancelFunc
 	wake int
 	wmu  sync.Mutex
+	// ctrl steers the checkers of ports 2-9 (see ctrlChecker); nil = fail.
+	ctrl map[uint16]*atomic.Int32
 }
 
 func newHarness(t *testing.T, body string) *harness {
 	t.Helper()
-	h := &harness{t: t, path: filepath.Join(t.TempDir(), "pathosd.yaml"), n: &notifier{}, m: metrics.New([]float64{0.1})}
+	return newHarnessOpts(t, body, true)
+}
+
+// newHarnessOpts builds the harness; with run false the reloader's loop is
+// not started, so the test drives commits by calling commitReady itself.
+func newHarnessOpts(t *testing.T, body string, run bool) *harness {
+	t.Helper()
+	h := &harness{t: t, path: filepath.Join(t.TempDir(), "pathosd.yaml"), n: &notifier{}, m: metrics.New([]float64{0.1}),
+		ctrl: make(map[uint16]*atomic.Int32)}
+	for p := uint16(2); p < 10; p++ {
+		h.ctrl[p] = new(atomic.Int32)
+	}
 	h.write(body)
 	cfg, raw, err := config.LoadRaw(h.path)
 	require.NoError(t, err)
@@ -127,6 +167,9 @@ func newHarness(t *testing.T, body string) *harness {
 		if c.TCP.Port == 99 {
 			return nil, assert.AnError
 		}
+		if mode, ok := h.ctrl[c.TCP.Port]; ok {
+			return &ctrlChecker{mode: mode}, nil
+		}
 		return portChecker{port: c.TCP.Port}, nil
 	}
 	for i := range cfg.VIPs {
@@ -140,7 +183,9 @@ func newHarness(t *testing.T, body string) *harness {
 	h.reg.Start()
 	ctx, cancel := context.WithCancel(context.Background())
 	h.stop = cancel
-	go h.r.Run(ctx, 10*time.Millisecond)
+	if run {
+		go h.r.Run(ctx, 10*time.Millisecond)
+	}
 	t.Cleanup(func() {
 		cancel()
 		require.NoError(t, h.reg.Stop(context.Background()))
@@ -166,6 +211,35 @@ func (h *harness) waitState(name string, want model.VIPState) {
 	h.t.Helper()
 	require.Eventually(h.t, func() bool { return h.state(name) == want }, 2*time.Second, 5*time.Millisecond,
 		"vip %s should reach %s, is %v", name, want, h.state(name))
+}
+
+// shadow returns a staged VIP's shadow scheduler by check name.
+func (h *harness) shadow(vip, check string) *checks.Scheduler {
+	h.r.mu.Lock()
+	defer h.r.mu.Unlock()
+	if st, ok := h.r.staging[vip]; ok {
+		return st.shadows[check]
+	}
+	return nil
+}
+
+func (h *harness) waitShadowHealth(vip, check string, healthy bool) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		s := h.shadow(vip, check)
+		return s != nil && s.IsHealthy() == healthy
+	}, 2*time.Second, 5*time.Millisecond)
+}
+
+// waitVerdict waits until a shadow's verdict is queued for the commit loop.
+func (h *harness) waitVerdict(vip, check string) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		s := h.shadow(vip, check)
+		h.r.vmu.Lock()
+		defer h.r.vmu.Unlock()
+		return s != nil && slices.Contains(h.r.verdicts, s)
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 func (h *harness) waitPending(n int) {
@@ -358,6 +432,66 @@ func TestReload_MakeBeforeBreak(t *testing.T) {
 	h.waitPending(0)
 }
 
+// A new check whose target alternates pass and fail never reaches rise or
+// fall. The staging must still end: the VIP switches to the new definition
+// with that check unhealthy, like a check that never rose at startup.
+func TestReload_StagingDeadline(t *testing.T) {
+	h := newHarness(t, vip("web", "10.9.0.1/32", 80, ""))
+	h.waitState("web", model.StateAnnounced)
+	old := h.reg.Schedulers()["web"][0]
+
+	h.ctrl[2].Store(ctrlFlap)
+	h.write(vip("web", "10.9.0.1/32", 2, ""))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"web"}, res.Pending)
+
+	// rise=fall=2, interval 20ms: the bound is 4 x 40ms.
+	h.waitPending(0)
+	assert.NotSame(t, old, h.reg.Schedulers()["web"][0], "new scheduler promoted")
+	assert.Equal(t, model.StateWithdrawn, h.state("web"))
+	_, withdraws := h.n.snapshot()
+	assert.Equal(t, []string{"10.9.0.1/32"}, withdraws)
+	assert.Empty(t, h.r.Status().LastReload.Pending)
+	assert.Equal(t, model.ReloadApplied, h.r.Status().LastReload.Outcome)
+}
+
+// With two changed checks, the first verdict is drained before the second
+// arrives. The commit must use each shadow's health at commit time: a check
+// that rose and then fell in between is unhealthy, whatever its verdict was
+// when first recorded.
+func TestReload_CommitUsesCurrentShadowHealth(t *testing.T) {
+	h := newHarnessOpts(t, vipChecks("web", "10.9.0.1/32", 80, 81), false)
+	h.waitState("web", model.StateAnnounced)
+
+	h.ctrl[3].Store(ctrlPass)
+	h.ctrl[4].Store(ctrlFlap)
+	h.write(vipChecks("web", "10.9.0.1/32", 3, 4))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"web"}, res.Pending)
+
+	// c03 rises: its verdict is drained, c04 has none yet, so no commit.
+	h.waitVerdict("web", "c03")
+	h.r.commitReady(context.Background())
+	assert.Equal(t, []string{"web"}, h.r.Status().PendingVIPs)
+
+	// c04 reaches its verdict, then c03 falls while still a shadow: both
+	// are queued, c04 first, so the commit runs with c03's cached verdict
+	// unless it reads the live state.
+	h.ctrl[4].Store(ctrlPass)
+	h.waitVerdict("web", "c04")
+	h.ctrl[3].Store(ctrlFail)
+	h.waitShadowHealth("web", "c03", false)
+	h.waitVerdict("web", "c03")
+	h.r.commitReady(context.Background())
+
+	assert.Empty(t, h.r.Status().PendingVIPs)
+	assert.Equal(t, model.StateWithdrawn, h.state("web"), "c03 is unhealthy at commit time")
+	_, withdraws := h.n.snapshot()
+	assert.Equal(t, []string{"10.9.0.1/32"}, withdraws)
+}
+
 func TestReload_SupersededStaging(t *testing.T) {
 	h := newHarness(t, vip("web", "10.9.0.1/32", 80, ""))
 	h.waitState("web", model.StateAnnounced)
@@ -385,7 +519,10 @@ func TestReload_FilePolling(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(h.m.ConfigFileChanged))
 	h.write(vip("web", "10.9.0.1/32", 80, ""))
 	require.Eventually(t, func() bool { return !h.r.Status().FileChanged }, 2*time.Second, 5*time.Millisecond)
-	h.wmu.Lock()
-	assert.GreaterOrEqual(t, h.wake, 2, "onChange fired on each flip")
-	h.wmu.Unlock()
+	// The flag flips under the lock and onChange fires after it, so wait.
+	require.Eventually(t, func() bool {
+		h.wmu.Lock()
+		defer h.wmu.Unlock()
+		return h.wake >= 2
+	}, 2*time.Second, 5*time.Millisecond, "onChange fired on each flip")
 }

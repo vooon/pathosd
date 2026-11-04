@@ -551,6 +551,25 @@ func TestReload_ClosesDiscardedCheckers(t *testing.T) {
 	assert.Equal(t, int32(1), open())
 }
 
+// A prefix change rebuilds the VIP; its local-address series is deleted
+// with the old VIP after the new guard was built. The gauge must come back
+// for the new prefix instead of writing to a series that is gone.
+func TestReload_LocalAddressGaugeSurvivesPrefixChange(t *testing.T) {
+	const guarded = "    require_local_address: true\n"
+	h := newHarness(t, vip("web", "127.0.0.1/32", 80, guarded))
+	h.waitState("web", model.StateAnnounced)
+	require.Eventually(t, func() bool { return testutil.CollectAndCount(h.m.VIPLocalAddress) == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	h.write(vip("web", "127.0.0.2/32", 80, guarded))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"web"}, res.Removed)
+	assert.Equal(t, []string{"web"}, res.Added)
+	require.Eventually(t, func() bool { return testutil.CollectAndCount(h.m.VIPLocalAddress) == 1 }, 2*time.Second, 5*time.Millisecond,
+		"pathosd_vip_local_address exported for the new prefix")
+	assert.Equal(t, float64(0), testutil.ToFloat64(h.m.VIPLocalAddress.WithLabelValues("web", "127.0.0.2/32")), "127.0.0.2 is not a host address")
+}
+
 func TestReload_SupersededStaging(t *testing.T) {
 	h := newHarness(t, vip("web", "10.9.0.1/32", 80, ""))
 	h.waitState("web", model.StateAnnounced)

@@ -235,6 +235,9 @@ func (s *Scheduler) runCheck(parentCtx context.Context) Result {
 	return result
 }
 
+// Interval returns the time between two check runs.
+func (s *Scheduler) Interval() time.Duration { return s.interval }
+
 // Rise returns the consecutive successes needed to become healthy.
 func (s *Scheduler) Rise() int { return s.rise }
 

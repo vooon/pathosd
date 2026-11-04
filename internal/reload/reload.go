@@ -7,7 +7,8 @@
 // changed keeps running its old checks until every new one has reached a
 // verdict in shadow (make-before-break): a healthy target never withdraws
 // for a check tweak, an unhealthy one withdraws as soon as the new check
-// says so.
+// says so. The wait is bounded: a new check that reaches no verdict in time
+// is committed as unhealthy, like a check that never rose at startup.
 package reload
 
 import (
@@ -78,10 +79,27 @@ type stagedVIP struct {
 	// old is the definition still governing the VIP until the commit.
 	old     *config.VIPConfig
 	shadows map[string]*checks.Scheduler // by check name
-	// seeds collects the verdict of each shadow as it arrives.
-	seeds map[string]policy.CheckSeed
+	// verdicts marks the shadows that reached rise or fall.
+	verdicts map[string]bool
 	// removed are the running checks the new config no longer has.
 	removed []string
+	// deadline is when the VIP is committed whatever the shadows say.
+	deadline time.Time
+}
+
+// stagingGraceFactor bounds how long a changed VIP waits for its shadows,
+// as a multiple of the longest window a shadow needs for a verdict
+// (max(rise, fall) results, one per interval). A target that alternates
+// pass and fail never reaches either threshold; without the bound the VIP
+// would stay on its old definition forever.
+const stagingGraceFactor = 4
+
+func stagingDeadline(now time.Time, scheds []*checks.Scheduler) time.Time {
+	var window time.Duration
+	for _, s := range scheds {
+		window = max(window, time.Duration(max(s.Rise(), s.Fall()))*s.Interval())
+	}
+	return now.Add(stagingGraceFactor * window)
 }
 
 // New returns a reloader for the config loaded from path. raw is the file
@@ -123,6 +141,7 @@ func (r *Reloader) Run(ctx context.Context, pollInterval time.Duration) {
 		case <-r.wake:
 			r.commitReady(ctx)
 		case <-ticker.C:
+			r.expireStaged(ctx)
 			r.pollFile()
 		}
 	}
@@ -215,7 +234,13 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 			r.fileChanged = true
 			return res
 		}
-		st := &stagedVIP{cfg: ch.New, old: ch.Old, shadows: make(map[string]*checks.Scheduler, len(scheds)), seeds: make(map[string]policy.CheckSeed)}
+		st := &stagedVIP{
+			cfg:      ch.New,
+			old:      ch.Old,
+			shadows:  make(map[string]*checks.Scheduler, len(scheds)),
+			verdicts: make(map[string]bool, len(scheds)),
+			deadline: stagingDeadline(res.At, scheds),
+		}
 		for _, s := range scheds {
 			st.shadows[s.CheckName()] = s
 		}
@@ -452,43 +477,95 @@ func (r *Reloader) commitReady(ctx context.Context) {
 		if !ok || st.shadows[s.CheckName()] != s {
 			continue // superseded by a later reload
 		}
-		st.seeds[s.CheckName()] = policy.CheckSeed{
-			Health:     healthOf(s),
-			LastResult: s.LastResult(),
-			LastTime:   time.Now(),
-		}
-		if len(st.seeds) < len(st.shadows) {
+		st.verdicts[s.CheckName()] = true
+		if len(st.verdicts) < len(st.shadows) {
 			continue
 		}
-		delete(r.staging, s.VIPName())
-		for _, name := range st.removed {
-			if old := r.findVisible(s.VIPName(), name); old != nil {
-				r.reg.Remove(old)
-			}
-		}
-		for _, sh := range st.shadows {
-			sh.SetCallbacks(r.pol.OnHealthTransition, r.pol.OnCheckResult)
-			r.reg.Promote(sh)
-		}
-		if err := r.pol.CommitVIP(ctx, st.cfg, st.seeds); err != nil {
-			slog.Error("config reload: committing VIP failed", "vip", st.cfg.Name, "error", err)
-			if r.last != nil {
-				r.last.Outcome = model.ReloadFailed
-				r.last.Errors = append(r.last.Errors, err.Error())
-				r.m.ConfigLastReloadSuccess.Set(0)
-			}
-		} else {
-			slog.Info("config reload: VIP switched to new definition", "vip", st.cfg.Name, "checks", slices.Sorted(mapsKeys(st.shadows)))
-		}
-		if r.last != nil {
-			r.last.Pending = slices.DeleteFunc(r.last.Pending, func(n string) bool { return n == st.cfg.Name })
-		}
+		r.commitLocked(ctx, st)
 		changed = true
 	}
 	r.m.ConfigReloadPendingVIPs.Set(float64(len(r.staging)))
 	r.mu.Unlock()
 	if changed {
 		r.onChange()
+	}
+}
+
+// expireStaged commits every staged VIP past its deadline. A shadow still
+// without a verdict is unhealthy at that point (it never reached rise), so
+// the VIP switches as if the check had never risen at startup.
+func (r *Reloader) expireStaged(ctx context.Context) {
+	now := time.Now()
+	r.mu.Lock()
+	changed := false
+	for _, st := range r.staging {
+		if now.Before(st.deadline) {
+			continue
+		}
+		var undecided []string
+		for name := range st.shadows {
+			if !st.verdicts[name] {
+				undecided = append(undecided, name)
+			}
+		}
+		slices.Sort(undecided)
+		slog.Warn("config reload: new checks reached no verdict in time, VIP switched with them unhealthy",
+			"vip", st.cfg.Name, "checks", undecided, "deadline", st.deadline.Format(time.RFC3339))
+		r.commitLocked(ctx, st)
+		changed = true
+	}
+	if changed {
+		r.m.ConfigReloadPendingVIPs.Set(float64(len(r.staging)))
+	}
+	r.mu.Unlock()
+	if changed {
+		r.onChange()
+	}
+}
+
+// commitLocked switches a staged VIP to its new definition. Every seed is
+// the shadow's state now, not when its verdict arrived, and the policy
+// callbacks are attached only after the commit; a flip in between is
+// caught by a final compare, so no transition is lost or misapplied.
+func (r *Reloader) commitLocked(ctx context.Context, st *stagedVIP) {
+	delete(r.staging, st.cfg.Name)
+	for _, name := range st.removed {
+		if old := r.findVisible(st.cfg.Name, name); old != nil {
+			r.reg.Remove(old)
+		}
+	}
+	for _, sh := range st.shadows {
+		r.reg.Promote(sh)
+	}
+	seeds := make(map[string]policy.CheckSeed, len(st.shadows))
+	for name, sh := range st.shadows {
+		seeds[name] = policy.CheckSeed{Health: healthOf(sh), LastResult: sh.LastResult(), LastTime: time.Now()}
+	}
+	err := r.pol.CommitVIP(ctx, st.cfg, seeds)
+	for name, sh := range st.shadows {
+		sh.SetCallbacks(r.pol.OnHealthTransition, r.pol.OnCheckResult)
+		if h := healthOf(sh); err == nil && h != seeds[name].Health {
+			r.pol.OnHealthTransition(checks.HealthTransition{
+				VIPName:     st.cfg.Name,
+				CheckName:   name,
+				Healthy:     h == model.HealthHealthy,
+				Reason:      "verdict changed while the reload committed",
+				CheckResult: sh.LastResult(),
+			})
+		}
+	}
+	if err != nil {
+		slog.Error("config reload: committing VIP failed", "vip", st.cfg.Name, "error", err)
+		if r.last != nil {
+			r.last.Outcome = model.ReloadFailed
+			r.last.Errors = append(r.last.Errors, err.Error())
+			r.m.ConfigLastReloadSuccess.Set(0)
+		}
+	} else {
+		slog.Info("config reload: VIP switched to new definition", "vip", st.cfg.Name, "checks", slices.Sorted(mapsKeys(st.shadows)))
+	}
+	if r.last != nil {
+		r.last.Pending = slices.DeleteFunc(r.last.Pending, func(n string) bool { return n == st.cfg.Name })
 	}
 }
 

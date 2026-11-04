@@ -166,6 +166,14 @@ func (c *HTTPChecker) Check(ctx context.Context) Result {
 	// clients without a User-Agent. An explicit header wins.
 	req.Header.Set("User-Agent", userAgent())
 	for k, v := range c.cfg.Headers {
+		// Go's transport ignores a Host entry in req.Header and sends
+		// req.Host instead, so route the header there. The config layer
+		// seeds Headers["Host"] from a full url, which is how a name-based
+		// virtual host is reached while connecting to the VIP (issue #95).
+		if strings.EqualFold(k, "Host") {
+			req.Host = v
+			continue
+		}
 		req.Header.Set(k, v)
 	}
 

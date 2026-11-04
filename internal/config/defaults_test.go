@@ -331,6 +331,19 @@ func TestApplyDefaults_HTTPCheck(t *testing.T) {
 		assert.Equal(t, "my-agent/2.0", cfg.VIPs[0].Check.HTTP.Headers["User-Agent"])
 	})
 
+	t.Run("lowercase host header wins over full URL and is canonicalised", func(t *testing.T) {
+		cfg := makeVIPWithHTTP(HTTPCheckConfig{
+			URL:     "http://b.example/health",
+			Headers: map[string]string{"host": "a.example", "x-custom": "1"},
+		}, "10.0.0.1/32")
+		ApplyDefaults(cfg)
+		h := cfg.VIPs[0].Check.HTTP.Headers
+		assert.Equal(t, "a.example", h["Host"])
+		_, lower := h["host"]
+		assert.False(t, lower, "only the canonical key must remain")
+		assert.Equal(t, "1", h["X-Custom"])
+	})
+
 	t.Run("Accept header set when ResponseJQ non-empty", func(t *testing.T) {
 		cfg := makeVIPWithHTTP(HTTPCheckConfig{URL: "/", ResponseJQ: ".status"}, "10.0.0.1/32")
 		ApplyDefaults(cfg)

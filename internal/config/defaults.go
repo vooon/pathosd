@@ -2,6 +2,7 @@ package config
 
 import (
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -237,9 +238,13 @@ func applyHTTPDefaults(h *HTTPCheckConfig, vipPrefix string) {
 		h.URL = "/"
 	}
 
-	if h.Headers == nil {
-		h.Headers = make(map[string]string)
+	// Canonicalise header names so a user-supplied key in any casing is
+	// found by the exact-key lookups below (one Host key, never two).
+	headers := make(map[string]string, len(h.Headers))
+	for k, v := range h.Headers {
+		headers[http.CanonicalHeaderKey(k)] = v
 	}
+	h.Headers = headers
 
 	// Parse full URL to derive proto, port, Host header, and TLS server name.
 	// h.Host is intentionally NOT set from the URL hostname so that it falls

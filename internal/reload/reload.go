@@ -228,15 +228,30 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 	// Apply. Earlier staging is superseded: its shadows stop; the diff
 	// above was computed against the definitions they never replaced.
 	r.dropStagingLocked()
+	// failed are the VIPs whose route could not be withdrawn. Their old
+	// definition keeps governing and the next reload retries them.
+	failed := make(map[string]*config.VIPConfig)
 	for _, v := range diff.Removed {
+		running := r.reg.Schedulers()[v.Name]
 		r.reg.RemoveVIP(v.Name)
 		if err := r.pol.RemoveVIP(ctx, v.Name); err != nil {
+			// The route is still announced: put its checks back so a
+			// dead backend is still withdrawn while the removal waits.
+			for _, s := range running {
+				r.reg.Add(s)
+			}
+			failed[v.Name] = v
 			res.Errors = append(res.Errors, err.Error())
 			continue
 		}
 		res.Removed = append(res.Removed, v.Name)
 	}
 	for _, v := range diff.Added {
+		if _, kept := failed[v.Name]; kept {
+			// Prefix change whose old route is still up: the old
+			// definition stays until the retry removes it.
+			continue
+		}
 		r.pol.AddVIP(v)
 		for _, s := range added[v.Name] {
 			s.SetCallbacks(r.pol.OnHealthTransition, r.pol.OnCheckResult)
@@ -248,6 +263,14 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 		res.Changed = append(res.Changed, ch.New.Name)
 		st, pending := staged[ch.New.Name]
 		if !pending {
+			// Nothing to prove in shadow: only checks were dropped or
+			// the policy changed. Stop the dropped checks before the
+			// policy forgets them, or they keep reporting.
+			for _, c := range ch.ChecksRemoved {
+				if old := r.findVisible(ch.New.Name, c.EffectiveName()); old != nil {
+					r.reg.Remove(old)
+				}
+			}
 			if err := r.pol.CommitVIP(ctx, ch.New, nil); err != nil {
 				res.Errors = append(res.Errors, err.Error())
 			}
@@ -268,11 +291,25 @@ func (r *Reloader) reloadLocked(ctx context.Context) model.ReloadStatus {
 		}
 	}
 
+	// What runs is the file, except for the VIPs whose removal failed:
+	// keep their old definition in the running config and forget the file
+	// hash, so a reload of the same file diffs again and retries them.
+	for name, old := range failed {
+		if idx := slices.IndexFunc(cfg.VIPs, func(v config.VIPConfig) bool { return v.Name == name }); idx >= 0 {
+			cfg.VIPs[idx] = *old
+		} else {
+			cfg.VIPs = append(cfg.VIPs, *old)
+		}
+	}
 	r.cur = cfg
 	r.curHash = hash
+	r.fileChanged = false
+	if len(failed) > 0 {
+		r.curHash = [32]byte{}
+		r.fileChanged = true
+	}
 	r.loadedAt = res.At
 	r.generation++
-	r.fileChanged = false
 	r.m.ConfigLoadedTimestamp.Set(float64(r.loadedAt.Unix()))
 	if len(res.Errors) > 0 {
 		res.Outcome = model.ReloadFailed

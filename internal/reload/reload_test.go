@@ -21,10 +21,11 @@ import (
 
 // notifier records BGP operations by prefix.
 type notifier struct {
-	mu        sync.Mutex
-	announces []string
-	withdraws []string
-	prepends  []int
+	mu           sync.Mutex
+	announces    []string
+	withdraws    []string
+	prepends     []int
+	failWithdraw bool // when set, WithdrawVIP fails without recording
 }
 
 func (n *notifier) AnnounceVIP(_ context.Context, prefix string, attrs model.RouteAttrs) error {
@@ -38,8 +39,17 @@ func (n *notifier) AnnounceVIP(_ context.Context, prefix string, attrs model.Rou
 func (n *notifier) WithdrawVIP(_ context.Context, prefix string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.failWithdraw {
+		return assert.AnError
+	}
 	n.withdraws = append(n.withdraws, prefix)
 	return nil
+}
+
+func (n *notifier) setFailWithdraw(v bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.failWithdraw = v
 }
 
 func (n *notifier) PessimizeVIP(ctx context.Context, prefix string, attrs model.RouteAttrs) error {
@@ -74,6 +84,15 @@ func vip(name, prefix string, port int, extra string) string {
 	return "  - name: " + name + "\n    prefix: " + prefix + "\n" + extra +
 		"    check: {type: tcp, interval: 20ms, timeout: 10ms, rise: 2, fall: 2, tcp: {host: 127.0.0.1, port: " + itoa(port) + "}}\n" +
 		"    policy: {fail_action: withdraw}\n"
+}
+
+// vipChecks is a VIP with a named tcp check per port (c<port>).
+func vipChecks(name, prefix string, ports ...int) string {
+	s := "  - name: " + name + "\n    prefix: " + prefix + "\n    checks:\n"
+	for _, p := range ports {
+		s += "      - {name: c" + itoa(p) + ", type: tcp, interval: 20ms, timeout: 10ms, rise: 2, fall: 2, tcp: {host: 127.0.0.1, port: " + itoa(p) + "}}\n"
+	}
+	return s + "    policy: {fail_action: withdraw}\n"
 }
 
 func itoa(i int) string { return string(rune('0'+i/10)) + string(rune('0'+i%10)) }
@@ -226,6 +245,82 @@ func TestReload_AddRemoveAndPolicy(t *testing.T) {
 	assert.Equal(t, []string{"10.9.0.2/32"}, withdraws)
 	assert.Equal(t, []string{"web"}, h.pol.VIPNames())
 	assert.Len(t, h.reg.Schedulers(), 1)
+}
+
+// A reload that only drops a check from a VIP commits at once and must stop
+// the dropped check's scheduler; left running it would keep reporting into
+// the policy under a check name it no longer knows.
+func TestReload_RemovedCheckStopped(t *testing.T) {
+	h := newHarness(t, vipChecks("web", "10.9.0.1/32", 80, 81))
+	h.waitState("web", model.StateAnnounced)
+	require.Len(t, h.reg.Schedulers()["web"], 2)
+
+	h.write(vipChecks("web", "10.9.0.1/32", 80))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"web"}, res.Changed)
+	assert.Empty(t, res.Pending)
+	scheds := h.reg.Schedulers()["web"]
+	require.Len(t, scheds, 1)
+	assert.Equal(t, "c80", scheds[0].CheckName())
+	assert.Equal(t, model.StateAnnounced, h.state("web"))
+}
+
+// A VIP whose route cannot be withdrawn stays, with its checks running, and
+// the next reload of the same file retries the removal.
+func TestReload_RemoveVIPWithdrawFails(t *testing.T) {
+	h := newHarness(t, vip("web", "10.9.0.1/32", 80, "")+vip("api", "10.9.0.2/32", 81, ""))
+	h.waitState("web", model.StateAnnounced)
+	h.waitState("api", model.StateAnnounced)
+
+	h.n.setFailWithdraw(true)
+	h.write(vip("web", "10.9.0.1/32", 80, ""))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadFailed, res.Outcome)
+	assert.Len(t, res.Errors, 1)
+	assert.Empty(t, res.Removed)
+	assert.Equal(t, []string{"web", "api"}, h.pol.VIPNames())
+	assert.Len(t, h.reg.Schedulers()["api"], 1, "checks of the kept VIP run again")
+	assert.True(t, h.r.Status().FileChanged, "running config differs from the file")
+	assert.Equal(t, model.StateAnnounced, h.state("api"))
+
+	// Same file, withdraw works now: the removal is retried.
+	h.n.setFailWithdraw(false)
+	res = h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"api"}, res.Removed)
+	assert.Equal(t, []string{"web"}, h.pol.VIPNames())
+	assert.Empty(t, h.reg.Schedulers()["api"])
+	assert.False(t, h.r.Status().FileChanged)
+	_, withdraws := h.n.snapshot()
+	assert.Equal(t, []string{"10.9.0.2/32"}, withdraws)
+}
+
+// A prefix change is a removal plus an add under the same name. When the
+// old route cannot be withdrawn the old definition stays whole: no second
+// VIP, no schedulers for a prefix that is not announced.
+func TestReload_PrefixChangeWithdrawFails(t *testing.T) {
+	h := newHarness(t, vip("api", "10.9.0.2/32", 81, ""))
+	h.waitState("api", model.StateAnnounced)
+
+	h.n.setFailWithdraw(true)
+	h.write(vip("api", "10.9.0.3/32", 81, ""))
+	res := h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadFailed, res.Outcome)
+	assert.Empty(t, res.Added)
+	assert.Equal(t, "10.9.0.2/32", h.pol.GetVIPStatuses()[0].Prefix)
+	assert.Len(t, h.reg.Schedulers()["api"], 1)
+
+	h.n.setFailWithdraw(false)
+	res = h.r.Reload(context.Background())
+	assert.Equal(t, model.ReloadApplied, res.Outcome)
+	assert.Equal(t, []string{"api"}, res.Removed)
+	assert.Equal(t, []string{"api"}, res.Added)
+	h.waitState("api", model.StateAnnounced)
+	assert.Equal(t, "10.9.0.3/32", h.pol.GetVIPStatuses()[0].Prefix)
+	announces, withdraws := h.n.snapshot()
+	assert.Equal(t, []string{"10.9.0.2/32"}, withdraws)
+	assert.Equal(t, "10.9.0.3/32", announces[len(announces)-1])
 }
 
 func TestReload_MakeBeforeBreak(t *testing.T) {

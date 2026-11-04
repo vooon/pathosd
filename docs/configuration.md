@@ -69,7 +69,7 @@ Outcomes, as reported by every trigger and by `pathosd_config_reload_total{resul
 | `applied` | the daemon now runs the file (some VIPs may still be pending their verdict) | 200 | 0 |
 | `unchanged` | the file is byte-identical to the running config | 200 | 0 |
 | `rejected` | nothing changed: the file is invalid, a checker could not be built, or a restart-only section differs | 422 | 1 |
-| `failed` | applied, but a step reported an error (for example a withdraw of a removed VIP); the message lists them | 500 | 1 |
+| `failed` | applied, but a step reported an error; the message lists them. A removed VIP whose route could not be withdrawn stays, with its checks running, and the file reads as *changed* until a later reload of the same file removes it | 500 | 1 |
 
 Knowing that a reload was *not* applied matters as much as reloading: see [Config reload alerts](https://github.com/vooon/pathosd/blob/main/docs/observability.md#config-reload) for the metrics, and note that the daemon also compares the file with the running config every 5 s and reports an edited-but-not-reloaded file (`pathosd_config_file_changed`, the `config` block of `/status`, a banner on the status page, and the `systemctl status` line).
 

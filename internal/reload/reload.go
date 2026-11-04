@@ -405,13 +405,13 @@ func (r *Reloader) buildSchedulers(v *config.VIPConfig, list []*config.CheckConf
 func NewSchedulers(v *config.VIPConfig, list []*config.CheckConfig, m *metrics.Metrics, newChecker func(*config.CheckConfig) (checks.Checker, error)) ([]*checks.Scheduler, error) {
 	var guard *checks.LocalAddressGuard
 	if v.RequireLocalAddress {
-		gauge := m.VIPLocalAddress.WithLabelValues(v.Name, v.Prefix)
+		// Look the series up on every update rather than caching the
+		// child: a reload that replaces the VIP deletes its series after
+		// the new schedulers were built, and a cached child would then
+		// write to a series that is no longer exported.
+		name, prefix := v.Name, v.Prefix
 		g, err := checks.NewLocalAddressGuard(v.Name, v.Prefix, v.LocalInterface, func(assigned bool) {
-			if assigned {
-				gauge.Set(1)
-			} else {
-				gauge.Set(0)
-			}
+			m.VIPLocalAddress.WithLabelValues(name, prefix).Set(boolGauge(assigned))
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating local address guard for VIP %q: %w", v.Name, err)

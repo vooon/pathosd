@@ -519,6 +519,18 @@ func TestManagerBuildPeer(t *testing.T) {
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []api.Family_Afi{api.Family_AFI_IP}, afSafiFamilies(peer))
 	})
+
+	// The families are fixed when the session opens, but VIPs can be added
+	// by reload: local_address_ipv6 (restart-only) must be enough to get
+	// IPv6 unicast, or the first IPv6 VIP added later is never exported.
+	t.Run("IPv6 unicast AfiSafi enabled by local_address_ipv6 without an IPv6 VIP", func(t *testing.T) {
+		m := newManager("127.0.0.1")
+		m.cfg.Router.LocalAddressIPv6 = "2001:db8::1"
+		m.cfg.VIPs = []config.VIPConfig{{Name: "v4", Prefix: "10.0.0.9/32"}}
+		peer, err := m.buildPeer(config.NeighborConfig{Name: "frr", Address: "127.0.0.2", PeerASN: 65300, Port: 179})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []api.Family_Afi{api.Family_AFI_IP, api.Family_AFI_IP6}, afSafiFamilies(peer))
+	})
 }
 
 func startTestBGPServer(t *testing.T) *Manager {

@@ -73,6 +73,55 @@ func (s *HTTPCheckerSuite) TestUserAgent() {
 	s.Equal("custom/1", seen[1], "an explicit header wins")
 }
 
+// TestHostHeader verifies a Host entry in headers reaches the server as the
+// request Host (Go ignores it in req.Header), so name-based virtual hosts
+// are selected while the connection still goes to cfg.Host (issue #95).
+func (s *HTTPCheckerSuite) TestHostHeader() {
+	var seen []string
+	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Host)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	c := s.checker(ts, &config.HTTPCheckConfig{URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+		Headers: map[string]string{"Host": "web.example.test"}})
+	s.True(c.Check(context.Background()).Success)
+
+	c = s.checker(ts, &config.HTTPCheckConfig{URL: "/", Proto: "http", Method: "GET", ResponseCodes: []int{200},
+		Headers: map[string]string{"host": "lower.example.test:8080"}})
+	s.True(c.Check(context.Background()).Success)
+
+	s.Require().Len(seen, 2)
+	s.Equal("web.example.test", seen[0])
+	s.Equal("lower.example.test:8080", seen[1], "header key match is case-insensitive")
+}
+
+// TestHostHeaderFromFullURL covers the end-to-end path from the issue: a full
+// url with host pointing elsewhere sends the URL hostname as Host over plain
+// HTTP, where no SNI can select the virtual host.
+func (s *HTTPCheckerSuite) TestHostHeaderFromFullURL() {
+	var seen []string
+	ts := s.plainServer(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Host+" "+r.URL.RequestURI())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cfg := config.Config{
+		Schema: "v1",
+		VIPs: []config.VIPConfig{{
+			Name: "fullurl", Prefix: "10.99.0.1/32",
+			Check: config.CheckConfig{Type: "http", HTTP: &config.HTTPCheckConfig{URL: "http://test.com/test"}},
+		}},
+	}
+	config.ApplyDefaults(&cfg)
+	hc := cfg.VIPs[0].Check.HTTP
+	c := s.checker(ts, hc)
+	s.True(c.Check(context.Background()).Success)
+
+	s.Require().Len(seen, 1)
+	s.Equal("test.com /test", seen[0])
+}
+
 func (s *HTTPCheckerSuite) TestType() {
 	c, err := NewHTTPChecker(&config.HTTPCheckConfig{})
 	s.Require().NoError(err)

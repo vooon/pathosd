@@ -1,3 +1,10 @@
+// Multipath TCP off for every listener and dialer in the binary. Go enables
+// it for listeners by default since 1.24; MPTCP sockets reject TCP_MD5SIG,
+// and a BGP speaker has no use for subflows. GoBGP already disables it on
+// the BGP listener; this covers the HTTP API and the health checks too.
+// GODEBUG=multipathtcp=... in the environment still overrides it.
+//
+//go:debug multipathtcp=0
 package main
 
 import (

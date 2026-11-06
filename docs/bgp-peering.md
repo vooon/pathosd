@@ -21,6 +21,7 @@ Two consequences worth knowing:
 
 - Once a port is MD5-protected, an unsigned TCP connect to it (a `tcpSocket` readiness probe, `nc -z`, a port scanner) is silently dropped by the kernel. Monitor the session through the daemon, not by poking port 179.
 - The embedded GoBGP gRPC API (`bgp.gobgp_api`) returns the password as part of the peer configuration, so keep that API on a local address or unix socket.
+- Multipath TCP is disabled for the whole binary (`//go:debug multipathtcp=0` in the main package). Go turns it on for listeners by default since 1.24, and a Linux MPTCP socket rejects `TCP_MD5SIG`. `GODEBUG=multipathtcp=1` in the environment would re-enable it; do not.
 
 ## eBGP TTL and multihop
 

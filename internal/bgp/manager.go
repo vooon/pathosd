@@ -46,7 +46,7 @@ func (m *Manager) SetLogLevel(level string) {
 }
 
 func NewManager(cfg *config.Config, metrics *pathosmetrics.Metrics) *Manager {
-	gobgpLog := slog.Default().With("component", "gobgp")
+	gobgpLog := slog.New(newGoBGPHandler(slog.Default().Handler())).With("component", "gobgp")
 	fsmTimingsCollector := gobgpmetrics.NewFSMTimingsCollector()
 	logLevel := newGoBGPLevelVar(cfg.Logging.Level)
 	serverOptions := []server.ServerOption{

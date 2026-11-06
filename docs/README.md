@@ -10,7 +10,7 @@ Start with the [README](https://github.com/vooon/pathosd/blob/main/README.md) fo
 | [Health checks](https://github.com/vooon/pathosd/blob/main/docs/health-checks.md) | rise/fall, how a result becomes a route change, several checks per VIP, reaction time, local address guard, running checks on demand |
 | [Check reference](https://github.com/vooon/pathosd/blob/main/docs/checks/README.md) | one guide per check type: `http`, `dns`, `ping`, `tcp`, `udp`, `grpc`, `listen`, `sql`, `kafka` |
 | [Announce policy](https://github.com/vooon/pathosd/blob/main/docs/announce-policy.md) | `fail_action`, drain file, AS-path prepends and communities, standby ordering |
-| [BGP peering](https://github.com/vooon/pathosd/blob/main/docs/bgp-peering.md) | TCP MD5, OpenWrt/BIRD localhost peering, GoBGP CLI |
+| [BGP peering](https://github.com/vooon/pathosd/blob/main/docs/bgp-peering.md) | TCP MD5, eBGP TTL and multihop, OpenWrt/BIRD localhost peering, GoBGP CLI |
 | [HTTP API](https://github.com/vooon/pathosd/blob/main/docs/http-api.md) | endpoints, readiness vs liveness, config reload, security |
 | [Observability](https://github.com/vooon/pathosd/blob/main/docs/observability.md) | metrics, config reload alerts, Grafana dashboard, OpenTelemetry |
 | [Troubleshooting](https://github.com/vooon/pathosd/blob/main/docs/troubleshooting.md) | peers that never establish, VIPs that stay withdrawn, rejected routes, flapping |

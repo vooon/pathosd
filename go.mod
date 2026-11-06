@@ -13,7 +13,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.14.0
-	github.com/itchyny/gojq v0.12.19
+	github.com/itchyny/gojq v0.12.20
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/miekg/dns v1.1.73
 	github.com/osrg/gobgp/v4 v4.11.0

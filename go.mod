@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/alecthomas/kong v1.16.1
+	github.com/alecthomas/kong v1.17.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/expr-lang/expr v1.17.8

@@ -18,21 +18,9 @@ func WatchPeerState(ctx context.Context, s *server.BgpServer, m *metrics.Metrics
 		ctx,
 		server.WatchEventMessageCallbacks{
 			OnPeerUpdate: func(p *apiutil.WatchEventMessage_PeerEvent, _ time.Time) {
-				if p == nil {
+				if !logPeerEvent(p, neighbors) {
 					return
 				}
-				name, addr := resolvePeerIdentity(&p.Peer, neighbors)
-				if name == "" {
-					name = "unknown"
-				}
-				if addr == "" {
-					addr = "unknown"
-				}
-				state := strings.ToLower(p.Peer.State.SessionState.String())
-				if state == "" {
-					state = "unknown"
-				}
-				slog.Info("BGP peer state change", "name", name, "address", addr, "state", state)
 				if onChange != nil {
 					onChange()
 				}
@@ -46,6 +34,28 @@ func WatchPeerState(ctx context.Context, s *server.BgpServer, m *metrics.Metrics
 	}
 
 	<-ctx.Done()
+}
+
+// logPeerEvent logs one peer event and reports whether it described a peer.
+// GoBGP closes the initial state dump with an END_OF_INIT marker that carries
+// no peer at all; logging it would print a zero address.
+func logPeerEvent(p *apiutil.WatchEventMessage_PeerEvent, neighbors map[string]string) bool {
+	if p == nil || p.Type == apiutil.PEER_EVENT_END_OF_INIT {
+		return false
+	}
+	name, addr := resolvePeerIdentity(&p.Peer, neighbors)
+	if name == "" {
+		name = "unknown"
+	}
+	if addr == "" {
+		addr = "unknown"
+	}
+	state := strings.ToLower(p.Peer.State.SessionState.String())
+	if state == "" {
+		state = "unknown"
+	}
+	slog.Info("BGP peer state change", "name", name, "address", addr, "state", state)
+	return true
 }
 
 func resolvePeerIdentity(peer *apiutil.Peer, neighbors map[string]string) (name string, addr string) {

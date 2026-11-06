@@ -22,6 +22,36 @@ Two consequences worth knowing:
 - Once a port is MD5-protected, an unsigned TCP connect to it (a `tcpSocket` readiness probe, `nc -z`, a port scanner) is silently dropped by the kernel. Monitor the session through the daemon, not by poking port 179.
 - The embedded GoBGP gRPC API (`bgp.gobgp_api`) returns the password as part of the peer configuration, so keep that API on a local address or unix socket.
 
+## eBGP TTL and multihop
+
+GoBGP dials an eBGP peer with IP TTL 1 unless `enable_multihop` is set (RFC 4271 assumes directly connected eBGP peers). The SYN therefore dies at the first router that forwards it, and the failure is silent on the BGP side: the router returns ICMP time-exceeded, the kernel aborts the connect with `no route to host`, and the peer stays in `active` until the next connect retry.
+
+The usual way to hit this is a pair of routers behind one gateway. Both peer addresses route "via the gateway", so they look alike in `ip route get`, yet only the router that owns the gateway address is one hop away. The other is two hops, and its session never comes up while the first establishes within a second. A TTL-1 ping shows the difference:
+
+```bash
+ping -c1 -t1 <router-1>   # answers
+ping -c1 -t1 <router-2>   # "Time to live exceeded" from the gateway
+```
+
+The fix is per neighbor:
+
+```yaml
+bgp:
+  neighbors:
+    - name: router-2
+      address: 192.0.2.255
+      peer_asn: 65000
+      enable_multihop: true      # TTL 255 (or multihop_ttl: <n>)
+```
+
+Setting it on the one-hop router as well is harmless: TTL 1 on a directly connected peer buys no security on its own (GTSM, RFC 5082, is the inbound check, and GoBGP does not expose it). The peer side needs nothing for an inbound session, and `ebgp-multihop` or `multihop` only if it dials pathosd.
+
+pathosd logs every failed connection attempt at info level with the dial error (GoBGP keeps it at debug), and adds a hint when the error is `no route to host`:
+
+```
+INFO failed to connect component=gobgp Topic=Peer Key=192.0.2.255 Error="dial tcp 192.0.2.255:179: connect: no route to host" hint="eBGP sessions dial with TTL 1 unless enable_multihop is set; ..."
+```
+
 ## OpenWrt/BIRD localhost peering
 
 On OpenWrt the mesh routers run BIRD, and pathosd lives on the same host. pathosd acts as a distinct ASN and announces anycast VIPs over a local eBGP session. The session is passive on pathosd's side: BIRD dials out to pathosd on a second IP that BIRD assigns to its own LAN interface, at port `1179`.

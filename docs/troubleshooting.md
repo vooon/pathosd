@@ -73,9 +73,14 @@ gives GoBGP's own view including the last NOTIFICATION.
 - **Session flaps every hold time.** Keepalives are not getting through.
   Check MTU/firewall state timeouts and that `hold_time` / `keepalive_time`
   are acceptable to the peer.
-- **Multihop peer.** For an eBGP peer that is not on a directly connected
-  subnet set `enable_multihop: true` on the neighbor (optionally
-  `multihop_ttl`); routers reject TTL 1 packets from a non-adjacent source.
+- **One of two peers behind the same gateway never leaves `active`, the
+  other establishes at once.** eBGP dials with TTL 1 unless
+  `enable_multihop: true` is set on the neighbor (optionally
+  `multihop_ttl`), and only the router that owns the gateway address is one
+  hop away. The log shows `failed to connect ... no route to host` with a
+  hint every connect retry; `ping -t1 <peer>` reports "Time to live
+  exceeded" from the gateway. See
+  [eBGP TTL and multihop](https://github.com/vooon/pathosd/blob/main/docs/bgp-peering.md#ebgp-ttl-and-multihop).
 - **`local_address` mismatch.** If the neighbor's `local_address` is not an
   address of this host the connect fails with `cannot assign requested
   address`; if it differs from what the peer has configured as its neighbor

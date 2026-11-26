@@ -8,7 +8,7 @@ require (
 	github.com/alecthomas/kong v1.17.0
 	github.com/charmbracelet/log v1.0.0
 	github.com/coreos/go-systemd/v22 v22.7.0
-	github.com/expr-lang/expr v1.17.8
+	github.com/expr-lang/expr v1.18.1
 	github.com/go-sql-driver/mysql v1.10.2
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
